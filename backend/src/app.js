@@ -2922,10 +2922,29 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
 });
 
 
+
+app.get('/api/app/public-options', async (req, res, next) => {
+  try {
+    const petOptions = await getPetOptionsPayload({ activeOnly: true });
+    const business = await getBusinessSettings().catch(() => ({}));
+    res.json({
+      business: {
+        city: business.city || 'Ribeirão Preto',
+        state: business.state || 'SP'
+      },
+      petTypes: petOptions.types,
+      petSizes: petOptions.sizes,
+      petBreeds: petOptions.breeds
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
-    const [pets, services, collaborators, petSizes, packages, paymentMethods, gifts, operational] = await Promise.all([
+    const [pets, services, collaborators, petSizes, petBreeds, packages, paymentMethods, gifts, operational] = await Promise.all([
       query(`SELECT id, name, size, breed, coat_type FROM pets WHERE tutor_id=$1::uuid AND deleted_at IS NULL AND status='active' ORDER BY name ASC`, [tutorId]),
       query(`
         SELECT s.id, s.name, s.price_cents, s.duration_minutes, s.pet_size, ps.name AS pet_size_name,
@@ -2938,6 +2957,13 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
       `),
       query(`SELECT id, name, role, color FROM collaborators WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY name ASC`),
       query(`SELECT code, name, sort_order FROM pet_sizes WHERE is_active = TRUE ORDER BY sort_order ASC, name ASC`),
+      query(`
+        SELECT b.*, pt.name AS pet_type_name, pt.code AS pet_type_code
+        FROM pet_breeds b
+        LEFT JOIN pet_types pt ON pt.id = b.pet_type_id
+        WHERE b.is_active = TRUE
+        ORDER BY COALESCE(pt.sort_order, 999), b.sort_order ASC, b.name ASC
+      `),
       query(`
         SELECT p.id, p.name, p.description, p.pet_size, p.sessions_count, p.appointments_per_month, p.price_cents, p.discount_percent,
                COALESCE(string_agg(CONCAT(pi.quantity, 'x ', s.name), ', ' ORDER BY s.name), '') AS services_text
@@ -2958,6 +2984,7 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
       services: services.rows.map((row) => ({ id: row.id, name: row.name, priceCents: Number(row.price_cents || 0), durationMinutes: Number(row.duration_minutes || 0), petSize: row.pet_size, petSizeName: row.pet_size_name, categoryName: row.category_name || 'Serviços PetFunny' })),
       collaborators: collaborators.rows.map((row) => ({ id: row.id, name: row.name, role: row.role, color: row.color })),
       petSizes: petSizes.rows.map((row) => ({ code: row.code, name: row.name, sortOrder: Number(row.sort_order || 0) })),
+      petBreeds: petBreeds.rows.map(sanitizePetBreed),
       packages: packages.rows.map((row) => ({ id: row.id, name: row.name, description: row.description, petSize: row.pet_size || 'todos', sessionsCount: Number(row.sessions_count || 0), appointmentsPerMonth: Number(row.appointments_per_month || 0), priceCents: Number(row.price_cents || 0), discountPercent: Number(row.discount_percent || 0), servicesText: row.services_text || '' })),
       paymentMethods: paymentMethods.rows.map((row) => ({ id: row.id, name: row.name, type: row.type })),
       gifts: gifts.rows.map((row) => ({ id: row.id, title: row.title, description: row.description, estimatedCostCents: Number(row.estimated_cost_cents || 0) })),
@@ -3195,19 +3222,104 @@ app.post('/api/mercado-pago/webhook', async (req, res) => {
     const intent = await query(`SELECT * FROM appointment_payment_intents WHERE mp_payment_id=$1::text AND deleted_at IS NULL LIMIT 1`, [String(paymentId)]);
     if (intent.rowCount && payment.status === 'approved') {
       await finalizePaidAppointmentIntent(intent.rows[0].id, payment.status, payment);
+      return res.json({ ok: true, kind: 'appointment' });
     } else if (intent.rowCount) {
       await query(`UPDATE appointment_payment_intents SET mp_status=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, payment.status || '', JSON.stringify(payment || {})]);
+      return res.json({ ok: true, kind: 'appointment' });
     }
-    res.json({ ok: true });
+    const packageIntent = await query(`SELECT * FROM package_payment_intents WHERE mp_payment_id=$1::text AND deleted_at IS NULL LIMIT 1`, [String(paymentId)]).catch(() => ({ rows: [], rowCount: 0 }));
+    if (packageIntent.rowCount && payment.status === 'approved') {
+      await finalizePaidPackageIntent(packageIntent.rows[0].id, payment.status, payment);
+      return res.json({ ok: true, kind: 'package' });
+    } else if (packageIntent.rowCount) {
+      await query(`UPDATE package_payment_intents SET mp_status=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [packageIntent.rows[0].id, payment.status || '', JSON.stringify(payment || {})]);
+      return res.json({ ok: true, kind: 'package' });
+    }
+    res.json({ ok: true, ignored: true });
   } catch (error) {
     console.error('[mercado-pago:webhook]', error.message);
     res.status(200).json({ ok: false, error: error.message });
   }
 });
 
+
+async function finalizePaidPackageIntent(intentId, providerStatus = 'approved', providerResponse = {}) {
+  await query('BEGIN');
+  try {
+    const intentResult = await query(`
+      SELECT ppi.*, t.name AS tutor_name, t.email AS tutor_email
+      FROM package_payment_intents ppi
+      LEFT JOIN tutors t ON t.id = ppi.tutor_id
+      WHERE ppi.id=$1::uuid AND ppi.deleted_at IS NULL
+      FOR UPDATE OF ppi
+    `, [intentId]);
+    if (!intentResult.rowCount) {
+      const error = new Error('Pagamento do pacote não encontrado.');
+      error.status = 404;
+      throw error;
+    }
+    const intent = intentResult.rows[0];
+    if (intent.status === 'paid' && intent.customer_package_id) {
+      await query('COMMIT');
+      return { intent, customerPackageId: intent.customer_package_id, alreadyPaid: true };
+    }
+    if (new Date(intent.expires_at).getTime() < Date.now()) {
+      await query(`UPDATE package_payment_intents SET status='expired', mp_status=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.id, providerStatus, JSON.stringify(providerResponse || {})]);
+      const error = new Error('Este Pix expirou. Gere uma nova contratação de pacote para criar outro QR Code.');
+      error.status = 410;
+      throw error;
+    }
+    const payload = intent.pending_payload || {};
+    const petId = payload.petId;
+    const packageId = payload.packageId;
+    const startsOn = payload.startsOn;
+    const firstTime = payload.firstTime || '09:00';
+    const recurring = Boolean(payload.recurring);
+    if (!petId || !packageId || !startsOn) throw new Error('Dados pendentes do pacote estão incompletos.');
+    const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL AND is_active=TRUE LIMIT 1', [packageId]);
+    if (!pack.rowCount) throw new Error('Pacote ativo não encontrado.');
+    const packageRow = pack.rows[0];
+    const perMonth = Number(packageRow.appointments_per_month || 4);
+    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
+    const pixMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND lower(name) LIKE '%pix%' ORDER BY sort_order ASC LIMIT 1`).catch(() => ({ rows: [] }));
+    const sold = await query(`
+      INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, 'active', $4::date, ($4::date + (($5::integer - 1) * $6::integer || ' days')::interval)::date, $5::integer, 0, $7::integer, 'paid', NULLIF($8::text,'')::uuid, $9::boolean, $4::date, jsonb_build_object('enabled', $9::boolean, 'appointmentsPerMonth', $10::integer, 'intervalDays', $6::integer, 'firstTime', $11::text, 'paidVia', 'mercado_pago_pix'))
+      RETURNING *
+    `, [intent.tutor_id, petId, packageId, startsOn, Number(packageRow.sessions_count || 1), intervalDays, Number(packageRow.price_cents || 0), pixMethod.rows[0]?.id || '', recurring, perMonth, firstTime]);
+    await query(`
+      INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status)
+      VALUES ($1::uuid, $2::uuid, 'income', 'pacote_app_pix', $3::text, $4::integer, $5::date, 'paid')
+      ON CONFLICT DO NOTHING
+    `, [intent.tutor_id, sold.rows[0].id, `Pacote ${packageRow.name} pago via Pix Mercado Pago · ${Number(packageRow.sessions_count || 1)} sessões`, Number(packageRow.price_cents || 0), startsOn]);
+    await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime });
+    await query(`
+      UPDATE package_payment_intents
+      SET status='paid', mp_status=$2::text, provider_response=$3::jsonb, paid_at=NOW(), customer_package_id=$4::uuid, updated_at=NOW()
+      WHERE id=$1::uuid
+    `, [intent.id, providerStatus, JSON.stringify(providerResponse || {}), sold.rows[0].id]);
+    await query('COMMIT');
+    const pushTargets = await query(`SELECT * FROM push_subscriptions WHERE tutor_id=$1::uuid AND status='active' AND deleted_at IS NULL`, [intent.tutor_id]).catch(() => ({ rows: [] }));
+    if (pushTargets.rowCount) {
+      await sendPushToSubscriptions(pushTargets.rows, {
+        title: 'Pacote pago e contratado 📦',
+        body: `${packageRow.name} foi ativado e seus agendamentos foram criados.`,
+        url: '/app/pacotes',
+        tag: `package-${sold.rows[0].id}`,
+        type: 'package-paid'
+      });
+    }
+    return { intent: { ...intent, status: 'paid', customer_package_id: sold.rows[0].id }, customerPackage: sold.rows[0], packageRow, alreadyPaid: false };
+  } catch (error) {
+    try { await query('ROLLBACK'); } catch {}
+    throw error;
+  }
+}
+
 app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
+    const accountId = req.clientApp.account?.id || null;
     const petId = cleanText(req.body?.petId);
     const packageId = cleanText(req.body?.packageId);
     const startsOn = cleanText(req.body?.startsOn) || new Date().toISOString().slice(0, 10);
@@ -3215,39 +3327,80 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
     const recurring = parseBool(req.body?.recurring, false);
     if (!petId) return res.status(400).json({ error: 'Escolha o pet para contratar o pacote.' });
     if (!packageId) return res.status(400).json({ error: 'Escolha um pacote.' });
-    const pet = await query(`SELECT id FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
+    if (String(startsOn).slice(0, 10) < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'Escolha uma data inicial válida para o pacote.' });
+    const pet = await query(`SELECT id, name FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
     if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
     const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL AND is_active=TRUE LIMIT 1', [packageId]);
     if (!pack.rowCount) return res.status(404).json({ error: 'Pacote ativo não encontrado.' });
     const packageRow = pack.rows[0];
-    const perMonth = Number(packageRow.appointments_per_month || 4);
-    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
-    await query('BEGIN');
-    const sold = await query(`
-      INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, recurring, current_cycle_started_on, recurrence_rule)
-      VALUES ($1::uuid, $2::uuid, $3::uuid, 'active', $4::date, ($4::date + (($5::integer - 1) * $6::integer || ' days')::interval)::date, $5::integer, 0, $7::integer, 'pending', $8::boolean, $4::date, jsonb_build_object('enabled', $8::boolean, 'appointmentsPerMonth', $9::integer, 'intervalDays', $6::integer, 'firstTime', $10::text))
+    const amountCents = Number(packageRow.price_cents || 0);
+    if (amountCents <= 0) return res.status(400).json({ error: 'O valor do pacote precisa ser maior que zero para gerar Pix.' });
+    const tutorName = req.clientApp.tutor?.name || 'Tutor PetFunny';
+    const tutorEmail = req.clientApp.tutor?.email || `cliente+pacote-${String(packageId).slice(0, 8)}@petfunny.com.br`;
+    const payload = { petId, packageId, startsOn, firstTime, recurring };
+    const description = `Pacote PetFunny · ${packageRow.name} · ${pet.rows[0].name}`.slice(0, 250);
+    const pixExpirationMinutes = getMercadoPagoPixExpirationMinutes();
+    const expiresAt = new Date(Date.now() + pixExpirationMinutes * 60 * 1000).toISOString();
+    const intent = await query(`
+      INSERT INTO package_payment_intents (tutor_id, client_account_id, pet_id, package_id, status, amount_cents, description, pending_payload, expires_at)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'pending', $5::integer, $6::text, $7::jsonb, $8::timestamptz)
       RETURNING *
-    `, [tutorId, petId, packageId, startsOn, Number(packageRow.sessions_count || 1), intervalDays, Number(packageRow.price_cents || 0), recurring, perMonth, firstTime]);
-    await query(`
-      INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status)
-      VALUES ($1::uuid, $2::uuid, 'income', 'pacote', $3::text, $4::integer, $5::date, 'pending')
-      ON CONFLICT DO NOTHING
-    `, [tutorId, sold.rows[0].id, `Pacote ${packageRow.name} · ${Number(packageRow.sessions_count || 1)} sessões`, Number(packageRow.price_cents || 0), startsOn]);
-    await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime });
-    await query('COMMIT');
-    const pushTargets = await query(`SELECT * FROM push_subscriptions WHERE tutor_id=$1::uuid AND status='active' AND deleted_at IS NULL`, [tutorId]);
-    if (pushTargets.rowCount) {
-      await sendPushToSubscriptions(pushTargets.rows, {
-        title: 'Pacote contratado 📦',
-        body: `${packageRow.name} foi ativado e os agendamentos foram gerados.`,
-        url: '/app/pacotes',
-        tag: `package-${sold.rows[0].id}`,
-        type: 'package'
+    `, [tutorId, accountId, petId, packageId, amountCents, description, JSON.stringify(payload), expiresAt]);
+    try {
+      const mp = await createMercadoPagoPixPayment({
+        intentId: intent.rows[0].id,
+        amountCents,
+        description,
+        payerEmail: tutorEmail,
+        payerName: tutorName
       });
+      const updated = await query(`
+        UPDATE package_payment_intents
+        SET mp_payment_id=$2::text, mp_status=$3::text, qr_code=$4::text, qr_code_base64=$5::text, provider_response=$6::jsonb, updated_at=NOW()
+        WHERE id=$1::uuid
+        RETURNING *
+      `, [intent.rows[0].id, mp.paymentId, mp.status, mp.qrCode, mp.qrCodeBase64, JSON.stringify(mp.payment || {})]);
+      return res.status(201).json({
+        requiresPayment: true,
+        paymentIntent: sanitizePackagePaymentIntent(updated.rows[0]),
+        message: 'Pix do pacote gerado. O pacote e os agendamentos só serão criados após confirmação do pagamento.'
+      });
+    } catch (error) {
+      await query(`UPDATE package_payment_intents SET status='failed', last_error=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, error.message, JSON.stringify(error.details || {})]).catch(() => null);
+      throw error;
     }
-    res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), message: 'Pacote contratado. Os agendamentos foram criados e a equipe poderá acompanhar.' });
   } catch (error) {
-    try { await query('ROLLBACK'); } catch {}
+    next(error);
+  }
+});
+
+app.get('/api/app/packages/payment/:intentId', requireClientAuth, async (req, res, next) => {
+  try {
+    const intentResult = await query(`
+      SELECT * FROM package_payment_intents
+      WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL
+      LIMIT 1
+    `, [req.params.intentId, req.clientApp.tutor.id]);
+    if (!intentResult.rowCount) return res.status(404).json({ error: 'Pagamento do pacote não encontrado.' });
+    let intent = intentResult.rows[0];
+    if (intent.status === 'paid') {
+      return res.json({ paymentIntent: sanitizePackagePaymentIntent(intent), customerPackageId: intent.customer_package_id, message: 'Pacote pago e contratado com sucesso.' });
+    }
+    if (new Date(intent.expires_at).getTime() < Date.now()) {
+      const expired = await query(`UPDATE package_payment_intents SET status='expired', updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.id]);
+      return res.status(410).json({ paymentIntent: sanitizePackagePaymentIntent(expired.rows[0]), error: 'Pix expirado. Gere uma nova contratação para concluir o pacote.' });
+    }
+    if (intent.mp_payment_id && isMercadoPagoConfigured()) {
+      const payment = await mercadoPagoRequest(`/v1/payments/${intent.mp_payment_id}`);
+      await query(`UPDATE package_payment_intents SET mp_status=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.id, payment.status || '', JSON.stringify(payment || {})]);
+      if (payment.status === 'approved') {
+        const finalized = await finalizePaidPackageIntent(intent.id, payment.status, payment);
+        return res.json({ paymentIntent: sanitizePackagePaymentIntent({ ...intent, status: 'paid', customer_package_id: finalized.customerPackage?.id || finalized.customerPackageId, paid_at: new Date().toISOString(), mp_status: payment.status }), customerPackageId: finalized.customerPackage?.id || finalized.customerPackageId, message: 'Pacote pago e contratado com sucesso.' });
+      }
+      intent = { ...intent, mp_status: payment.status || intent.mp_status };
+    }
+    res.json({ paymentIntent: sanitizePackagePaymentIntent(intent), message: 'Pagamento do pacote ainda não confirmado.' });
+  } catch (error) {
     next(error);
   }
 });
@@ -3738,6 +3891,30 @@ function sanitizePaymentIntent(row = {}) {
     appointmentId: row.appointment_id || null,
     lastError: row.last_error || null,
     mercadoPagoTestMode: isMercadoPagoTestMode()
+  };
+}
+
+
+function sanitizePackagePaymentIntent(row = {}) {
+  const providerResponse = row.provider_response && typeof row.provider_response === 'object' ? row.provider_response : {};
+  const tx = providerResponse?.point_of_interaction?.transaction_data || {};
+  return {
+    id: row.id,
+    status: row.status,
+    amountCents: Number(row.amount_cents || 0),
+    description: row.description || '',
+    provider: row.provider || 'mercado_pago',
+    mpPaymentId: row.mp_payment_id || null,
+    mpStatus: row.mp_status || null,
+    qrCode: normalizePixQrCode(row.qr_code || tx.qr_code || ''),
+    qrCodeBase64: normalizePixQrBase64(row.qr_code_base64 || tx.qr_code_base64 || ''),
+    ticketUrl: String(row.ticket_url || tx.ticket_url || ''),
+    expiresAt: row.expires_at,
+    paidAt: row.paid_at,
+    customerPackageId: row.customer_package_id || null,
+    lastError: row.last_error || null,
+    mercadoPagoTestMode: isMercadoPagoTestMode(),
+    kind: 'package'
   };
 }
 

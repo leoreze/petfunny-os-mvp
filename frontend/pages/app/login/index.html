@@ -128,15 +128,13 @@
           <div class="form-field">
             <label for="pet-size">Porte</label>
             <select class="input" id="pet-size" name="size">
-              <option value="pequeno">Pequeno</option>
-              <option value="medio">Médio</option>
-              <option value="grande">Grande</option>
-              <option value="gigante">Gigante</option>
+              <option value="">Carregando portes...</option>
             </select>
           </div>
           <div class="form-field">
             <label for="pet-breed">Raça</label>
-            <input class="input" id="pet-breed" name="breed" placeholder="opcional">
+            <input class="input" id="pet-breed" name="breed" list="pet-breed-list" placeholder="Selecione ou digite a raça">
+              <datalist id="pet-breed-list"></datalist>
           </div>
         </div>
         <div class="form-field">
@@ -169,8 +167,11 @@
     import { setClientToken, setClientUser, isClientAuthenticated } from '/assets/js/client-auth.js';
     import { applyInputMasks } from '/assets/js/shell.js';
     import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+    import { initClientInstallPrompt } from '/assets/js/client-pwa-install.js';
 
     applyInputMasks(document);
+    initClientInstallPrompt();
+    loadPetConfig();
     window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 320));
     const clientAuthYear = document.getElementById('client-auth-year');
     if (clientAuthYear) clientAuthYear.textContent = new Date().getFullYear();
@@ -187,6 +188,8 @@
       onboardingToken: '',
       whatsappUrl: ''
     };
+
+    let petConfig = { petSizes: [], petBreeds: [] };
 
     const steps = {
       whatsapp: document.getElementById('step-whatsapp'),
@@ -212,6 +215,45 @@
       tutor: ['Vamos criar seu acesso', 'WhatsApp validado. Complete seus dados para ativar sua área de tutor.'],
       pet: ['Agora conte sobre seu pet', 'Cadastre o pet, crie sua senha e acompanhe toda a jornada de cuidado no app.']
     };
+
+
+    function escapeHtml(value = '') {
+      return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+    }
+
+    async function loadPetConfig() {
+      try {
+        const response = await clientApi.get('/app/public-options');
+        petConfig = { petSizes: response.petSizes || [], petBreeds: response.petBreeds || [] };
+        const sizeSelect = document.getElementById('pet-size');
+        if (sizeSelect) {
+          const fallback = [{ code: 'pequeno', name: 'Pequeno' }, { code: 'medio', name: 'Médio' }, { code: 'grande', name: 'Grande' }, { code: 'gigante', name: 'Gigante' }];
+          const sizes = petConfig.petSizes.length ? petConfig.petSizes : fallback;
+          sizeSelect.innerHTML = sizes.map((item, index) => `<option value="${escapeHtml(item.code)}" ${index === 0 ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
+        }
+        const breedList = document.getElementById('pet-breed-list');
+        if (breedList) {
+          breedList.innerHTML = petConfig.petBreeds.map((breed) => `<option value="${escapeHtml(breed.name)}" data-size="${escapeHtml(breed.suggestedSizeCode || '')}" data-coat="${escapeHtml(breed.coatType || '')}"></option>`).join('');
+        }
+        const city = document.getElementById('tutor-city');
+        const stateUf = document.getElementById('tutor-state');
+        if (city && response.business?.city) city.value = response.business.city;
+        if (stateUf && response.business?.state) stateUf.value = response.business.state;
+      } catch {
+        const sizeSelect = document.getElementById('pet-size');
+        if (sizeSelect) sizeSelect.innerHTML = '<option value="pequeno">Pequeno</option><option value="medio">Médio</option><option value="grande">Grande</option><option value="gigante">Gigante</option>';
+      }
+    }
+
+    function applyBreedSuggestion() {
+      const breedInput = document.getElementById('pet-breed');
+      const sizeSelect = document.getElementById('pet-size');
+      const coatInput = document.getElementById('pet-coat');
+      const selected = petConfig.petBreeds.find((breed) => String(breed.name || '').toLowerCase() === String(breedInput?.value || '').toLowerCase());
+      if (!selected) return;
+      if (selected.suggestedSizeCode && sizeSelect) sizeSelect.value = selected.suggestedSizeCode;
+      if (selected.coatType && coatInput && !coatInput.value) coatInput.value = selected.coatType;
+    }
 
     function setStep(step) {
       Object.entries(steps).forEach(([key, el]) => { el.hidden = key !== step; });
@@ -370,6 +412,9 @@
         hideLoading();
       }
     });
+
+    document.getElementById('pet-breed')?.addEventListener('change', applyBreedSuggestion);
+    document.getElementById('pet-breed')?.addEventListener('blur', applyBreedSuggestion);
 
     document.querySelectorAll('[data-back]').forEach((button) => {
       button.addEventListener('click', () => setStep(button.dataset.back));

@@ -16,10 +16,12 @@
   import { setClientUser } from '/assets/js/client-auth.js';
   import { finishPageLoading } from '/assets/js/loading.js';
   import { getPushState, enablePushNotifications, disablePushNotifications, registerClientServiceWorker } from '/assets/js/client-push.js';
+    import { initClientInstallPrompt } from '/assets/js/client-pwa-install.js';
 
   const section = currentClientSection();
+  initClientInstallPrompt();
   let data = null;
-  let options = { pets: [], services: [], packages: [], paymentMethods: [], petSizes: [], collaborators: [], gifts: [] };
+  let options = { pets: [], services: [], packages: [], paymentMethods: [], petSizes: [], petBreeds: [], collaborators: [], gifts: [] };
 
   const empty = (icon, title, text) => `<article class="client-empty"><span>${icon}</span><h3>${title}</h3><p>${text}</p></article>`;
   const escapeHtml = (value = '') => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
@@ -213,12 +215,43 @@
     </section>`).join('');
   }
 
+
+  function breedDatalistHtml() {
+    return `<datalist id="app-pet-breed-list">${(options.petBreeds || []).map((breed) => `<option value="${escapeHtml(breed.name)}" data-size="${escapeHtml(breed.suggestedSizeCode || '')}" data-coat="${escapeHtml(breed.coatType || '')}"></option>`).join('')}</datalist>`;
+  }
+
+  function applyAppBreedSuggestion(form) {
+    const breedInput = form?.querySelector('[name="breed"]');
+    const sizeSelect = form?.querySelector('[name="size"]');
+    const coatInput = form?.querySelector('[name="coatType"]');
+    const selected = (options.petBreeds || []).find((breed) => String(breed.name || '').toLowerCase() === String(breedInput?.value || '').toLowerCase());
+    if (!selected) return;
+    if (selected.suggestedSizeCode && sizeSelect) sizeSelect.value = selected.suggestedSizeCode;
+    if (selected.coatType && coatInput && !coatInput.value) coatInput.value = selected.coatType;
+  }
+
+  function renderEditablePetCard(pet) {
+    const initials = String(pet.name || 'P').slice(0, 1).toUpperCase();
+    return `<article class="client-pet-card client-pet-card-editable">
+      <div class="client-pet-avatar">${pet.photoUrl ? `<img src="${escapeHtml(pet.photoUrl)}" alt="${escapeHtml(pet.name)}">` : `<span>${escapeHtml(initials)}</span>`}</div>
+      <div class="client-pet-info">
+        <h3>${escapeHtml(pet.name || 'Pet')}</h3>
+        <p>${escapeHtml([pet.breed, pet.size].filter(Boolean).join(' · ') || 'Cadastro ativo')}</p>
+        ${pet.restrictions ? `<div class="client-alert-mini">Atenção: ${escapeHtml(pet.restrictions)}</div>` : ''}
+      </div>
+      <div class="client-pet-inline-actions">
+        <button class="btn btn-secondary btn-sm" data-edit-pet="${escapeHtml(pet.id)}" type="button">Editar</button>
+        <button class="btn btn-ghost btn-sm" data-delete-pet="${escapeHtml(pet.id)}" type="button">Remover</button>
+      </div>
+    </article>`;
+  }
+
   function petForm(pet = {}) {
     const sizeOpts = (options.petSizes || []).map((s) => ({ value: s.code, label: s.name }));
     return `<form class="client-form-grid" id="pet-form" data-pet-id="${escapeHtml(pet.id || '')}">
       ${field('Nome do pet', 'name', pet.name || '')}
-      ${field('Raça', 'breed', pet.breed || '')}
-      ${selectField('Porte', 'size', sizeOpts, pet.size || 'pequeno', 'Escolha o porte')}
+      <label class="client-field"><span>Raça</span><input name="breed" value="${escapeHtml(pet.breed || '')}" list="app-pet-breed-list" placeholder="Selecione ou digite a raça"></label>${breedDatalistHtml()}
+      ${selectField('Porte', 'size', sizeOpts, pet.size || sizeOpts[0]?.value || 'pequeno', 'Escolha o porte')}
       ${field('Tipo de pelagem', 'coatType', pet.coatType || '')}
       ${field('Nascimento', 'birthDate', pet.birthDate ? String(pet.birthDate).slice(0, 10) : '', 'type="date"')}
       ${field('Peso aproximado', 'weightKg', pet.weightKg || '', 'inputmode="decimal"')}
@@ -230,7 +263,7 @@
   }
 
   function renderPets() {
-    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pets cadastrados</h2><button class="btn btn-sm" id="new-pet" type="button">Novo pet</button></div><div class="client-pet-list">${data.pets.map((pet) => `${renderPetCard(pet)}<div class="client-card-actions pet-actions"><button class="btn btn-secondary btn-sm" data-edit-pet="${pet.id}" type="button">Editar</button><button class="btn btn-ghost btn-sm" data-delete-pet="${pet.id}" type="button">Remover</button></div>`).join('') || empty('🐶', 'Nenhum pet cadastrado', 'Cadastre seu primeiro pet pelo app.')}</div></section>`;
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pets cadastrados</h2><button class="btn btn-sm" id="new-pet" type="button">Novo pet</button></div><div class="client-pet-list">${data.pets.map(renderEditablePetCard).join('') || empty('🐶', 'Nenhum pet cadastrado', 'Cadastre seu primeiro pet pelo app.')}</div></section>`;
   }
 
   function renderHistorico() {
@@ -245,7 +278,7 @@
         ${selectField('Pet', 'petId', petOpts, '', 'Escolha o pet')}
         ${selectField('Pacote', 'packageId', pkgOpts, '', 'Escolha o pacote')}
         <div id="package-preview" class="client-alert-soft">Selecione um pacote para ver serviços, sessões e valor.</div>
-        ${field('Data inicial', 'startsOn', today(), 'type="date"')}
+        ${field('Data inicial', 'startsOn', today(), `type="date" min="${today()}"`)}
         ${field('Primeiro horário', 'firstTime', '09:00', 'type="time"')}
         <label class="client-switch"><input type="checkbox" name="recurring"><span>Ativar recorrência automática ao acabar as sessões</span></label>
         <button class="btn" type="submit">Contratar pacote</button>
@@ -259,7 +292,7 @@
   }
 
   function renderPagamento() {
-    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pagamento Pix do agendamento</h2><p>Finalize o Pix em uma tela segura. Escaneie o QR Code oficial do Mercado Pago ou use o Pix copia e cola. O agendamento só aparece na agenda depois da confirmação do pagamento.</p></div><article class="client-form-card" id="pix-page-card"><div class="client-pix-status">Carregando dados do Pix...</div></article></section>`;
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pagamento Pix</h2><p>Finalize o Pix em uma tela segura. Escaneie o QR Code oficial do Mercado Pago ou use o Pix copia e cola. O agendamento ou pacote só será concluído depois da confirmação do pagamento.</p></div><article class="client-form-card" id="pix-page-card"><div class="client-pix-status">Carregando dados do Pix...</div></article></section>`;
   }
 
   function renderRoleta() {
@@ -391,17 +424,17 @@
     </div>`;
   }
 
-  async function waitPixConfirmation(intentId) {
+  async function waitPixConfirmation(intentId, paymentKind = 'appointment') {
     const status = document.getElementById('pix-payment-status');
     let attempts = 0;
     return new Promise((resolve, reject) => {
       const timer = window.setInterval(async () => {
         attempts += 1;
         try {
-          const response = await clientApi.get(`/app/appointments/payment/${intentId}`);
-          if (response.appointment || response.paymentIntent?.status === 'paid') {
+          const response = await clientApi.get(paymentKind === 'package' ? `/app/packages/payment/${intentId}` : `/app/appointments/payment/${intentId}`);
+          if (response.appointment || response.customerPackageId || response.paymentIntent?.status === 'paid') {
             window.clearInterval(timer);
-            if (status) status.textContent = response.message || 'Agendamento pago e realizado com sucesso.';
+            if (status) status.textContent = response.message || 'Pagamento confirmado com sucesso.';
             resolve(response);
             return;
           }
@@ -422,20 +455,22 @@
     });
   }
 
-  function goToPixPaymentPage(intent) {
+  function goToPixPaymentPage(intent, kind = 'appointment') {
     if (!intent?.id) {
       openModal('Pix não gerado', '<p>Não recebemos o identificador do pagamento. Tente novamente.</p>', '<button class="btn" data-close-modal>OK</button>');
       return;
     }
     sessionStorage.setItem('petfunny_pending_pix_intent', JSON.stringify(intent));
     localStorage.setItem('petfunny_last_pending_pix_intent', JSON.stringify(intent));
-    window.location.href = `/app/pagamento-pix?intent=${encodeURIComponent(intent.id)}`;
+    window.location.href = `/app/pagamento-pix?intent=${encodeURIComponent(intent.id)}&kind=${encodeURIComponent(kind)}`;
   }
 
   async function bindPixPaymentPage() {
     const card = document.getElementById('pix-page-card');
     if (!card) return;
-    const intentId = new URLSearchParams(window.location.search).get('intent');
+    const params = new URLSearchParams(window.location.search);
+    const intentId = params.get('intent');
+    const paymentKind = params.get('kind') === 'package' ? 'package' : 'appointment';
     if (!intentId) {
       card.innerHTML = '<div class="client-pix-status">Pagamento não encontrado. Volte para a agenda e gere um novo Pix.</div><a class="btn" href="/app/agenda">Voltar para agenda</a>';
       return;
@@ -443,11 +478,11 @@
     let intent = null;
     try { intent = JSON.parse(sessionStorage.getItem('petfunny_pending_pix_intent') || localStorage.getItem('petfunny_last_pending_pix_intent') || 'null'); } catch {}
     try {
-      const response = await clientApi.get(`/app/appointments/payment/${intentId}`);
+      const response = await clientApi.get(paymentKind === 'package' ? `/app/packages/payment/${intentId}` : `/app/appointments/payment/${intentId}`);
       intent = response.paymentIntent || intent;
       if (response.appointment || intent?.status === 'paid') {
         clearRoletaScheduleContext();
-        card.innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Agendamento pago e realizado com sucesso.')}</div><a class="btn" href="/app/agenda">Ver minha agenda</a>`;
+        card.innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento confirmado com sucesso.')}</div><a class="btn" href="/app/agenda">Ver minha agenda</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
         return;
       }
     } catch {}
@@ -462,10 +497,10 @@
     };
     document.getElementById('copy-pix-code-inline')?.addEventListener('click', copyPix);
     try {
-      const paid = await waitPixConfirmation(intentId);
+      const paid = await waitPixConfirmation(intentId, paymentKind);
       clearRoletaScheduleContext();
       sessionStorage.removeItem('petfunny_pending_pix_intent');
-      card.innerHTML = `<div class="client-pix-status">${escapeHtml(paid.message || 'Agendamento pago e realizado com sucesso.')}</div><a class="btn" href="/app/agenda">Ver minha agenda</a>`;
+      card.innerHTML = `<div class="client-pix-status">${escapeHtml(paid.message || 'Pagamento confirmado com sucesso.')}</div><a class="btn" href="/app/agenda">Ver minha agenda</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
     } catch (error) {
       card.innerHTML += `<div class="client-pix-status">${escapeHtml(error.message)}</div>`;
     }
@@ -550,6 +585,13 @@
       if (!confirm('Remover este pet do app?')) return;
       try { await clientApi.delete(`/app/pets/${button.dataset.deletePet}`); toast('Pet removido.'); await reload('pets'); } catch (error) { openModal('Erro ao remover pet', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>'); }
     }));
+    document.body.addEventListener('change', (event) => {
+      if (event.target?.name === 'breed' && event.target.closest('#pet-form')) applyAppBreedSuggestion(event.target.closest('#pet-form'));
+    });
+    document.body.addEventListener('blur', (event) => {
+      if (event.target?.name === 'breed' && event.target.closest('#pet-form')) applyAppBreedSuggestion(event.target.closest('#pet-form'));
+    }, true);
+
     document.body.addEventListener('submit', async (event) => {
       if (event.target.id !== 'pet-form') return;
       event.preventDefault();
@@ -573,7 +615,15 @@
       event.preventDefault();
       const payload = formPayload(event.currentTarget);
       payload.recurring = event.currentTarget.querySelector('[name="recurring"]').checked;
-      try { const response = await clientApi.post('/app/packages', payload); toast(response.message || 'Pacote contratado.'); await reload('pacotes'); } catch (error) { openModal('Não foi possível contratar o pacote', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>'); }
+      try {
+        const response = await clientApi.post('/app/packages', payload);
+        if (response.requiresPayment && response.paymentIntent) {
+          goToPixPaymentPage(response.paymentIntent, 'package');
+          return;
+        }
+        toast(response.message || 'Pacote contratado.');
+        await reload('pacotes');
+      } catch (error) { openModal('Não foi possível contratar o pacote', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>'); }
     });
 
     document.getElementById('spin-form')?.addEventListener('submit', async (event) => {

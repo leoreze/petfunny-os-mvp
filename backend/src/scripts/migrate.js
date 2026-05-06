@@ -547,6 +547,35 @@ CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_tutor ON appointment_
 CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_mp ON appointment_payment_intents (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_status ON appointment_payment_intents (status, expires_at) WHERE deleted_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS package_payment_intents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+  client_account_id UUID REFERENCES client_accounts(id) ON DELETE SET NULL,
+  pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  package_id UUID NOT NULL REFERENCES packages(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'mercado_pago',
+  status TEXT NOT NULL DEFAULT 'pending',
+  amount_cents INTEGER NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+  description TEXT,
+  pending_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  mp_payment_id TEXT,
+  mp_status TEXT,
+  qr_code TEXT,
+  qr_code_base64 TEXT,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + interval '5 minutes'),
+  paid_at TIMESTAMPTZ,
+  customer_package_id UUID REFERENCES customer_packages(id) ON DELETE SET NULL,
+  last_error TEXT,
+  provider_response JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_package_payment_intents_tutor ON package_payment_intents (tutor_id, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_package_payment_intents_mp ON package_payment_intents (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_package_payment_intents_status ON package_payment_intents (status, expires_at) WHERE deleted_at IS NULL;
+
+
 CREATE TABLE IF NOT EXISTS system_notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   type TEXT NOT NULL DEFAULT 'info',

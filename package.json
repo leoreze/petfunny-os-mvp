@@ -1,6 +1,6 @@
 {
   "name": "petfunny-os",
-  "version": "1.5.102",
+  "version": "1.5.103",
   "private": true,
   "description": "Sistema interno de gestão do PetFunny - Banho e Tosa.",
   "scripts": {
