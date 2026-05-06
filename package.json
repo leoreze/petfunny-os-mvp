@@ -1,6 +1,6 @@
 {
   "name": "petfunny-os",
-  "version": "1.5.100",
+  "version": "1.5.101",
   "private": true,
   "description": "Sistema interno de gestão do PetFunny - Banho e Tosa.",
   "scripts": {
@@ -10,12 +10,13 @@
     "db:seed": "npm --prefix backend run db:seed",
     "db:reset": "npm --prefix backend run db:reset",
     "push:keys": "npm --prefix backend run push:keys",
-    "install:backend": "npm --prefix backend install --omit=dev --no-audit --no-fund --legacy-peer-deps",
+    "install:backend": "npm --prefix backend install --omit=dev --omit=optional --no-audit --no-fund --legacy-peer-deps --progress=false",
     "render:build": "npm run install:backend && npm run db:migrate",
     "setup": "npm install --ignore-scripts --no-audit --no-fund && npm run install:backend",
     "doctor:install": "node backend/src/scripts/doctorInstall.js",
     "push:repair": "npm --prefix backend run push:repair",
-    "doctor:push": "node backend/src/scripts/doctorPush.js"
+    "doctor:push": "node backend/src/scripts/doctorPush.js",
+    "install:backend:push": "npm --prefix backend install --omit=dev --no-audit --no-fund --legacy-peer-deps --progress=false"
   },
   "engines": {
     "node": ">=20 <25",

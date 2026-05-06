@@ -18,3 +18,6 @@ services:
         value: "false"
       - key: NPM_CONFIG_LEGACY_PEER_DEPS
         value: "true"
+      - key: NPM_CONFIG_OMIT
+        value: "optional"
+
