@@ -1,0 +1,630 @@
+
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  showLoading('Carregando tutores...', 'Renderizando dados do banco com segurança.');
+
+  const state = { page: 1, limit: 20, search: '', status: 'active', loading: false, done: false, items: [], sortKey: 'updatedAt', sortDir: 'desc', currentTutor: null, currentHistory: [], currentPets: [], petOptions: { types: [], sizes: [], breeds: [] } };
+  const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+  const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
+  const formatWhatsapp = (value = '') => {
+    const d = onlyDigits(value).replace(/^55/, '');
+    if (d.length <= 2) return d;
+    if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+    return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
+  };
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const initials = (name = '') => String(name || '?').trim().split(/\s+/).slice(0,2).map(p => p[0] || '').join('').toUpperCase() || '?';
+  const avatarHtml = (name, photoUrl, className = '') => photoUrl
+    ? `<img class="photo-avatar ${className}" src="${esc(photoUrl)}" alt="Foto de ${esc(name)}">`
+    : `<span class="photo-avatar avatar-initials ${className}" aria-label="Avatar de ${esc(name)}">${esc(initials(name))}</span>`;
+  const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+    if (!file) return resolve('');
+    if (!file.type.startsWith('image/')) return reject(new Error('Selecione uma imagem válida.'));
+    if (file.size > 750 * 1024) return reject(new Error('Use uma imagem com até 750 KB para manter o carregamento rápido.'));
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+    reader.readAsDataURL(file);
+  });
+
+  buildShell({
+    active: 'Tutores',
+    eyebrow: 'Carteira de clientes',
+    title: 'Tutores do PetFunny',
+    subtitle: 'Consulte tutores, acompanhe contatos, veja o histórico de atendimentos e mantenha os dados dos pets sempre prontos para a operação.',
+    content: `
+      <section class="hero-panel stack-lg tutors-page-hero">
+        <div class="page-heading-row between">
+          <div>
+            <p class="eyebrow">Carteira de clientes</p>
+            <h1>Tutores do PetFunny</h1>
+            <p>Tenha uma visão clara dos tutores, contatos, pets vinculados e histórico de relacionamento para atender melhor e vender com mais segurança.</p>
+          </div>
+          <div class="actions"><button class="btn" id="new-tutor-btn" type="button">＋ Novo tutor</button><a class="btn btn-secondary" href="/admin/pets">🐾 Ver pets</a></div>
+        </div>
+        <div id="tutor-metrics">${bigNumberGrid([['Tutores','--','na carteira'],['Pets vinculados','--','relacionamentos ativos'],['Último atendimento','--','referência de retorno']])}</div>
+      </section>
+
+      <section class="module-card stack-md tutors-list-card">
+        <div class="section-toolbar tutors-filter-toolbar">
+          <div><h3>Consulta de tutores</h3><p>Busque por nome, WhatsApp ou e-mail. A lista carrega mais registros conforme você rola a página.</p></div>
+          <div class="filter-row tutors-filter-row">
+            <input class="input" id="search-tutors" placeholder="Buscar por nome, WhatsApp ou e-mail" autocomplete="off">
+            <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
+            <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
+          </div>
+        </div>
+        <div class="table-scroll custom-scroll tutors-table-wrap" id="tutors-scroll">
+          <table class="premium-table sortable-table">
+            <thead><tr>
+              <th><button class="th-sort" type="button" data-sort="name">Tutor <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="whatsapp">Contato <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="petsCount">Pets <span class="sort-arrow">↕</span></button></th>
+              <th>Tags</th>
+              <th><button class="th-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th>
+              <th>Ações</th>
+            </tr></thead>
+            <tbody id="tutors-body"><tr><td colspan="6">Preparando tudo...</td></tr></tbody>
+          </table>
+          <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais tutores...</div>
+        </div>
+      </section>
+
+      <dialog class="premium-modal" id="tutor-modal">
+        <form method="dialog" class="modal-card" id="tutor-form">
+          <header class="modal-header"><div><p class="eyebrow">Cadastro de tutor</p><h3 id="modal-title">Novo tutor</h3></div><button class="icon-btn" value="cancel" type="button" id="close-modal">×</button></header>
+          <div class="modal-body custom-scroll">
+            <input type="hidden" id="tutor-id">
+            <div class="form-grid form-row-gap">
+              <div class="form-field span-2 photo-upload-field">
+                <span>Foto do tutor</span>
+                <div class="photo-upload-row">
+                  <div id="tutor-photo-preview" class="photo-avatar avatar-initials photo-preview">?</div>
+                  <div class="stack-sm grow">
+                    <input type="hidden" id="photoDataUrl">
+                    <input class="input" id="photoFile" type="file" accept="image/*">
+                    <small class="muted">PNG, JPG, WebP ou GIF. Recomendado até 750 KB.</small>
+                  </div>
+                </div>
+              </div>
+              <label class="form-field"><span>Nome completo</span><input class="input" id="name" required placeholder="Ex.: Mariana Souza"></label>
+              <label class="form-field"><span>WhatsApp</span><input class="input" id="whatsapp" data-mask="whatsapp" required placeholder="(16) 99999-9999"></label>
+              <label class="form-field"><span>E-mail</span><input class="input" id="email" type="email" placeholder="cliente@email.com"></label>
+              <label class="form-field"><span>Documento</span><input class="input" id="documentNumber" placeholder="CPF/CNPJ opcional"></label>
+              <label class="form-field"><span>Cidade</span><input class="input" id="city" value="Ribeirão Preto"></label>
+              <label class="form-field"><span>Estado</span><input class="input" id="state" maxlength="2" value="SP"></label>
+              <label class="form-field span-2"><span>Endereço</span><input class="input" id="address" placeholder="Rua, número, bairro"></label>
+              <label class="form-field"><span>Tags</span><input class="input" id="tags" placeholder="recorrente, pacote, vip"></label>
+              <label class="form-field"><span>Status</span><select class="select" id="status"><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
+              <label class="form-field span-2"><span>Observações</span><textarea class="textarea" id="notes" rows="4" placeholder="Preferências do tutor, restrições, histórico rápido..."></textarea></label>
+            </div>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-modal">Cancelar</button><button class="btn" type="submit">Salvar tutor</button></footer>
+        </form>
+      </dialog>
+
+      <dialog class="premium-modal" id="history-modal">
+        <div class="modal-card tutor-history-modal-card">
+          <header class="modal-header"><div><p class="eyebrow">Extrato do cliente</p><h3 id="history-title">Histórico de serviços utilizados</h3><p class="modal-subtitle">Veja atendimentos, comandas, recibos e serviços realizados por pet.</p></div><button class="icon-btn" type="button" id="close-history-modal">×</button></header>
+          <div class="modal-body custom-scroll">
+            <div class="history-filter-block">
+              <div><h3>Filtro por pet</h3><p>Use para consultar o histórico de um pet específico.</p></div>
+              <select class="select" id="history-pet-filter"><option value="all">Todos os pets</option></select>
+            </div>
+            <div id="history-content" class="history-extract-list stack-md"><p>Carregando histórico...</p></div>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-history-modal">Fechar</button></footer>
+        </div>
+      </dialog>
+
+      <dialog class="modal-shell agenda-document-modal tutor-document-modal" id="tutor-document-modal">
+        <div class="modal-card document-modal-card agenda-document-modal-card agenda-appointment-modal-card tutor-document-modal-card">
+          <header class="modal-header agenda-modal-header">
+            <div class="modal-title-block">
+              <p class="eyebrow" id="tutor-document-type">Documento do atendimento</p>
+              <h2 id="tutor-document-title">Comanda</h2>
+              <p class="modal-subtitle" id="tutor-document-subtitle">Carregando as informações do atendimento sem sair do histórico do tutor.</p>
+            </div>
+            <button class="icon-btn modal-close-btn" type="button" id="close-tutor-document-modal" aria-label="Fechar documento">✕</button>
+          </header>
+          <div class="modal-body custom-scroll">
+            <div id="tutor-document-preview" class="document-preview"><div class="document-loading-state"><img src="/assets/img/loading-dog.gif" alt="Carregando"><strong>Preparando documento...</strong><small>Aguarde enquanto carregamos os dados do atendimento.</small></div></div>
+          </div>
+          <footer class="modal-footer">
+            <button class="btn btn-secondary" id="print-tutor-document" type="button">Imprimir</button>
+            <button class="btn btn-secondary" id="copy-tutor-document-link" type="button">Copiar link</button>
+            <a class="btn" id="whatsapp-tutor-document" target="_blank" rel="noopener">Enviar WhatsApp</a>
+          </footer>
+        </div>
+      </dialog>
+
+      <dialog class="premium-modal" id="tutor-pets-modal">
+        <div class="modal-card tutor-pets-modal-card">
+          <header class="modal-header"><div><p class="eyebrow">Pets do tutor</p><h3 id="pets-modal-title">Pets vinculados</h3><p class="modal-subtitle">Consulte os pets deste tutor e cadastre novos vínculos sem sair da carteira de clientes.</p></div><button class="icon-btn" type="button" id="close-pets-modal">×</button></header>
+          <div class="modal-body custom-scroll">
+            <div id="pets-modal-list" class="tutor-pets-list"></div>
+            <section class="module-card stack-sm tutor-pet-create-card">
+              <div class="section-toolbar compact-toolbar"><div><h3>Cadastrar novo pet</h3><p>Adicione o pet e ele já fica disponível para agendamento.</p></div></div>
+              <form id="quick-pet-form" class="form-grid form-row-gap">
+                <input type="hidden" id="quick-pet-tutor-id">
+                <label class="form-field"><span>Nome do pet</span><input class="input" id="quick-pet-name" required placeholder="Ex.: Mel"></label>
+                <label class="form-field"><span>Tipo</span><select class="select" id="quick-pet-species"></select></label>
+                <label class="form-field"><span>Raça</span><select class="select" id="quick-pet-breed"></select></label>
+                <label class="form-field"><span>Porte</span><select class="select" id="quick-pet-size"></select></label>
+                <label class="form-field span-2"><span>Observações</span><textarea class="textarea" id="quick-pet-notes" rows="3" placeholder="Cuidados, comportamento, preferências ou restrições."></textarea></label>
+                <div class="span-2 actions end"><button class="btn btn-secondary" type="reset">Limpar</button><button class="btn" type="submit">Salvar pet</button></div>
+              </form>
+            </section>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-pets-modal">Fechar</button><button class="btn" type="button" id="schedule-from-pets-modal">Agendar atendimento</button></footer>
+        </div>
+      </dialog>
+    `
+  });
+
+  const body = document.getElementById('tutors-body');
+  const scrollBox = document.getElementById('tutors-scroll');
+  const loader = document.getElementById('infinite-loader');
+  const modal = document.getElementById('tutor-modal');
+  const historyModal = document.getElementById('history-modal');
+  const historyContent = document.getElementById('history-content');
+  const historyPetFilter = document.getElementById('history-pet-filter');
+  const petsModal = document.getElementById('tutor-pets-modal');
+  const petsModalList = document.getElementById('pets-modal-list');
+  const quickPetForm = document.getElementById('quick-pet-form');
+  const form = document.getElementById('tutor-form');
+  const fields = ['tutor-id','photoDataUrl','photoFile','name','whatsapp','email','documentNumber','city','state','address','tags','status','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
+  function setTutorPhotoPreview(name, photoUrl) {
+    const next = new DOMParser().parseFromString(avatarHtml(name || 'Tutor', photoUrl || '', 'photo-preview'), 'text/html').body.firstElementChild;
+    next.id = 'tutor-photo-preview';
+    document.getElementById('tutor-photo-preview')?.replaceWith(next);
+  }
+
+  function rowTemplate(item) {
+    const tags = (item.tags || []).map(tag => `<span class="mini-badge">${esc(tag)}</span>`).join('') || '<span class="muted">sem tags</span>';
+    return `<tr data-id="${item.id}">
+      <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(item.city || 'Ribeirão Preto')} / ${esc(item.state || 'SP')}</small></div></div></td>
+      <td><strong>${formatWhatsapp(item.whatsapp)}</strong><small>${esc(item.email || 'sem e-mail')}</small></td>
+      <td><strong>${item.petsCount || 0}</strong><small>pet(s) vinculados</small></td>
+      <td><div class="tag-wrap">${tags}</div></td>
+      <td><span class="status-pill ${item.status === 'active' ? 'ok' : 'muted-pill'}">${item.status === 'active' ? 'Ativo' : 'Inativo'}</span></td>
+      <td>
+        <div class="row-actions tutor-actions-menu-wrap">
+          <button class="icon-btn tutor-menu-btn" data-id="${item.id}" type="button" title="Ações do tutor" aria-haspopup="true" aria-expanded="false">⋯</button>
+          <div class="tutor-row-menu" data-menu-for="${item.id}">
+            <button type="button" class="history-btn" data-id="${item.id}">📋 Histórico</button>
+            <button type="button" class="pets-btn" data-id="${item.id}">🐾 Pets</button>
+            <button type="button" class="schedule-btn" data-id="${item.id}">＋ Agendar</button>
+            <button type="button" class="app-message-btn" data-id="${item.id}">📱 Mensagem do app</button>
+            <button type="button" class="edit-btn" data-id="${item.id}">✎ Editar tutor</button>
+            <button type="button" class="delete-btn danger" data-id="${item.id}">🗑 Inativar</button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  function updateMetrics() {
+    const active = state.items.filter(item => item.status === 'active').length;
+    const pets = state.items.reduce((sum, item) => sum + Number(item.petsCount || 0), 0);
+    const last = state.items
+      .map(item => item.lastAppointmentAt ? new Date(item.lastAppointmentAt) : null)
+      .filter(Boolean)
+      .sort((a, b) => b - a)[0];
+    const lastLabel = last ? last.toLocaleDateString('pt-BR') : 'sem histórico';
+    document.getElementById('tutor-metrics').innerHTML = bigNumberGrid([
+      ['Tutores carregados', String(state.items.length), `${active} ativos nesta consulta`],
+      ['Pets vinculados', String(pets), 'base de relacionamento'],
+      ['Último atendimento', lastLabel, 'referência para retorno']
+    ]);
+  }
+
+  function sortValue(item, key) {
+    if (key === 'petsCount') return Number(item.petsCount || 0);
+    if (key === 'updatedAt') return item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+    return String(item[key] || '').toLowerCase();
+  }
+
+  function sortedItems() {
+    const dir = state.sortDir === 'asc' ? 1 : -1;
+    return [...state.items].sort((a, b) => {
+      const av = sortValue(a, state.sortKey);
+      const bv = sortValue(b, state.sortKey);
+      if (av > bv) return dir;
+      if (av < bv) return -dir;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+    });
+  }
+
+  function renderTutores() {
+    const rows = sortedItems();
+    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="6">Nenhum tutor encontrado.</td></tr>';
+    document.querySelectorAll('.th-sort').forEach((button) => {
+      const active = button.dataset.sort === state.sortKey;
+      button.classList.toggle('active', active);
+      const arrow = button.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = active ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  async function loadTutores(reset = false) {
+    if (state.loading || (state.done && !reset)) return;
+    state.loading = true;
+    loader.hidden = false;
+    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="6">Preparando tudo...</td></tr>'; }
+    try {
+      const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status });
+      if (state.search) params.set('search', state.search);
+      const data = await api.get(`/tutores?${params.toString()}`);
+      if (reset) state.items = [];
+      state.items.push(...data.items);
+      state.done = state.items.length >= data.total || data.items.length === 0;
+      state.page += 1;
+      renderTutores();
+      updateMetrics();
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="6">${esc(error.message)}</td></tr>`;
+      toast(error.message, 'error');
+    } finally {
+      loader.hidden = true;
+      state.loading = false;
+    }
+  }
+
+  function openForm(item = null) {
+    document.getElementById('modal-title').textContent = item ? 'Editar tutor' : 'Novo tutor';
+    fields['tutor-id'].value = item?.id || '';
+    fields.photoDataUrl.value = item?.photoUrl || '';
+    if (fields.photoFile) fields.photoFile.value = '';
+    setTutorPhotoPreview(item?.name || 'Tutor', item?.photoUrl || '');
+    fields.name.value = item?.name || '';
+    fields.whatsapp.value = formatWhatsapp(item?.whatsapp || '');
+    fields.email.value = item?.email || '';
+    fields.documentNumber.value = item?.documentNumber || '';
+    fields.city.value = item?.city || 'Ribeirão Preto';
+    fields.state.value = item?.state || 'SP';
+    fields.address.value = item?.address || '';
+    fields.tags.value = (item?.tags || []).join(', ');
+    fields.status.value = item?.status || 'active';
+    fields.notes.value = item?.notes || '';
+    setupPremiumInteractions(modal);
+    modal.showModal();
+  }
+
+  async function saveTutor(event) {
+    event.preventDefault();
+    const id = fields['tutor-id'].value;
+    const payload = {
+      name: fields.name.value,
+      whatsapp: fields.whatsapp.value,
+      email: fields.email.value,
+      documentNumber: fields.documentNumber.value,
+      city: fields.city.value,
+      state: fields.state.value,
+      address: fields.address.value,
+      tags: fields.tags.value,
+      status: fields.status.value,
+      notes: fields.notes.value,
+      photoDataUrl: fields.photoDataUrl.value
+    };
+    try {
+      showLoading('Salvando tutor...');
+      if (id) await api.put(`/tutores/${id}`, payload); else await api.post('/tutores', payload);
+      modal.close();
+      toast('Tutor salvo com sucesso.', 'success');
+      await loadTutores(true);
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+
+
+  function tutorById(id) { return state.items.find(item => item.id === id) || state.currentTutor || null; }
+  function closeTutorMenus() {
+    document.querySelectorAll('.tutor-row-menu.open').forEach(menu => menu.classList.remove('open'));
+    document.querySelectorAll('.tutor-menu-btn[aria-expanded="true"]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
+  }
+  function openTutorMenu(button) {
+    const id = button.dataset.id;
+    const menu = document.querySelector(`.tutor-row-menu[data-menu-for="${CSS.escape(id)}"]`);
+    if (!menu) return;
+    const isOpen = menu.classList.contains('open');
+    closeTutorMenus();
+    if (!isOpen) {
+      menu.classList.add('open');
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+  function appAccessMessage(tutor) {
+    const appUrl = `${window.location.origin}/app/primeiro-acesso`;
+    return `Oi, ${tutor?.name || 'tudo bem'}! Tudo bem? Aqui é do PetFunny - Banho e Tosa.\n\nAgora você pode acompanhar informações do seu pet pelo nosso aplicativo do cliente. Para fazer o primeiro acesso, entre pelo link abaixo usando seu WhatsApp:\n\n${appUrl}\n\nSe precisar, é só me chamar por aqui que eu ajudo no acesso.`;
+  }
+  function openWhatsappToTutor(tutor, message) {
+    const phone = onlyDigits(tutor?.whatsapp || '');
+    if (!phone) return toast('Este tutor não possui WhatsApp cadastrado.', 'warning');
+    window.open(`https://wa.me/55${phone.replace(/^55/, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+  }
+  async function loadPetOptions() {
+    if (state.petOptions.types.length || state.petOptions.sizes.length) return;
+    try {
+      const data = await api.get('/configuracoes/pet-options');
+      state.petOptions.types = data.types || data.petTypes || [];
+      state.petOptions.sizes = data.sizes || data.petSizes || [];
+      state.petOptions.breeds = data.breeds || data.petBreeds || [];
+    } catch (error) {
+      state.petOptions = { types: [{ code:'dog', name:'Cachorro' }, { code:'cat', name:'Gato' }], sizes: [{ code:'pequeno', name:'Pequeno' }, { code:'medio', name:'Médio' }, { code:'grande', name:'Grande' }], breeds: [] };
+    }
+  }
+  function populateQuickPetOptions() {
+    const species = document.getElementById('quick-pet-species');
+    const size = document.getElementById('quick-pet-size');
+    const breed = document.getElementById('quick-pet-breed');
+    species.innerHTML = state.petOptions.types.map(t => `<option value="${esc(t.code || t.id || t.name)}">${esc(t.name || t.code)}</option>`).join('') || '<option value="dog">Cachorro</option>';
+    size.innerHTML = state.petOptions.sizes.map(s => `<option value="${esc(s.code || s.id || s.name)}">${esc(s.name || s.code)}</option>`).join('') || '<option value="pequeno">Pequeno</option>';
+    breed.innerHTML = '<option value="">Não informado</option>' + state.petOptions.breeds.map(b => `<option value="${esc(b.name || b.code || b.id)}">${esc(b.name || b.code)}</option>`).join('');
+  }
+  function petCardTemplate(pet) {
+    return `<article class="tutor-pet-mini-card">
+      ${avatarHtml(pet.name, pet.photoUrl, 'pet-avatar-small')}
+      <div><strong>${esc(pet.name)}</strong><small>${esc(pet.breed || 'Raça não informada')} · ${esc(pet.sizeName || pet.size || 'porte não informado')}</small><p>${esc(pet.notes || pet.restrictions || 'Sem observações cadastradas.')}</p></div>
+    </article>`;
+  }
+  async function openPetsModal(tutorId) {
+    const tutor = tutorById(tutorId);
+    state.currentTutor = tutor;
+    document.getElementById('pets-modal-title').textContent = `Pets de ${tutor?.name || 'tutor'}`;
+    document.getElementById('quick-pet-tutor-id').value = tutorId;
+    try {
+      showLoading('Carregando pets...', 'Buscando pets vinculados ao tutor.');
+      await loadPetOptions();
+      populateQuickPetOptions();
+      const payload = await api.get(`/tutores/${tutorId}/pets`);
+      state.currentPets = payload.items || [];
+      petsModalList.innerHTML = state.currentPets.length ? state.currentPets.map(petCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum pet cadastrado.</strong><p>Cadastre o primeiro pet deste tutor para agilizar os próximos agendamentos.</p></article>';
+      setupPremiumInteractions(petsModal);
+      petsModal.showModal();
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+  function scheduleTutor(tutorId, petId = '') {
+    const params = new URLSearchParams({ new: '1', tutorId });
+    if (petId) params.set('petId', petId);
+    window.location.href = `/admin/agenda?${params.toString()}`;
+  }
+
+  function historyItemTemplate(item) {
+    const isPaid = String(item.paymentStatus || '').toLowerCase() === 'paid' || String(item.paymentStatusName || '').toLowerCase() === 'pago';
+    const receipt = isPaid || item.receiptToken
+      ? `<button class="btn btn-small btn-secondary history-document-btn" data-id="${esc(item.id)}" data-mode="receipt" type="button">Recibo</button>`
+      : `<button class="btn btn-small btn-secondary generate-receipt-btn" data-id="${esc(item.id)}" type="button">Gerar recibo</button>`;
+    const when = item.startsAt ? new Date(item.startsAt).toLocaleString('pt-BR') : 'Sem data';
+    return `<article class="history-extract-item" data-pet-id="${esc(item.petId || '')}">
+      <div class="history-extract-date"><strong>${esc(when.split(',')[0] || when)}</strong><small>${esc(when.split(',')[1] || '')}</small></div>
+      <div class="history-extract-main"><div class="history-extract-top"><span class="status-pill" style="--status-color:${esc(item.statusColor || '#00A9B7')}">${esc(item.statusName || item.status || 'Status')}</span><strong>${esc(item.petName || 'Pet')}</strong></div><p>${esc(item.services || 'Serviços não informados')}</p><small>${esc(item.paymentStatusName || item.paymentStatus || 'Pagamento não informado')} ${item.paymentMethodName ? `· ${esc(item.paymentMethodName)}` : ''}</small></div>
+      <div class="history-extract-value"><strong>${money(item.totalCents)}</strong><div class="actions"><button class="btn btn-small btn-secondary history-document-btn" data-id="${esc(item.id)}" data-mode="command" type="button">Comanda</button>${receipt}</div></div>
+    </article>`;
+  }
+
+  function tutorDocumentHtml(data, mode = 'command') {
+    const appointment = data.appointment || data.document?.appointment || data.receipt?.payload?.appointment || {};
+    const business = data.business || data.document?.business || data.receipt?.payload?.business || {};
+    const totals = data.totals || data.document?.totals || data.receipt?.payload?.totals || {};
+    const items = appointment.items || [];
+    const isReceipt = mode === 'receipt';
+    const discountPercent = Number(totals.discountPercent ?? appointment.discountPercent ?? 0);
+    const payment = data.payment || data.document?.payment || data.receipt?.payload?.payment || {};
+    const paymentStatusText = appointment.paymentStatusName || (appointment.paymentStatus === 'paid' ? 'Pago' : 'Pendente');
+    const paymentMethodText = payment.paymentMethodName || payment.payment_method_name || appointment.paymentMethodName || 'A definir';
+    const dateText = appointment.startsAt ? new Date(appointment.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : '—';
+    return `<article class="print-document agenda-inline-document">
+      <div class="doc-brand"><img src="/assets/img/logo-petfunny-full.png" alt="PetFunny"><div><strong>${esc(business.name || 'PetFunny - Banho e Tosa')}</strong><small>${esc(business.address || 'Ribeirão Preto / SP')} · WhatsApp ${esc(business.whatsapp || '')}</small></div></div>
+      <div class="doc-head"><div><p class="eyebrow">${isReceipt ? 'Recibo oficial' : 'Comanda de atendimento'}</p><h2>${isReceipt ? 'Recibo' : 'Comanda'}</h2><p>${isReceipt ? 'Pagamento recebido e atendimento documentado.' : 'Conferência dos serviços antes do pagamento.'}</p></div><div class="doc-number"><span>Nº</span><strong>${esc(data.receipt?.documentNumber || data.documentNumber || appointment.id?.slice(0,8) || '—')}</strong></div></div>
+      <div class="doc-grid"><div><span>Tutor</span><strong>${esc(appointment.tutorName || state.currentTutor?.name || '—')}</strong><small>${esc(appointment.tutorWhatsapp || state.currentTutor?.whatsapp || '')}</small></div><div><span>Pet</span><strong>${esc(appointment.petName || '—')}</strong><small>${esc(appointment.petSize || '')}</small></div><div><span>Data</span><strong>${esc(dateText)}</strong></div><div><span>Status</span><strong>${esc(appointment.statusName || appointment.status || '—')}</strong></div><div><span>Pagamento</span><strong>${esc(paymentStatusText)}</strong></div><div><span>Forma de pagamento</span><strong>${esc(paymentMethodText)}</strong></div></div>
+      <table class="doc-table"><thead><tr><th>Serviço</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${items.map(item=>`<tr><td>${esc(item.description || item.name || 'Serviço')}</td><td>${esc(item.quantity || 1)}</td><td>${money(item.unitPriceCents)}</td><td>${money(item.totalCents)}</td></tr>`).join('') || `<tr><td colspan="4">${esc(appointment.services || 'Sem itens detalhados.')}</td></tr>`}</tbody></table>
+      <div class="doc-totals"><div><span>Total original</span><strong>${money(totals.subtotalCents ?? appointment.subtotalCents)}</strong></div><div><span>Desconto</span><strong>${money(totals.discountCents ?? appointment.discountCents)} · ${discountPercent}%</strong></div><div class="doc-total-final"><span>Total final</span><strong>${money(totals.totalCents ?? appointment.totalCents)}</strong></div></div>
+      <footer class="doc-footer">${isReceipt ? 'Obrigado pela confiança no PetFunny. Recibo gerado eletronicamente.' : 'Esta comanda é uma conferência interna do atendimento. O recibo é liberado após a baixa do pagamento.'}</footer>
+    </article>`;
+  }
+
+  async function openTutorDocumentModal(id, mode = 'command') {
+    const modal = document.getElementById('tutor-document-modal');
+    const preview = document.getElementById('tutor-document-preview');
+    const type = document.getElementById('tutor-document-type');
+    const title = document.getElementById('tutor-document-title');
+    const subtitle = document.getElementById('tutor-document-subtitle');
+    const copyButton = document.getElementById('copy-tutor-document-link');
+    const whatsapp = document.getElementById('whatsapp-tutor-document');
+    if (!modal || !preview) return;
+    try {
+      type.textContent = mode === 'receipt' ? 'Recibo oficial' : 'Comanda de atendimento';
+      title.textContent = mode === 'receipt' ? 'Preparando recibo' : 'Preparando comanda';
+      subtitle.textContent = 'Carregando o documento do histórico do tutor.';
+      preview.innerHTML = '<div class="document-loading-state"><img src="/assets/img/loading-dog.gif" alt="Carregando"><strong>Preparando documento...</strong><small>Buscando serviços, valores, tutor e pet.</small></div>';
+      copyButton.disabled = true;
+      copyButton.dataset.publicUrl = '';
+      whatsapp.removeAttribute('href');
+      if (!modal.open) modal.showModal();
+      const data = mode === 'receipt'
+        ? await api.post(`/documentos/recibos/${id}/generate`, {})
+        : await api.get(`/documentos/comanda/${id}`);
+      const receipt = data.receipt;
+      const documentData = mode === 'receipt' ? { receipt, ...(receipt?.payload || {}) } : data.document;
+      const appointment = documentData?.appointment || receipt?.payload?.appointment || {};
+      const publicUrl = mode === 'receipt' ? receipt?.printUrl : (documentData?.publicUrl || data.document?.publicUrl || `/documentos/comanda/${id}`);
+      type.textContent = mode === 'receipt' ? 'Recibo oficial' : 'Comanda de atendimento';
+      title.textContent = mode === 'receipt' ? `Recibo ${receipt?.documentNumber || ''}`.trim() : 'Comanda do atendimento';
+      subtitle.textContent = mode === 'receipt' ? 'Pagamento recebido e pronto para envio ao tutor.' : 'Confira serviços, descontos e totais antes de finalizar ou enviar ao tutor.';
+      preview.innerHTML = tutorDocumentHtml(documentData, mode);
+      copyButton.disabled = !publicUrl;
+      copyButton.dataset.publicUrl = publicUrl ? `${location.origin}${publicUrl}` : '';
+      const phone = String(appointment.tutorWhatsapp || state.currentTutor?.whatsapp || '').replace(/\D/g, '');
+      const fullUrl = publicUrl ? `${location.origin}${publicUrl}` : '';
+      const petName = appointment.petName ? ` do ${appointment.petName}` : '';
+      const message = mode === 'receipt'
+        ? `Oi! Tudo bem? Segue o recibo do atendimento${petName} aqui no PetFunny - Banho e Tosa. Você pode acessar pelo link: ${fullUrl}`
+        : `Oi! Tudo bem? Segue a comanda do atendimento${petName} aqui no PetFunny - Banho e Tosa para conferência. Você pode acessar pelo link: ${fullUrl}`;
+      whatsapp.href = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    } catch (error) {
+      toast(error.message || 'Não foi possível abrir o documento.', 'error');
+      if (modal.open) modal.close();
+    }
+  }
+
+  function renderHistoryItems() {
+    const selectedPetId = historyPetFilter.value || 'all';
+    const filtered = selectedPetId === 'all' ? state.currentHistory : state.currentHistory.filter(item => item.petId === selectedPetId);
+    historyContent.innerHTML = filtered.length ? filtered.map(historyItemTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum atendimento encontrado.</strong><p>Não há serviços registrados para este filtro.</p></article>';
+  }
+
+  async function openHistory(tutorId) {
+    try {
+      showLoading('Carregando histórico...', 'Buscando agendamentos, comandas e recibos do tutor.');
+      const payload = await api.get(`/tutores/${tutorId}/historico`);
+      state.currentTutor = payload.tutor || tutorById(tutorId);
+      state.currentHistory = payload.items || [];
+      document.getElementById('history-title').textContent = `Histórico de ${payload.tutor?.name || 'tutor'}`;
+      const petsById = new Map();
+      state.currentHistory.forEach(item => { if (item.petId) petsById.set(item.petId, item.petName || 'Pet'); });
+      historyPetFilter.innerHTML = '<option value="all">Todos os pets</option>' + Array.from(petsById.entries()).map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+      renderHistoryItems();
+      setupPremiumInteractions(historyModal);
+      historyModal.showModal();
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  document.getElementById('new-tutor-btn').addEventListener('click', () => openForm());
+  document.getElementById('close-modal').addEventListener('click', () => modal.close());
+  document.getElementById('cancel-modal').addEventListener('click', () => modal.close());
+  document.getElementById('close-history-modal').addEventListener('click', () => historyModal.close());
+  document.getElementById('cancel-history-modal').addEventListener('click', () => historyModal.close());
+  document.getElementById('close-tutor-document-modal')?.addEventListener('click', () => document.getElementById('tutor-document-modal')?.close());
+  document.getElementById('print-tutor-document')?.addEventListener('click', () => window.print());
+  document.getElementById('copy-tutor-document-link')?.addEventListener('click', async (event) => {
+    const url = event.currentTarget.dataset.publicUrl;
+    if (!url) return toast('Este documento ainda não possui link público.', 'warning');
+    await navigator.clipboard.writeText(url);
+    toast('Link copiado para a área de transferência.', 'success');
+  });
+  document.getElementById('close-pets-modal').addEventListener('click', () => petsModal.close());
+  document.getElementById('cancel-pets-modal').addEventListener('click', () => petsModal.close());
+  document.getElementById('schedule-from-pets-modal').addEventListener('click', () => state.currentTutor?.id && scheduleTutor(state.currentTutor.id));
+  historyPetFilter.addEventListener('change', renderHistoryItems);
+  document.getElementById('refresh-btn').addEventListener('click', () => loadTutores(true));
+  document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.sort;
+    if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+    else { state.sortKey = key; state.sortDir = key === 'name' ? 'asc' : 'desc'; }
+    renderTutores();
+  }));
+  form.addEventListener('submit', saveTutor);
+  document.getElementById('search-tutors').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__tutorSearch); window.__tutorSearch = window.setTimeout(() => loadTutores(true), 320); });
+  document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadTutores(true); });
+  body.addEventListener('click', async (event) => {
+    const menuBtn = event.target.closest('.tutor-menu-btn');
+    const edit = event.target.closest('.edit-btn');
+    const history = event.target.closest('.history-btn');
+    const pets = event.target.closest('.pets-btn');
+    const schedule = event.target.closest('.schedule-btn');
+    const appMessage = event.target.closest('.app-message-btn');
+    const del = event.target.closest('.delete-btn');
+    if (menuBtn) { event.preventDefault(); event.stopPropagation(); openTutorMenu(menuBtn); return; }
+    if (history) { closeTutorMenus(); await openHistory(history.dataset.id); return; }
+    if (pets) { closeTutorMenus(); await openPetsModal(pets.dataset.id); return; }
+    if (schedule) { closeTutorMenus(); scheduleTutor(schedule.dataset.id); return; }
+    if (appMessage) {
+      closeTutorMenus();
+      const tutor = tutorById(appMessage.dataset.id);
+      openWhatsappToTutor(tutor, appAccessMessage(tutor));
+      return;
+    }
+    if (edit) {
+      closeTutorMenus();
+      const item = state.items.find(row => row.id === edit.dataset.id);
+      openForm(item);
+      return;
+    }
+    if (del) {
+      closeTutorMenus();
+      if (!confirm('Inativar este tutor e os pets vinculados?')) return;
+      try { showLoading('Inativando tutor...'); await api.delete(`/tutores/${del.dataset.id}`); toast('Tutor inativado.', 'success'); await loadTutores(true); }
+      catch (error) { toast(error.message, 'error'); }
+      finally { hideLoading(); }
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.tutor-actions-menu-wrap')) closeTutorMenus();
+  });
+  window.addEventListener('scroll', closeTutorMenus, { passive: true });
+  window.addEventListener('resize', closeTutorMenus);
+
+  quickPetForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const tutorId = document.getElementById('quick-pet-tutor-id').value;
+    const payload = {
+      tutorId,
+      name: document.getElementById('quick-pet-name').value,
+      species: document.getElementById('quick-pet-species').value,
+      breed: document.getElementById('quick-pet-breed').value,
+      size: document.getElementById('quick-pet-size').value,
+      notes: document.getElementById('quick-pet-notes').value,
+      status: 'active'
+    };
+    try {
+      showLoading('Salvando pet...', 'Vinculando o novo pet ao tutor.');
+      await api.post('/pets', payload);
+      quickPetForm.reset();
+      toast('Pet cadastrado com sucesso.', 'success');
+      await openPetsModal(tutorId);
+      await loadTutores(true);
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  });
+
+  fields.photoFile.addEventListener('change', async () => {
+    try {
+      const dataUrl = await fileToDataUrl(fields.photoFile.files?.[0]);
+      fields.photoDataUrl.value = dataUrl;
+      const currentName = fields.name.value || 'Tutor';
+      setTutorPhotoPreview(currentName, dataUrl);
+    } catch (error) {
+      fields.photoFile.value = '';
+      toast(error.message, 'error');
+    }
+  });
+
+  historyContent.addEventListener('click', async (event) => {
+    const docButton = event.target.closest('.history-document-btn');
+    if (docButton) {
+      await openTutorDocumentModal(docButton.dataset.id, docButton.dataset.mode || 'command');
+      return;
+    }
+    const receipt = event.target.closest('.generate-receipt-btn');
+    if (!receipt) return;
+    await openTutorDocumentModal(receipt.dataset.id, 'receipt');
+  });
+
+  const maybeLoadMore = () => {
+    const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 420;
+    if (nearBottom) loadTutores(false);
+  };
+  window.addEventListener('scroll', maybeLoadMore, { passive: true });
+  scrollBox.addEventListener('scroll', maybeLoadMore, { passive: true });
+
+  try {
+    await loadTutores(true);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('new') === '1') {
+      requestAnimationFrame(() => openForm());
+    }
+  } finally {
+    finishPageLoading();
+    hideLoading();
+  }

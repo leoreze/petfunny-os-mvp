@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Financeiro · PetFunny OS</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { showLoading, hideLoading } from '/assets/js/loading.js';
+  import { showToast } from '/assets/js/toast.js';
+  import { bindHybridWhatsAppButtons } from '/assets/js/whatsapp.js';
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  const state = {
+    summary: null,
+    options: { paymentMethods: [], tutors: [], categories: [], statuses: [], types: [] },
+    transactions: [],
+    defaulters: [],
+    page: 1,
+    limit: 30,
+    total: 0,
+    filters: { search: '', status: 'all', type: 'all', category: 'all', period: 'month', month: currentMonth, startDate: firstDayOfMonth, endDate: todayIso },
+    activeTab: new URLSearchParams(window.location.search).get('tab') === 'inadimplentes' ? 'inadimplentes' : 'lancamentos',
+    sortBy: 'dueDate',
+    sortDir: 'asc',
+    defaulterSortBy: 'dueDate',
+    defaulterSortDir: 'asc',
+    loadingMore: false,
+    done: false
+  };
+
+  const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const dateBR = (value) => value ? new Date(value).toLocaleDateString('pt-BR') : '—';
+  const statusLabel = { pending: 'Pendente', paid: 'Pago', overdue: 'Vencido', canceled: 'Cancelado' };
+  const typeLabel = { income: 'Entrada', expense: 'Saída' };
+  const statusTone = { pending: 'warning', paid: 'success', overdue: 'danger', canceled: 'neutral' };
+  const $ = (s) => document.querySelector(s);
+  const esc = (value='') => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+
+  function layout() {
+    return `
+      <section class="finance-page finance-admin-page page-stack compact-stack">
+        <section class="hero-panel stack-md finance-hero-panel">
+          <div class="page-heading-row between">
+            <div>
+              <p class="eyebrow">Controle financeiro</p>
+              <h1>Financeiro PetFunny</h1>
+              <p>Organize entradas, saídas, pendências e baixas do caixa com leitura rápida para quem opera o balcão todos os dias.</p>
+            </div>
+            <div class="actions no-card-actions">
+              <button class="btn btn-secondary" type="button" id="refresh-finance">↻ Atualizar</button>
+              <button class="btn" type="button" id="new-transaction">＋ Novo lançamento</button>
+            </div>
+          </div>
+          <div class="finance-tabs"><button class="finance-tab active" data-finance-tab="lancamentos">Lançamentos</button><button class="finance-tab" data-finance-tab="inadimplentes">Inadimplentes</button></div>
+          <div class="big-number-grid finance-metrics" id="finance-metrics"></div>
+        </section>
+
+        <section class="module-grid finance-grid-2 finance-support-grid">
+          <article class="module-card finance-card stack-sm">
+            <div class="table-header"><div><h3>Fluxo dos últimos 7 dias</h3><p>Entradas e saídas para antecipar aperto de caixa antes do fechamento.</p></div></div>
+            <div class="finance-bars" id="finance-flow"></div>
+          </article>
+          <article class="module-card finance-card stack-sm">
+            <div class="table-header"><div><h3>Distribuição por categoria</h3><p>Entenda para onde o dinheiro está indo e quais receitas sustentam a operação.</p></div></div>
+            <div class="finance-category-list" id="finance-categories"></div>
+          </article>
+        </section>
+
+        <section class="module-card stack-md finance-list-card" id="transactions-card">
+          <div class="section-toolbar stacked-toolbar">
+            <div class="toolbar-copy-line finance-consulta-copy">
+              <div>
+                <h3>Consulta financeira</h3>
+                <p>Busque lançamentos, revise status, filtre por tipo e faça a baixa sem perder o contexto do tutor.</p>
+              </div>
+            </div>
+            <div class="filter-row compact-filter-row filters-below finance-filter-row">
+              <input class="input" id="filter-search" placeholder="Buscar tutor, WhatsApp ou descrição" autocomplete="off">
+              <select class="select" id="filter-type"></select>
+              <select class="select" id="filter-status"></select>
+              <select class="select" id="filter-category"></select>
+              <select class="select" id="filter-period" aria-label="Filtrar por período">
+                <option value="month">Mês selecionado</option>
+                <option value="last7">Últimos 7 dias</option>
+                <option value="last30">Últimos 30 dias</option>
+                <option value="year">Ano do mês selecionado</option>
+                <option value="custom">Período por data</option>
+              </select>
+              <input class="input" id="filter-month" type="month" value="${state.filters.month}" aria-label="Filtrar por mês">
+              <input class="input" id="filter-start-date" type="date" value="${state.filters.startDate}" aria-label="Data inicial">
+              <input class="input" id="filter-end-date" type="date" value="${state.filters.endDate}" aria-label="Data final">
+            </div>
+          </div>
+          <div class="table-scroll custom-scroll no-inner-scroll finance-table-scroll">
+            <table class="premium-table finance-records-table">
+              <thead>
+                <tr>
+                  <th><span class="th-label">Lançamento</span><button class="th-arrow-only finance-sort" data-sort="description" type="button" title="Ordenar por lançamento"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Tutor/Pet</span><button class="th-arrow-only finance-sort" data-sort="tutorName" type="button" title="Ordenar por tutor"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Tipo</span><button class="th-arrow-only finance-sort" data-sort="type" type="button" title="Ordenar por tipo"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Categoria</span><button class="th-arrow-only finance-sort" data-sort="category" type="button" title="Ordenar por categoria"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Vencimento</span><button class="th-arrow-only finance-sort" data-sort="dueDate" type="button" title="Ordenar por vencimento"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Status</span><button class="th-arrow-only finance-sort" data-sort="status" type="button" title="Ordenar por status"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Valor</span><button class="th-arrow-only finance-sort" data-sort="amountCents" type="button" title="Ordenar por valor"><span class="sort-arrow">↕</span></button></th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="finance-list"><tr><td colspan="8">Preparando lançamentos...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="infinite-loader" id="finance-loader" hidden>Carregando mais lançamentos...</div>
+          <div class="infinite-sentinel" id="finance-sentinel" aria-hidden="true"></div>
+        </section>
+
+        <section class="module-card stack-md finance-list-card" id="defaulters-card" hidden>
+          <div class="section-toolbar stacked-toolbar">
+            <div class="toolbar-copy-line finance-consulta-copy">
+              <div>
+                <h3>Clientes inadimplentes</h3>
+                <p>Cobranças vencidas para abordar com cuidado, clareza e mensagem amigável pelo WhatsApp.</p>
+              </div>
+              <span class="badge" id="defaulters-count">0 registros</span>
+            </div>
+          </div>
+          <div class="table-scroll custom-scroll no-inner-scroll finance-table-scroll">
+            <table class="premium-table finance-records-table">
+              <thead>
+                <tr>
+                  <th><span class="th-label">Cobrança</span><button class="th-arrow-only defaulter-sort" data-sort="description" type="button"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Tutor</span><button class="th-arrow-only defaulter-sort" data-sort="tutorName" type="button"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Vencimento</span><button class="th-arrow-only defaulter-sort" data-sort="dueDate" type="button"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Valor</span><button class="th-arrow-only defaulter-sort" data-sort="amountCents" type="button"><span class="sort-arrow">↕</span></button></th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="defaulters-list"><tr><td colspan="5">Preparando inadimplentes...</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <div class="modal-backdrop" id="finance-modal" hidden>
+        <div class="premium-modal finance-modal-card" role="dialog" aria-modal="true">
+          <header class="modal-header"><div><p class="eyebrow">Financeiro PetFunny</p><h2 id="modal-title">Novo lançamento</h2></div><button class="icon-btn" type="button" data-close-modal>×</button></header>
+          <div class="modal-body custom-scroll"><form id="finance-form" class="form-grid form-row-gap">
+            <label class="form-field"><span>Tipo</span><select class="select" name="type" required><option value="income">Entrada</option><option value="expense">Saída</option></select></label>
+            <label class="form-field"><span>Status</span><select class="select" name="status"><option value="pending">Pendente</option><option value="paid">Pago</option><option value="overdue">Vencido</option><option value="canceled">Cancelado</option></select></label>
+            <label class="form-field"><span>Categoria</span><select class="select" name="category" id="form-category" required></select></label>
+            <label class="form-field"><span>Valor</span><input class="input" data-mask="money" name="amount" placeholder="R$ 0,00" required></label>
+            <label class="form-field"><span>Vencimento</span><input class="input" type="date" name="dueDate"></label>
+            <label class="form-field"><span>Tutor vinculado</span><select class="select" name="tutorId" id="form-tutor"><option value="">Sem tutor</option></select></label>
+            <label class="form-field wide"><span>Descrição</span><input class="input" name="description" placeholder="Ex: Banho e tosa, pacote, fornecedor, aluguel..."></label>
+          </form></div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" data-close-modal>Cancelar</button><button class="btn" type="submit" form="finance-form">Salvar</button></footer>
+        </div>
+      </div>
+
+      <div class="modal-backdrop" id="pay-modal" hidden>
+        <div class="premium-modal finance-modal-card small-modal" role="dialog" aria-modal="true">
+          <header class="modal-header"><div><p class="eyebrow">Baixa financeira</p><h2>Registrar pagamento</h2></div><button class="icon-btn" type="button" data-close-pay>×</button></header>
+          <div class="modal-body custom-scroll"><form id="pay-form" class="form-grid form-row-gap">
+            <input type="hidden" name="id">
+            <label class="form-field"><span>Forma de pagamento</span><select class="select" name="paymentMethodId" id="pay-method"></select></label>
+            <label class="form-field"><span>Valor recebido</span><input class="input" data-mask="money" name="amount" required></label>
+            <label class="form-field wide"><span>Observações</span><textarea class="textarea" name="notes" rows="4" placeholder="Ex: Pix recebido no caixa"></textarea></label>
+          </form></div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" data-close-pay>Cancelar</button><button class="btn" type="submit" form="pay-form">Baixar pagamento</button></footer>
+        </div>
+      </div>
+    `;
+  }
+
+  buildShell({ active: 'Financeiro', eyebrow: 'PetFunny OS · Financeiro', title: 'Financeiro', subtitle: 'Caixa e recebimentos reais, sem depender de integração externa.', content: layout() });
+
+  function optionList(items, selected = 'all', allLabel = 'Todos') {
+    return `<option value="all">${allLabel}</option>` + items.map((v) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(statusLabel[v] || typeLabel[v] || v)}</option>`).join('');
+  }
+
+  function valueFor(item, key) {
+    if (key === 'dueDate') return item.dueDate ? new Date(item.dueDate).getTime() : 0;
+    if (key === 'amountCents') return Number(item.amountCents || 0);
+    return String(item[key] || '').toLowerCase();
+  }
+
+  function sortItems(items, key, dir) {
+    return [...items].sort((a, b) => {
+      const av = valueFor(a, key); const bv = valueFor(b, key);
+      if (av > bv) return dir === 'asc' ? 1 : -1;
+      if (av < bv) return dir === 'asc' ? -1 : 1;
+      return 0;
+    });
+  }
+
+  function updateSortArrows() {
+    document.querySelectorAll('.finance-sort').forEach((btn) => {
+      btn.querySelector('.sort-arrow').textContent = btn.dataset.sort === state.sortBy ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+    document.querySelectorAll('.defaulter-sort').forEach((btn) => {
+      btn.querySelector('.sort-arrow').textContent = btn.dataset.sort === state.defaulterSortBy ? (state.defaulterSortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  async function loadOptions() {
+    state.options = await api.get('/financeiro/options');
+    $('#filter-type').innerHTML = optionList(state.options.types, state.filters.type, 'Todos os tipos');
+    $('#filter-status').innerHTML = optionList(state.options.statuses, state.filters.status, 'Todos os status');
+    $('#filter-category').innerHTML = optionList(state.options.categories, state.filters.category, 'Todas categorias');
+    $('#form-category').innerHTML = state.options.categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    $('#form-tutor').innerHTML = '<option value="">Sem tutor</option>' + state.options.tutors.map((t) => `<option value="${esc(t.id)}">${esc(t.name)} · ${esc(t.whatsapp || '')}</option>`).join('');
+    $('#pay-method').innerHTML = state.options.paymentMethods.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  }
+
+  function buildPeriodParams() {
+    const params = new URLSearchParams({
+      period: state.filters.period || 'month',
+      month: state.filters.month || currentMonth
+    });
+    if (state.filters.period === 'custom') {
+      params.set('startDate', state.filters.startDate || firstDayOfMonth);
+      params.set('endDate', state.filters.endDate || todayIso);
+    }
+    return params;
+  }
+
+  function buildTransactionParams() {
+    const params = buildPeriodParams();
+    params.set('page', state.page);
+    params.set('limit', state.limit);
+    params.set('search', state.filters.search || '');
+    params.set('type', state.filters.type || 'all');
+    params.set('status', state.filters.status || 'all');
+    params.set('category', state.filters.category || 'all');
+    return params;
+  }
+
+  function applyPeriodControlsVisibility() {
+    const isCustom = state.filters.period === 'custom';
+    $('#filter-month').hidden = ['last7','last30','custom'].includes(state.filters.period);
+    $('#filter-start-date').hidden = !isCustom;
+    $('#filter-end-date').hidden = !isCustom;
+  }
+
+  async function loadSummary() {
+    const params = buildPeriodParams();
+    state.summary = await api.get(`/financeiro/summary?${params}`);
+    renderSummary();
+  }
+
+  async function loadTransactions({ reset = true } = {}) {
+    if (state.loadingMore) return;
+    state.loadingMore = true;
+    $('#finance-loader').hidden = false;
+    if (reset) { state.page = 1; state.transactions = []; state.done = false; }
+    const params = buildTransactionParams();
+    try {
+      const payload = await api.get(`/financeiro/transactions?${params}`);
+      const nextItems = payload.items || [];
+      state.transactions = reset ? nextItems : [...state.transactions, ...nextItems];
+      state.total = payload.total || state.transactions.length;
+      state.done = state.transactions.length >= state.total || nextItems.length === 0;
+      renderTransactions();
+    } finally {
+      state.loadingMore = false;
+      $('#finance-loader').hidden = true;
+      applyFinanceTab();
+    }
+  }
+
+  async function loadDefaulters() {
+    const payload = await api.get('/financeiro/inadimplentes');
+    state.defaulters = payload.items || [];
+    $('#defaulters-count').textContent = `${state.defaulters.length} registro(s) · ${money(payload.totalCents || 0)}`;
+    renderDefaulters();
+  }
+
+  function renderSummary() {
+    const s = state.summary?.summary || {};
+    $('#finance-metrics').innerHTML = [
+      [`Entradas do período`, money(s.pending_income_cents + s.paid_income_today_cents), state.summary?.period?.label || 'mês selecionado'],
+      ['A receber', money(s.pending_income_cents), `${s.pending_income_count || 0} pendência(s)`],
+      ['Vencidos', money(s.overdue_income_cents), `${s.overdue_income_count || 0} cobrança(s)`],
+      ['A pagar', money(s.pending_expense_cents), `${s.pending_expense_count || 0} conta(s)`]
+    ].map(([label, value, hint]) => `<article class="big-number-card"><span>${label}</span><strong>${value}</strong><small>${hint}</small></article>`).join('');
+
+    const max = Math.max(1, ...((state.summary?.flow || []).flatMap((d) => [d.income_cents, d.expense_cents])));
+    $('#finance-flow').innerHTML = (state.summary?.flow || []).map((d) => `
+      <div class="finance-bar-row"><span>${esc(d.label)}</span><div class="finance-bar-track"><i style="width:${Math.max(4, (d.income_cents / max) * 100)}%"></i><b style="width:${Math.max(4, (d.expense_cents / max) * 100)}%"></b></div><small>${money(d.income_cents)} / ${money(d.expense_cents)}</small></div>
+    `).join('') || '<p>Sem movimentação recente.</p>';
+
+    $('#finance-categories').innerHTML = (state.summary?.byCategory || []).map((c) => `
+      <div class="finance-category-pill ${esc(c.type)}"><strong>${esc(c.category)}</strong><span>${esc(typeLabel[c.type] || c.type)} · ${c.count}</span><b>${money(c.total_cents)}</b></div>
+    `).join('') || '<p>Nenhuma categoria encontrada.</p>';
+  }
+
+  function renderTransactions() {
+    const sorted = sortItems(state.transactions, state.sortBy, state.sortDir);
+    $('#finance-list').innerHTML = sorted.length ? sorted.map((item) => `
+      <tr class="finance-row ${esc(item.type)} ${esc(item.status)}">
+        <td><strong>${esc(item.description || 'Lançamento')}</strong><small>${esc(item.packageName || item.paymentMethodName || 'Movimento avulso')}</small></td>
+        <td><strong>${esc(item.tutorName || 'Sem tutor')}</strong><small>${esc(item.petName || item.tutorWhatsapp || '—')}</small></td>
+        <td><span class="status-pill ${item.type === 'income' ? 'status-success' : 'status-warning'}">${esc(typeLabel[item.type] || item.type)}</span></td>
+        <td>${esc(item.category || 'outros')}</td>
+        <td>${dateBR(item.dueDate)}</td>
+        <td><span class="status-pill status-${statusTone[item.status] || 'neutral'}">${esc(statusLabel[item.status] || item.status)}</span></td>
+        <td><strong class="finance-value ${item.type === 'expense' ? 'negative' : 'positive'}">${item.type === 'expense' ? '-' : '+'}${money(item.amountCents)}</strong></td>
+        <td><div class="table-actions">${item.status !== 'paid' && item.status !== 'canceled' ? `<button class="btn btn-small btn-secondary" data-whatsapp-action="cobranca_amigavel" data-transaction-id="${esc(item.id)}" data-phone="${esc(item.tutorWhatsapp || '')}">WhatsApp</button><button class="btn btn-small" data-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Baixar</button>` : '<span class="muted-small">Concluído</span>'}</div></td>
+      </tr>`).join('') : '<tr><td colspan="8"><div class="empty-state"><strong>Nenhum lançamento encontrado.</strong><p>Revise os filtros ou crie um novo lançamento.</p></div></td></tr>';
+    document.querySelectorAll('[data-pay]').forEach((button) => button.addEventListener('click', () => openPayModal(button.dataset.pay, button.dataset.amount)));
+    setupPremiumInteractions(document);
+    bindHybridWhatsAppButtons(document);
+    updateSortArrows();
+  }
+
+  function renderDefaulters() {
+    const sorted = sortItems(state.defaulters, state.defaulterSortBy, state.defaulterSortDir);
+    $('#defaulters-list').innerHTML = sorted.length ? sorted.map((item) => `
+      <tr class="finance-row overdue">
+        <td><strong>${esc(item.description || 'Cobrança vencida')}</strong><small>${esc(item.packageName || 'Acompanhamento financeiro')}</small></td>
+        <td><strong>${esc(item.tutorName || 'Cliente')}</strong><small>${esc(item.tutorWhatsapp || 'WhatsApp não informado')}</small></td>
+        <td>${dateBR(item.dueDate)}</td>
+        <td><strong class="finance-value positive">${money(item.amountCents)}</strong></td>
+        <td><div class="table-actions"><button class="btn btn-small btn-secondary" data-whatsapp-action="cobranca_amigavel" data-transaction-id="${esc(item.id)}" data-phone="${esc(item.tutorWhatsapp || '')}">WhatsApp</button><button class="btn btn-small" data-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Baixar</button></div></td>
+      </tr>`).join('') : '<tr><td colspan="5"><div class="empty-state"><strong>Nenhum inadimplente encontrado.</strong><p>Ótimo sinal para o caixa do PetFunny.</p></div></td></tr>';
+    document.querySelectorAll('#defaulters-list [data-pay]').forEach((button) => button.addEventListener('click', () => openPayModal(button.dataset.pay, button.dataset.amount)));
+    bindHybridWhatsAppButtons(document);
+    updateSortArrows();
+  }
+
+  function applyFinanceTab() {
+    document.querySelectorAll('[data-finance-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.financeTab === state.activeTab));
+    $('#transactions-card').hidden = state.activeTab !== 'lancamentos';
+    $('#defaulters-card').hidden = state.activeTab !== 'inadimplentes';
+  }
+
+  async function refreshAll() {
+    showLoading('Carregando financeiro...', 'Consolidando caixa, pendências e baixas do PetFunny.');
+    try {
+      await loadOptions();
+      await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]);
+      window.dispatchEvent(new Event('petfunny:page-ready'));
+    } catch (error) { showToast(error.message || 'Erro ao carregar financeiro.', 'error'); }
+    finally { hideLoading(); }
+  }
+
+  function openTransactionModal() { $('#finance-form').reset(); $('#finance-modal').hidden = false; setupPremiumInteractions($('#finance-modal')); }
+  function closeTransactionModal() { $('#finance-modal').hidden = true; }
+  function openPayModal(id, amountCents) { $('#pay-form').reset(); $('#pay-form').elements.id.value = id; $('#pay-form').elements.amount.value = money(amountCents); $('#pay-modal').hidden = false; setupPremiumInteractions($('#pay-modal')); }
+  function closePayModal() { $('#pay-modal').hidden = true; }
+
+  $('#new-transaction').addEventListener('click', openTransactionModal);
+  $('#refresh-finance').addEventListener('click', refreshAll);
+  document.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', closeTransactionModal));
+  document.querySelectorAll('[data-close-pay]').forEach((b) => b.addEventListener('click', closePayModal));
+  document.querySelectorAll('[data-finance-tab]').forEach((button) => button.addEventListener('click', async () => {
+    state.activeTab = button.dataset.financeTab;
+    const url = new URL(window.location.href);
+    if (state.activeTab === 'inadimplentes') url.searchParams.set('tab', 'inadimplentes'); else url.searchParams.delete('tab');
+    window.history.replaceState({}, '', url);
+    applyFinanceTab();
+    if (state.activeTab === 'inadimplentes') await loadDefaulters();
+  }));
+  document.querySelectorAll('.finance-sort').forEach((btn) => btn.addEventListener('click', () => { const key = btn.dataset.sort; state.sortDir = state.sortBy === key && state.sortDir === 'asc' ? 'desc' : 'asc'; state.sortBy = key; renderTransactions(); }));
+  document.querySelectorAll('.defaulter-sort').forEach((btn) => btn.addEventListener('click', () => { const key = btn.dataset.sort; state.defaulterSortDir = state.defaulterSortBy === key && state.defaulterSortDir === 'asc' ? 'desc' : 'asc'; state.defaulterSortBy = key; renderDefaulters(); }));
+  ['filter-search','filter-type','filter-status','filter-category','filter-period','filter-month','filter-start-date','filter-end-date'].forEach((id) => {
+    $(`#${id}`).addEventListener('input', async () => {
+      state.filters = {
+        search: $('#filter-search').value,
+        type: $('#filter-type').value,
+        status: $('#filter-status').value,
+        category: $('#filter-category').value,
+        period: $('#filter-period').value || 'month',
+        month: $('#filter-month').value || currentMonth,
+        startDate: $('#filter-start-date').value || firstDayOfMonth,
+        endDate: $('#filter-end-date').value || todayIso
+      };
+      applyPeriodControlsVisibility();
+      await Promise.all([loadSummary(), loadTransactions({ reset: true })]);
+    });
+  });
+
+  const observer = new IntersectionObserver(async (entries) => {
+    const entry = entries[0];
+    if (!entry?.isIntersecting || state.activeTab !== 'lancamentos' || state.done || state.loadingMore) return;
+    state.page += 1;
+    await loadTransactions({ reset: false });
+  }, { root: null, rootMargin: '420px 0px', threshold: 0.01 });
+  observer.observe($('#finance-sentinel'));
+
+  $('#finance-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+    try { showLoading('Salvando lançamento...', 'Atualizando o financeiro.'); await api.post('/financeiro/transactions', data); closeTransactionModal(); showToast('Lançamento criado com sucesso.'); await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]); }
+    catch (error) { showToast(error.message || 'Erro ao salvar lançamento.', 'error'); }
+    finally { hideLoading(); }
+  });
+
+  $('#pay-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+    try { showLoading('Baixando pagamento...', 'Registrando pagamento no caixa.'); await api.patch(`/financeiro/transactions/${data.id}/pay`, data); closePayModal(); showToast('Pagamento baixado com sucesso.'); await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]); }
+    catch (error) { showToast(error.message || 'Erro ao baixar pagamento.', 'error'); }
+    finally { hideLoading(); }
+  });
+
+  applyPeriodControlsVisibility();
+  await refreshAll();
+</script>
+</body>
+</html>

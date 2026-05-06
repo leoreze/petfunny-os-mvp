@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notificações · PetFunny OS</title><link rel="stylesheet" href="/assets/css/app.css"></head>
+<body>
+<script type="module">
+  import { buildShell } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { showLoading, hideLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+  const esc = (v='') => String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const priorityColor = { high:'#ef4444', medium:'#f59e0b', low:'#00a9b7' };
+  const state = { status:'all', items:[] };
+  buildShell({ active:'Notificações', eyebrow:'Assistente Inteligente PetFunny', title:'Notificações', subtitle:'Alertas e lembretes gerados em tempo real a partir da operação.', content: `
+    <section class="hero-panel stack-md">
+      <div class="page-heading-row between"><div><p class="eyebrow">Central de notificações</p><h1>Alertas do PetFunny</h1><p>Acompanhe pendências, lembretes e oportunidades importantes para agir no momento certo.</p></div><div class="actions"><button class="btn btn-secondary" id="mark-all">Marcar tudo como lido</button><button class="btn" id="refresh">Atualizar</button></div></div>
+      <div class="finance-tabs"><button class="finance-tab active" data-status="all">Todas</button><button class="finance-tab" data-status="unread">Não lidas</button><button class="finance-tab" data-status="read">Lidas</button></div>
+      <div id="notification-metrics" class="big-number-grid"></div>
+    </section>
+    <section class="hero-panel stack-md push-admin-panel">
+      <div class="page-heading-row between"><div><p class="eyebrow">Push mobile PWA</p><h2>Enviar aviso para o App do Tutor</h2><p>Dispare notificações para celulares inscritos. Ideal para lembretes, campanhas, pacotes, roleta e recibos.</p></div><div id="push-status" class="status-pill">Verificando...</div></div>
+      <form id="push-form" class="form-grid form-grid-2">
+        <label class="field"><span>Título</span><input name="title" value="PetFunny avisou 🐾" maxlength="120"></label>
+        <label class="field"><span>Página ao abrir</span><select name="url"><option value="/app/home">Timeline</option><option value="/app/agenda">Agenda</option><option value="/app/pacotes">Pacotes</option><option value="/app/roleta">Roleta de Mimos</option><option value="/app/perfil">Perfil</option></select></label>
+        <label class="field form-grid-full"><span>Mensagem</span><textarea name="body" rows="3" maxlength="240">Você tem uma novidade no Meu PetFunny.</textarea></label>
+        <div class="actions form-grid-full"><button class="btn" type="submit">Enviar push</button><button class="btn btn-secondary" id="refresh-push" type="button">Atualizar status</button></div>
+      </form>
+      <div id="push-logs" class="push-log-list"></div>
+    </section>
+    <section class="notifications-list" id="notifications-list"></section>` });
+  const $ = (s) => document.querySelector(s);
+  function render() {
+    const unread = state.items.filter(n => !n.read).length;
+    const high = state.items.filter(n => n.priority === 'high').length;
+    $('#notification-metrics').innerHTML = [[state.items.length,'Total','alertas carregados'],[unread,'Não lidas','precisam de atenção'],[high,'Alta prioridade','ação recomendada']].map(([v,l,h])=>`<article class="big-number-card"><span>${l}</span><strong>${v}</strong><small>${h}</small></article>`).join('');
+    $('#notifications-list').innerHTML = state.items.length ? state.items.map(n => `<article class="module-card notification-card ${n.read ? '' : 'unread'}" style="--status-color:${priorityColor[n.priority] || '#00a9b7'}"><div class="notification-dot">${n.priority === 'high' ? '🚨' : n.type === 'opportunity' ? '💡' : '🔔'}</div><div><span class="status-pill" style="--status-color:${priorityColor[n.priority] || '#00a9b7'}">${esc(n.priority)}</span><h3>${esc(n.title)}</h3><p>${esc(n.message)}</p><small>${new Date(n.createdAt).toLocaleString('pt-BR')} · ${esc(n.module)}</small></div><div class="actions"><a class="btn btn-secondary" href="${esc(n.actionUrl || '/admin/notificacoes')}">Abrir página</a>${n.read ? '' : `<button class="btn" data-read="${esc(n.id)}">Marcar lida</button>`}</div></article>`).join('') : '<article class="module-card empty-state"><strong>Nenhuma notificação encontrada.</strong><p>Quando houver pendências, alertas ou oportunidades, elas aparecem aqui.</p></article>';
+  }
+  async function loadPushStatus() {
+    const box = $('#push-status');
+    const logs = $('#push-logs');
+    try {
+      const status = await api.get('/push/status');
+      box.textContent = status.configured ? `${status.activeSubscriptions} aparelho(s) ativo(s) · ${status.sentToday} enviados hoje` : 'Push sem VAPID configurado';
+      box.classList.toggle('danger', !status.configured);
+      const logData = await api.get('/push/logs');
+      logs.innerHTML = (logData.items || []).slice(0, 6).map((item) => `<article class="push-log-item ${esc(item.status)}"><strong>${esc(item.title)}</strong><p>${esc(item.body)}</p><small>${esc(item.status)} · ${item.tutorName ? esc(item.tutorName) + ' · ' : ''}${new Date(item.createdAt).toLocaleString('pt-BR')}</small>${item.error ? `<em>${esc(item.error)}</em>` : ''}</article>`).join('') || '<p class="muted">Nenhum envio registrado ainda.</p>';
+    } catch (error) {
+      box.textContent = 'Falha ao consultar push';
+      logs.innerHTML = `<p class="muted">${esc(error.message)}</p>`;
+    }
+  }
+
+  async function load() { showLoading('Carregando notificações...', 'Gerando alertas em tempo real.'); try { const data = await api.get(`/notificacoes?status=${state.status}`); state.items = data.items || []; render(); await loadPushStatus(); } finally { hideLoading(); } }
+  document.addEventListener('click', async (e) => { const tab = e.target.closest('[data-status]'); const read = e.target.closest('[data-read]'); if (tab) { state.status = tab.dataset.status; document.querySelectorAll('.finance-tab').forEach(b => b.classList.toggle('active', b === tab)); await load(); } if (read) { await api.patch(`/notificacoes/${read.dataset.read}/read`, {}); toast('Notificação marcada como lida.', 'success'); await load(); } });
+  $('#refresh').addEventListener('click', load);
+  $('#mark-all').addEventListener('click', async () => { await api.patch('/notificacoes/read-all', {}); toast('Todas as notificações foram marcadas como lidas.', 'success'); await load(); });
+  $('#refresh-push')?.addEventListener('click', loadPushStatus);
+  $('#push-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    showLoading('Enviando push...', 'Disparando para aparelhos inscritos.');
+    try {
+      const response = await api.post('/push/send', payload);
+      toast(response.message || 'Push processado.', response.stats?.sent ? 'success' : 'warning');
+      await loadPushStatus();
+    } catch (error) {
+      toast(error.message || 'Erro ao enviar push.', 'error');
+    } finally { hideLoading(); }
+  });
+  await load();
+</script>
+</body></html>

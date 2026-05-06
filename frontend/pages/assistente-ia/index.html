@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Assistente IA · PetFunny OS</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { showLoading, hideLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  const content = `
+    <section class="module-hero ai-hero-card">
+      <div>
+        <p class="eyebrow">Assistente Inteligente PetFunny</p>
+        <h1>IA operacional integrada ao PetFunny OS</h1>
+        <p>Prompt master global preparado para Dashboard, Agenda, Tutores, Pets, Serviços, Pacotes, Financeiro, CRM, Marketing, Roleta de Mimos, Relatórios e Configurações.</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-primary" id="btn-ai-status" type="button">Verificar prompt global</button>
+        <button class="btn secondary" id="btn-ai-example" type="button">Gerar análise exemplo</button>
+      </div>
+    </section>
+
+    <section class="grid two-cols ai-grid">
+      <article class="module-card">
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">Contexto</p>
+            <h3>System prompt oficial</h3>
+          </div>
+          <span class="badge" id="ai-status-badge">Preparando tudo...</span>
+        </div>
+        <div class="ai-meta-list" id="ai-meta-list"></div>
+      </article>
+
+      <article class="module-card">
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">Teste controlado</p>
+            <h3>Pergunte ao assistente</h3>
+          </div>
+        </div>
+        <div class="form-grid one-col">
+          <label class="form-field">
+            <span>Módulo</span>
+            <select class="select" id="ai-module">
+              <option value="Dashboard">Dashboard</option>
+              <option value="Agenda">Agenda</option>
+              <option value="Tutores / Clientes">Tutores / Clientes</option>
+              <option value="Pets">Pets</option>
+              <option value="Serviços">Serviços</option>
+              <option value="Pacotes">Pacotes</option>
+              <option value="Financeiro">Financeiro</option>
+              <option value="CRM">CRM</option>
+              <option value="Marketing">Marketing</option>
+              <option value="Roleta de Mimos">Roleta de Mimos</option>
+              <option value="Configurações">Configurações</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Solicitação</span>
+            <textarea class="textarea" id="ai-question" rows="5" placeholder="Ex.: analise a agenda de hoje e sugira ações práticas."></textarea>
+          </label>
+          <button class="btn btn-primary" id="btn-ai-send" type="button">Analisar com IA operacional</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="module-card ai-answer-card">
+      <div class="section-head compact">
+        <div>
+          <p class="eyebrow">Resposta</p>
+          <h3>Resultado da análise</h3>
+        </div>
+      </div>
+      <div class="ai-answer" id="ai-answer">
+        <p>Use o campo acima para pedir análises, mensagens e recomendações práticas para a rotina do PetFunny. A IA é opcional e não impede o funcionamento do sistema.</p>
+      </div>
+    </section>
+  `;
+
+  buildShell({
+    active: 'Assistente IA',
+    eyebrow: 'Assistente Inteligente PetFunny',
+    title: 'Assistente IA',
+    subtitle: 'Use a IA do PetFunny para analisar dados, sugerir ações, criar mensagens e apoiar decisões da operação.',
+    content
+  });
+
+  const badge = document.getElementById('ai-status-badge');
+  const metaList = document.getElementById('ai-meta-list');
+  const answer = document.getElementById('ai-answer');
+
+  function renderAnswer(payload) {
+    const item = payload?.answer || {};
+    answer.innerHTML = `
+      <div class="ai-answer-block">
+        <h3>${item.title || 'Análise do Assistente Inteligente PetFunny'}</h3>
+        <p><strong>Diagnóstico:</strong> ${item.diagnosis || 'Sem diagnóstico retornado.'}</p>
+        <p><strong>Impacto:</strong> ${item.impact || 'Sem impacto retornado.'}</p>
+        <p><strong>Ação recomendada:</strong> ${item.recommendedAction || 'Sem ação recomendada.'}</p>
+        ${item.readyMessage ? `<div class="whatsapp-ready"><strong>Mensagem pronta:</strong><br>${item.readyMessage}</div>` : ''}
+      </div>
+    `;
+  }
+
+  async function loadStatus() {
+    showLoading('Carregando Assistente Inteligente PetFunny...');
+    try {
+      const data = await api.get('/assistente-ia/status');
+      badge.textContent = data.openaiConfigured ? 'OpenAI configurada' : 'Prompt ativo · IA opcional';
+      metaList.innerHTML = `
+        <div><strong>Nome:</strong> ${data.prompt.name}</div>
+        <div><strong>Empresa:</strong> ${data.prompt.business}</div>
+        <div><strong>Idioma:</strong> ${data.prompt.language}</div>
+        <div><strong>Modo:</strong> ${data.prompt.mode}</div>
+        <div><strong>Tenant:</strong> ${data.prompt.tenant ? 'sim' : 'não'}</div>
+        <div><strong>Tamanho do prompt:</strong> ${data.prompt.promptLength} caracteres</div>
+        <div><strong>Módulos cobertos:</strong> ${data.prompt.modules.length}</div>
+      `;
+    } catch (error) {
+      badge.textContent = 'Erro ao carregar';
+      toast.error(error.message || 'Falha ao carregar Assistente IA.');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  async function sendQuestion(question) {
+    showLoading('Analisando com o Assistente PetFunny...');
+    try {
+      const payload = await api.post('/assistente-ia/analyze', {
+        module: document.getElementById('ai-module').value,
+        question,
+        context: { origem: 'tela-assistente-ia', dadosReais: false }
+      });
+      renderAnswer(payload);
+      toast.success('Análise gerada com segurança.');
+    } catch (error) {
+      toast.error(error.message || 'Falha ao analisar.');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  document.getElementById('btn-ai-status').addEventListener('click', loadStatus);
+  document.getElementById('btn-ai-example').addEventListener('click', () => {
+    document.getElementById('ai-question').value = 'Analise a agenda de hoje, identifique riscos e sugira ações práticas para o PetFunny.';
+    sendQuestion(document.getElementById('ai-question').value);
+  });
+  document.getElementById('btn-ai-send').addEventListener('click', () => {
+    const question = document.getElementById('ai-question').value.trim();
+    if (!question) return toast.warning('Digite uma solicitação para o assistente.');
+    return sendQuestion(question);
+  });
+
+  loadStatus();
+</script>
+</body>
+</html>

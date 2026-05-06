@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Login · PetFunny OS</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+  <main class="page-center login-page">
+    <section class="card login-card">
+      <div class="brand-row">
+        <div class="brand-logo-box"><img class="brand-logo" src="/assets/img/logo-petfunny-full.png" alt="PetFunny"></div>
+        <div><p class="eyebrow">Acesso restrito</p><h1>PetFunny OS</h1></div>
+      </div>
+      <p>Sistema interno de gestão do PetFunny - Banho e Tosa. Entre com o usuário administrador criado no seed.</p>
+
+      <form class="login-form" id="login-form" autocomplete="on">
+        <div class="form-field">
+          <label for="email">Email</label>
+          <input class="input" id="email" name="email" type="email" value="admin@petfunny.local" required autocomplete="username">
+        </div>
+        <div class="form-field">
+          <label for="password">Senha</label>
+          <input class="input" id="password" name="password" type="password" placeholder="Digite sua senha" required autocomplete="current-password">
+        </div>
+        <div class="login-feedback" id="login-feedback" hidden></div>
+        <div class="form-actions login-actions">
+          <a class="btn btn-secondary" href="/">Voltar</a>
+          <button class="btn" type="submit" id="login-submit">Entrar</button>
+        </div>
+      </form>
+
+      <div class="login-helper">
+        <strong>Senha dev padrão:</strong> PetFunny@2026<br>
+        <small>Altere a senha no ambiente de produção usando ADMIN_PASSWORD antes de rodar o seed.</small>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { api } from '/assets/js/api.js';
+    import { setToken, setCurrentUser, isAuthenticated } from '/assets/js/auth.js';
+    import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+
+    
+    window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 320));
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next') || '/admin/dashboard';
+
+    if (isAuthenticated()) {
+      window.location.replace(next);
+    }
+
+    const form = document.getElementById('login-form');
+    const feedback = document.getElementById('login-feedback');
+    const submit = document.getElementById('login-submit');
+
+    function showFeedback(message, type = 'error') {
+      feedback.hidden = false;
+      feedback.textContent = message;
+      feedback.dataset.type = type;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      feedback.hidden = true;
+      submit.disabled = true;
+      showLoading('Entrando no PetFunny OS...');
+      try {
+        const data = Object.fromEntries(new FormData(form).entries());
+        const response = await api.post('/auth/login', data);
+        setToken(response.token);
+        setCurrentUser(response.user);
+        showFeedback('Login realizado com sucesso. Redirecionando...', 'success');
+        window.location.replace(next);
+      } catch (error) {
+        hideLoading();
+        showFeedback(error.message || 'Não foi possível entrar.');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

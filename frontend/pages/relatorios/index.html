@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Relatórios · PetFunny OS</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { showLoading, hideLoading } from '/assets/js/loading.js';
+  import { showToast } from '/assets/js/toast.js';
+
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const state = {
+    data: null,
+    rows: [],
+    visibleCount: 12,
+    step: 12,
+    filters: { search: '', type: 'all', period: 'month', month: currentMonth },
+    sortBy: 'priority',
+    sortDir: 'asc'
+  };
+
+  const esc = (v='') => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  const money = (c=0) => (Number(c||0)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const numberBR = (v=0) => Number(v || 0).toLocaleString('pt-BR');
+  const percentDelta = (current=0, previous=0) => {
+    const c = Number(current || 0); const p = Number(previous || 0);
+    if (!p && !c) return '0%';
+    if (!p) return '+100%';
+    const d = ((c - p) / p) * 100;
+    return `${d >= 0 ? '+' : ''}${d.toFixed(1).replace('.', ',')}%`;
+  };
+  const $ = (s) => document.querySelector(s);
+
+  function layout() {
+    return `
+      <section class="reports-page reports-admin-page page-stack compact-stack">
+        <section class="hero-panel stack-md reports-hero-panel">
+          <div class="page-heading-row between">
+            <div>
+              <p class="eyebrow">Relatórios operacionais</p>
+              <h1>Relatórios PetFunny</h1>
+              <p>Compare períodos, acompanhe caixa, agenda, pacotes e serviços mais fortes para tomar decisões rápidas na rotina do banho e tosa.</p>
+            </div>
+            <button class="btn" id="refresh-reports" type="button">↻ Atualizar relatórios</button>
+          </div>
+          <div class="filter-row compact-filter-row reports-period-row">
+            <select class="select" id="report-period">
+              <option value="month">Mês selecionado</option>
+              <option value="last7">Últimos 7 dias</option>
+              <option value="last30">Últimos 30 dias</option>
+              <option value="year">Ano do mês selecionado</option>
+              <option value="custom">Período por data</option>
+            </select>
+            <input class="input" type="month" id="report-month" value="${esc(currentMonth)}">
+            <input class="input" type="date" id="report-start-date" value="${new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)}">
+            <input class="input" type="date" id="report-end-date" value="${new Date().toISOString().slice(0,10)}">
+          </div>
+          <div id="report-metrics" class="big-number-grid"></div>
+        </section>
+
+        <section class="module-card report-chart-card report-growth-card stack-sm" data-report-modal="growth">
+          <div class="table-header"><div><h3>Comparativo de crescimento entre períodos</h3><p>Entradas, agenda, serviços e pacotes comparados com o período anterior equivalente.</p></div><button class="btn btn-small btn-secondary" type="button" data-open-report-modal="growth">Ver detalhes</button></div>
+          <div id="growth-comparison-chart" class="report-chart-list growth-chart-list"></div>
+        </section>
+
+        <section class="module-grid reports-chart-grid">
+          <article class="module-card report-chart-card stack-sm" data-report-modal="finance">
+            <div class="table-header"><div><h3>Comparativo financeiro</h3><p>Entrada, saída e saldo do período comparados com o período anterior.</p></div></div>
+            <div id="finance-comparison-chart" class="report-chart-list"></div>
+          </article>
+          <article class="module-card report-chart-card stack-sm" data-report-modal="appointments">
+            <div class="table-header"><div><h3>Agenda por status</h3><p>Volume de atendimentos no período para enxergar gargalos e faltas.</p></div></div>
+            <div id="appointments-status-chart" class="report-chart-list"></div>
+          </article>
+        </section>
+
+        <section class="module-grid reports-chart-grid">
+          <article class="module-card report-chart-card stack-sm" data-report-modal="services">
+            <div class="table-header"><div><h3>Serviços mais vendidos</h3><p>Base para combos, pacotes e campanhas de WhatsApp com maior chance de venda.</p></div></div>
+            <div id="services-chart" class="report-chart-list"></div>
+          </article>
+          <article class="module-card report-chart-card stack-sm" data-report-modal="packages">
+            <div class="table-header"><div><h3>Pacotes contratados</h3><p>Acompanhe ciclos ativos, cancelados e sessões usadas dentro do período.</p></div></div>
+            <div id="packages-chart" class="report-chart-list"></div>
+          </article>
+        </section>
+
+        <section class="module-card stack-md reports-list-card">
+          <div class="section-toolbar stacked-toolbar">
+            <div class="toolbar-copy-line reports-consulta-copy">
+              <div>
+                <h3>Consulta de relatórios</h3>
+                <p>Busque indicadores, oportunidades e alertas para orientar a operação antes de falar com o tutor.</p>
+              </div>
+            </div>
+            <div class="filter-row compact-filter-row filters-below reports-filter-row">
+              <input class="input" id="report-search" placeholder="Buscar por indicador, diagnóstico ou ação" autocomplete="off">
+              <select class="select" id="report-type">
+                <option value="all">Todos os relatórios</option>
+                <option value="indicador">Indicadores</option>
+                <option value="insight">Insights</option>
+                <option value="servico">Serviços</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-scroll custom-scroll no-inner-scroll reports-table-scroll">
+            <table class="premium-table reports-records-table">
+              <thead>
+                <tr>
+                  <th><span class="th-label">Relatório</span><button class="th-arrow-only report-sort" data-sort="title" type="button" title="Ordenar por relatório"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Tipo</span><button class="th-arrow-only report-sort" data-sort="type" type="button" title="Ordenar por tipo"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Diagnóstico</span><button class="th-arrow-only report-sort" data-sort="diagnosis" type="button" title="Ordenar por diagnóstico"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Impacto</span><button class="th-arrow-only report-sort" data-sort="impact" type="button" title="Ordenar por impacto"><span class="sort-arrow">↕</span></button></th>
+                  <th><span class="th-label">Prioridade</span><button class="th-arrow-only report-sort" data-sort="priority" type="button" title="Ordenar por prioridade"><span class="sort-arrow">↕</span></button></th>
+                </tr>
+              </thead>
+              <tbody id="reports-list"><tr><td colspan="5">Preparando relatórios...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="infinite-loader" id="reports-loader" hidden>Carregando mais relatórios...</div>
+          <div class="infinite-sentinel" id="reports-sentinel" aria-hidden="true"></div>
+        </section>
+      </section>
+
+      <div class="modal-backdrop" id="report-modal" hidden>
+        <div class="premium-modal report-modal-card" role="dialog" aria-modal="true">
+          <header class="modal-header"><div><p class="eyebrow">Relatórios PetFunny</p><h2 id="report-modal-title">Detalhes do relatório</h2></div><button class="icon-btn" type="button" data-close-report-modal>×</button></header>
+          <div class="modal-body custom-scroll" id="report-modal-body"></div>
+          <footer class="modal-footer"><button class="btn" type="button" data-close-report-modal>OK</button></footer>
+        </div>
+      </div>
+    `;
+  }
+
+  buildShell({ active:'Relatórios', eyebrow:'PetFunny OS · Relatórios', title:'Relatórios', subtitle:'Leitura prática da operação para tomada de decisão.', content: layout() });
+
+  function metricRows() {
+    const cards = state.data?.dashboard?.cards || {};
+    const finance = state.data?.comparisons?.finance || {};
+    const prev = state.data?.comparisons?.previousFinance || {};
+    return [
+      { title: 'Período analisado', value: state.data?.period?.label || '—', hint: 'seleção ativa' },
+      { title: 'Entradas no período', value: money(finance.income_cents || 0), hint: `${percentDelta(finance.income_cents, prev.income_cents)} vs período anterior` },
+      { title: 'Saídas no período', value: money(finance.expense_cents || 0), hint: `${percentDelta(finance.expense_cents, prev.expense_cents)} vs período anterior` },
+      { title: 'Pacotes ativos', value: cards.activePackages?.value || 0, hint: 'recorrência em andamento' }
+    ];
+  }
+
+  function buildRows() {
+    const rows = [];
+    metricRows().forEach((m, index) => rows.push({ id: `metric-${index}`, type: 'indicador', title: m.title, diagnosis: `${m.value} · ${m.hint}`, impact: 'Use este indicador para decidir prioridade operacional e comercial do período.', priority: index + 1 }));
+    (state.data?.insights || []).forEach((item, index) => rows.push({ id: `insight-${index}`, type: 'insight', title: item.title, diagnosis: item.diagnosis, impact: `${item.impact} Ação: ${item.action}`, priority: index + 10 }));
+    (state.data?.comparisons?.periodServices || state.data?.topServices || []).forEach((service, index) => rows.push({ id: `service-${index}`, type: 'servico', title: service.name || 'Serviço', diagnosis: `${service.sold_count || 0} venda(s) registradas`, impact: `${money(service.total_cents)} em receita. Use como base para combos, pacotes e campanhas.`, priority: index + 30 }));
+    return rows;
+  }
+
+  function valueFor(row, key) {
+    if (key === 'priority') return Number(row.priority || 0);
+    return String(row[key] || '').toLowerCase();
+  }
+
+  function filteredRows() {
+    const term = state.filters.search.trim().toLowerCase();
+    return state.rows.filter((row) => {
+      const matchType = state.filters.type === 'all' || row.type === state.filters.type;
+      const text = `${row.title} ${row.type} ${row.diagnosis} ${row.impact}`.toLowerCase();
+      return matchType && (!term || text.includes(term));
+    }).sort((a, b) => {
+      const av = valueFor(a, state.sortBy); const bv = valueFor(b, state.sortBy);
+      if (av > bv) return state.sortDir === 'asc' ? 1 : -1;
+      if (av < bv) return state.sortDir === 'asc' ? -1 : 1;
+      return 0;
+    });
+  }
+
+  function updateSortArrows() {
+    document.querySelectorAll('.report-sort').forEach((btn) => {
+      btn.querySelector('.sort-arrow').textContent = btn.dataset.sort === state.sortBy ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function renderMetrics() {
+    $('#report-metrics').innerHTML = metricRows().map((m, index) => `<article class="big-number-card report-clickable-card" data-open-report-modal="metric-${index}"><span>${esc(m.title)}</span><strong>${esc(m.value)}</strong><small>${esc(m.hint)}</small></article>`).join('');
+  }
+
+  function renderBarList(target, rows, options = {}) {
+    const valueKey = options.valueKey || 'value';
+    const labelKey = options.labelKey || 'label';
+    const format = options.format || numberBR;
+    const max = Math.max(1, ...rows.map(r => Number(r[valueKey] || 0)));
+    $(target).innerHTML = rows.length ? rows.map((row) => {
+      const value = Number(row[valueKey] || 0);
+      return `<div class="report-bar-row"><div><strong>${esc(row[labelKey] || '—')}</strong><small>${esc(row.hint || '')}</small></div><div class="report-bar-track"><i style="width:${Math.max(4, (value / max) * 100)}%"></i></div><b>${esc(format(value))}</b></div>`;
+    }).join('') : '<div class="empty-state compact"><strong>Sem dados no período.</strong><p>Altere o período ou registre novos movimentos.</p></div>';
+  }
+
+  function growthRows() {
+    const c = state.data?.comparisons || {};
+    const finance = c.finance || {};
+    const prevFinance = c.previousFinance || {};
+    const growth = c.growth || {};
+    const current = growth.current || {};
+    const previous = growth.previous || {};
+    return [
+      { label: 'Entradas', current: Number(finance.income_cents || 0), previous: Number(prevFinance.income_cents || 0), format: money, hint: 'crescimento de receita' },
+      { label: 'Agendamentos', current: Number(current.appointments_count || 0), previous: Number(previous.appointments_count || 0), format: numberBR, hint: 'volume operacional' },
+      { label: 'Serviços vendidos', current: Number(current.services_count || 0), previous: Number(previous.services_count || 0), format: numberBR, hint: 'itens executados' },
+      { label: 'Pacotes contratados', current: Number(current.packages_count || 0), previous: Number(previous.packages_count || 0), format: numberBR, hint: 'recorrência comercial' }
+    ];
+  }
+
+  function renderGrowthChart() {
+    const rows = growthRows();
+    const max = Math.max(1, ...rows.flatMap(row => [row.current, row.previous]));
+    $('#growth-comparison-chart').innerHTML = rows.map((row) => `
+      <div class="report-growth-row" data-open-report-modal="growth">
+        <div><strong>${esc(row.label)}</strong><small>${esc(row.hint)} · ${percentDelta(row.current, row.previous)} vs período anterior</small></div>
+        <div class="report-growth-bars">
+          <span><i style="width:${Math.max(4, (row.current / max) * 100)}%"></i></span>
+          <span><b style="width:${Math.max(4, (row.previous / max) * 100)}%"></b></span>
+        </div>
+        <div class="report-growth-values"><strong>${esc(row.format(row.current))}</strong><small>Anterior: ${esc(row.format(row.previous))}</small></div>
+      </div>`).join('');
+  }
+
+  function renderCharts() {
+    renderGrowthChart();
+    const c = state.data?.comparisons || {};
+    const finance = c.finance || {}; const prev = c.previousFinance || {};
+    renderBarList('#finance-comparison-chart', [
+      { label: 'Entradas atuais', value: finance.income_cents || 0, hint: `${finance.income_count || 0} lançamento(s)` },
+      { label: 'Entradas anteriores', value: prev.income_cents || 0, hint: 'período anterior equivalente' },
+      { label: 'Saídas atuais', value: finance.expense_cents || 0, hint: `${finance.expense_count || 0} lançamento(s)` },
+      { label: 'Saídas anteriores', value: prev.expense_cents || 0, hint: 'período anterior equivalente' }
+    ], { labelKey: 'label', valueKey: 'value', format: money });
+    renderBarList('#appointments-status-chart', (c.appointmentsByStatus || []).map(r => ({ label: r.status, value: r.count, hint: 'agendamentos' })), { format: numberBR });
+    renderBarList('#services-chart', (c.periodServices || []).map(r => ({ label: r.name || 'Serviço', value: r.total_cents, hint: `${r.sold_count || 0} venda(s)` })), { format: money });
+    renderBarList('#packages-chart', (c.packagesProgress || []).map(r => ({ label: r.status, value: r.count, hint: `${r.used_sessions || 0}/${r.total_sessions || 0} sessões usadas` })), { format: numberBR });
+  }
+
+  function renderRows() {
+    const rows = filteredRows();
+    const visible = rows.slice(0, state.visibleCount);
+    $('#reports-list').innerHTML = visible.length ? visible.map((row) => `
+      <tr data-open-report-modal="${esc(row.id)}" class="clickable-report-row">
+        <td><strong>${esc(row.title)}</strong><small>${row.type === 'insight' ? 'Recomendação acionável' : row.type === 'servico' ? 'Desempenho comercial' : 'Indicador de operação'}</small></td>
+        <td><span class="status-pill status-neutral">${esc(row.type)}</span></td>
+        <td>${esc(row.diagnosis)}</td>
+        <td>${esc(row.impact)}</td>
+        <td><strong>${String(row.priority).padStart(2, '0')}</strong></td>
+      </tr>
+    `).join('') : '<tr><td colspan="5"><div class="empty-state"><strong>Nenhum relatório encontrado.</strong><p>Revise os filtros ou atualize os dados.</p></div></td></tr>';
+    $('#reports-loader').hidden = visible.length >= rows.length;
+    updateSortArrows();
+    setupPremiumInteractions(document);
+    bindReportModalTriggers(document);
+  }
+
+  function modalPayload(key) {
+    const c = state.data?.comparisons || {};
+    const cards = state.data?.dashboard?.cards || {};
+    const map = {
+      growth: {
+        title: 'Crescimento entre períodos',
+        body: growthRows().map(row => `<article class="report-modal-line"><strong>${esc(row.label)}</strong><span>Atual: ${esc(row.format(row.current))} · Anterior: ${esc(row.format(row.previous))}</span><small>${esc(percentDelta(row.current, row.previous))} no período selecionado.</small></article>`).join('')
+      },
+      finance: {
+        title: 'Comparativo financeiro',
+        body: `<article class="report-modal-line"><strong>Entradas</strong><span>${money(c.finance?.income_cents || 0)} · anterior ${money(c.previousFinance?.income_cents || 0)}</span><small>${percentDelta(c.finance?.income_cents, c.previousFinance?.income_cents)} vs período anterior.</small></article><article class="report-modal-line"><strong>Saídas</strong><span>${money(c.finance?.expense_cents || 0)} · anterior ${money(c.previousFinance?.expense_cents || 0)}</span><small>${percentDelta(c.finance?.expense_cents, c.previousFinance?.expense_cents)} vs período anterior.</small></article>`
+      },
+      appointments: {
+        title: 'Agenda por status',
+        body: (c.appointmentsByStatus || []).map(row => `<article class="report-modal-line"><strong>${esc(row.status)}</strong><span>${numberBR(row.count)} agendamento(s)</span><small>Use para identificar fila, faltas e finalizações no período.</small></article>`).join('') || '<p>Sem agendamentos no período.</p>'
+      },
+      services: {
+        title: 'Serviços mais vendidos',
+        body: (c.periodServices || []).map(row => `<article class="report-modal-line"><strong>${esc(row.name || 'Serviço')}</strong><span>${numberBR(row.sold_count)} venda(s) · ${money(row.total_cents)}</span><small>Base para combos, pacotes e campanhas.</small></article>`).join('') || '<p>Sem serviços vendidos no período.</p>'
+      },
+      packages: {
+        title: 'Pacotes contratados',
+        body: (c.packagesProgress || []).map(row => `<article class="report-modal-line"><strong>${esc(row.status)}</strong><span>${numberBR(row.count)} pacote(s)</span><small>${numberBR(row.used_sessions || 0)} de ${numberBR(row.total_sessions || 0)} sessões usadas.</small></article>`).join('') || '<p>Sem pacotes contratados no período.</p>'
+      }
+    };
+    metricRows().forEach((m, index) => {
+      map[`metric-${index}`] = { title: m.title, body: `<article class="report-modal-line"><strong>${esc(m.value)}</strong><span>${esc(m.hint)}</span><small>Indicador gerado para o período ${esc(state.data?.period?.label || '')}.</small></article>` };
+    });
+    state.rows.forEach(row => {
+      map[row.id] = { title: row.title, body: `<article class="report-modal-line"><strong>${esc(row.diagnosis)}</strong><span>${esc(row.impact)}</span><small>Prioridade ${String(row.priority).padStart(2, '0')} · tipo ${esc(row.type)}</small></article>` };
+    });
+    return map[key] || map.growth;
+  }
+
+  function openReportModal(key) {
+    const payload = modalPayload(key);
+    $('#report-modal-title').textContent = payload.title;
+    $('#report-modal-body').innerHTML = payload.body;
+    $('#report-modal').hidden = false;
+    setupPremiumInteractions($('#report-modal'));
+  }
+
+  function closeReportModal() { $('#report-modal').hidden = true; }
+
+  function bindReportModalTriggers(scope = document) {
+    scope.querySelectorAll('[data-open-report-modal]').forEach((el) => {
+      if (el.dataset.modalBound === '1') return;
+      el.dataset.modalBound = '1';
+      el.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openReportModal(el.dataset.openReportModal);
+      });
+    });
+    scope.querySelectorAll('[data-report-modal]').forEach((el) => {
+      if (el.dataset.cardModalBound === '1') return;
+      el.dataset.cardModalBound = '1';
+      el.addEventListener('click', (event) => {
+        if (event.target.closest('button')) return;
+        openReportModal(el.dataset.reportModal);
+      });
+    });
+  }
+
+  function buildReportParams() {
+    const params = new URLSearchParams({
+      period: state.filters.period || 'month',
+      month: state.filters.month || currentMonth
+    });
+    if (state.filters.period === 'custom') {
+      params.set('startDate', $('#report-start-date')?.value || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10));
+      params.set('endDate', $('#report-end-date')?.value || new Date().toISOString().slice(0,10));
+    }
+    return params;
+  }
+
+  function applyReportPeriodVisibility() {
+    const isCustom = state.filters.period === 'custom';
+    $('#report-month').hidden = ['last7','last30','custom'].includes(state.filters.period);
+    $('#report-start-date').hidden = !isCustom;
+    $('#report-end-date').hidden = !isCustom;
+  }
+
+  async function load() {
+    showLoading('Gerando relatórios...', 'Comparando períodos, agenda, caixa, pacotes e serviços.');
+    try {
+      const params = buildReportParams();
+      state.data = await api.get(`/relatorios/insights?${params}`);
+      state.rows = buildRows();
+      state.visibleCount = state.step;
+      renderMetrics();
+      renderCharts();
+      renderRows();
+      bindReportModalTriggers(document);
+      window.dispatchEvent(new Event('petfunny:page-ready'));
+    } catch (error) {
+      showToast(error.message || 'Erro ao carregar relatórios.', 'error');
+    } finally { hideLoading(); }
+  }
+
+  $('#refresh-reports').addEventListener('click', load);
+  $('#report-search').addEventListener('input', () => { state.filters.search = $('#report-search').value; state.visibleCount = state.step; renderRows(); });
+  $('#report-type').addEventListener('input', () => { state.filters.type = $('#report-type').value; state.visibleCount = state.step; renderRows(); });
+  $('#report-period').addEventListener('input', async () => { state.filters.period = $('#report-period').value; applyReportPeriodVisibility(); await load(); });
+  $('#report-month').addEventListener('input', async () => { state.filters.month = $('#report-month').value || currentMonth; await load(); });
+  $('#report-start-date').addEventListener('input', async () => { if (state.filters.period === 'custom') await load(); });
+  $('#report-end-date').addEventListener('input', async () => { if (state.filters.period === 'custom') await load(); });
+  document.querySelectorAll('[data-close-report-modal]').forEach((button) => button.addEventListener('click', closeReportModal));
+  $('#report-modal').addEventListener('click', (event) => { if (event.target.id === 'report-modal') closeReportModal(); });
+  document.querySelectorAll('.report-sort').forEach((btn) => btn.addEventListener('click', () => {
+    const key = btn.dataset.sort;
+    state.sortDir = state.sortBy === key && state.sortDir === 'asc' ? 'desc' : 'asc';
+    state.sortBy = key;
+    renderRows();
+  }));
+
+  const observer = new IntersectionObserver((entries) => {
+    const entry = entries[0];
+    if (!entry?.isIntersecting) return;
+    const total = filteredRows().length;
+    if (state.visibleCount < total) { state.visibleCount += state.step; renderRows(); }
+  }, { root: null, rootMargin: '420px 0px', threshold: 0.01 });
+  observer.observe($('#reports-sentinel'));
+
+  applyReportPeriodVisibility();
+  await load();
+</script>
+</body>
+</html>

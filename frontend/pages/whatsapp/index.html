@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WhatsApp · PetFunny OS</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell, setupPremiumInteractions, bigNumberGrid } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { showLoading, hideLoading } from '/assets/js/loading.js';
+  import { showToast } from '/assets/js/toast.js';
+  import { generateWhatsAppMessage, openWhatsAppUrl } from '/assets/js/whatsapp.js';
+
+  const state = { templates: [] };
+
+  buildShell({
+    active: 'WhatsApp',
+    eyebrow: 'Atendimento híbrido',
+    title: 'WhatsApp inteligente',
+    subtitle: 'A IA prepara a mensagem, abre o WhatsApp com tudo preenchido e a equipe revisa antes de enviar.',
+    content: `
+      <section class="hero-panel stack-md">
+        <div class="page-heading-row between">
+          <div>
+            <p class="eyebrow">Sem API oficial, sem risco técnico</p>
+            <h1>Mensagens prontas para atendimento humano</h1>
+            <p>Use este módulo para confirmar horários, cobrar pendências, reativar clientes, renovar pacotes e enviar recibos com textos profissionais e personalizados.</p>
+          </div>
+          <span class="badge">Modelo híbrido: IA + atendente</span>
+        </div>
+        <div id="whatsapp-metrics">${bigNumberGrid([['Envio manual','Seguro','sem disparo automático'],['WhatsApp','Pré-preenchido','revisar e enviar'],['IA','Opcional','não trava o sistema']])}</div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="table-header">
+          <div><h3>Gerar mensagem rápida</h3><p>Escolha o tipo de contato, informe o WhatsApp e personalize a mensagem se quiser.</p></div>
+        </div>
+        <form id="whatsapp-form" class="form-grid form-row-gap">
+          <label class="form-field"><span>Tipo de mensagem</span><select class="select" id="template-type"></select></label>
+          <label class="form-field"><span>WhatsApp do cliente</span><input class="input" id="phone" data-mask="whatsapp" placeholder="(16) 98153-5338"></label>
+          <label class="form-field"><span>Nome do pet</span><input class="input" id="pet-name" placeholder="Ex.: Mel, Thor, Luna"></label>
+          <label class="form-field"><span>Serviço ou assunto</span><input class="input" id="service" placeholder="Ex.: banho e tosa completa"></label>
+          <label class="form-field form-span-2"><span>Mensagem personalizada opcional</span><textarea class="textarea" id="custom-message" rows="4" placeholder="Use apenas se quiser substituir o texto padrão gerado pelo sistema."></textarea></label>
+          <div class="actions form-span-2"><button class="btn" type="submit">💬 Gerar e abrir WhatsApp</button><button class="btn btn-secondary" type="button" id="preview-btn">Pré-visualizar mensagem</button></div>
+        </form>
+      </section>
+
+      <section class="module-grid">
+        <article class="module-card"><h3>Agenda</h3><p>Confirmação de horário, lembrete, aviso de atraso e encaixe disponível.</p></article>
+        <article class="module-card"><h3>Financeiro</h3><p>Cobrança amigável de pendências sem tom agressivo.</p></article>
+        <article class="module-card"><h3>Pacotes</h3><p>Renovação preventiva antes da última sessão.</p></article>
+        <article class="module-card"><h3>CRM</h3><p>Reativação de clientes inativos e pós-atendimento.</p></article>
+      </section>
+
+      <dialog class="modal-shell" id="preview-modal">
+        <form method="dialog">
+          <header><strong>Mensagem gerada</strong><button class="icon-btn" value="cancel">×</button></header>
+          <div class="modal-scroll custom-scroll"><pre class="codebox" id="preview-text"></pre></div>
+          <footer><button class="btn btn-secondary" value="cancel">Fechar</button><button class="btn" id="open-preview-whatsapp" type="button">Abrir no WhatsApp</button></footer>
+        </form>
+      </dialog>
+    `
+  });
+
+  const $ = (s) => document.querySelector(s);
+  let lastPreview = null;
+
+  function payload() {
+    return {
+      type: $('#template-type').value,
+      phone: $('#phone').value,
+      custom: {
+        petName: $('#pet-name').value,
+        service: $('#service').value,
+        message: $('#custom-message').value
+      }
+    };
+  }
+
+  async function loadTemplates() {
+    showLoading('Carregando WhatsApp inteligente...', 'Preparando modelos de mensagem do PetFunny.');
+    try {
+      const data = await api.get('/whatsapp/templates');
+      state.templates = data.templates || [];
+      $('#template-type').innerHTML = state.templates.map(t => `<option value="${t.code}">${t.name} · ${t.module}</option>`).join('');
+      window.dispatchEvent(new Event('petfunny:page-ready'));
+    } catch (error) {
+      showToast(error.message || 'Erro ao carregar modelos de WhatsApp.', 'error');
+    } finally { hideLoading(); }
+  }
+
+  async function preview() {
+    showLoading('Gerando mensagem...', 'Aplicando o texto ideal para WhatsApp.');
+    try {
+      lastPreview = await generateWhatsAppMessage(payload());
+      $('#preview-text').textContent = lastPreview.message || '';
+      $('#preview-modal').showModal();
+      return lastPreview;
+    } catch (error) {
+      showToast(error.message || 'Erro ao gerar mensagem.', 'error');
+      return null;
+    } finally { hideLoading(); }
+  }
+
+  $('#preview-btn').addEventListener('click', preview);
+  $('#whatsapp-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = await preview();
+    if (data?.url) openWhatsAppUrl(data.url);
+  });
+  $('#open-preview-whatsapp').addEventListener('click', () => openWhatsAppUrl(lastPreview?.url));
+
+  setupPremiumInteractions(document);
+  loadTemplates();
+</script>
+</body>
+</html>

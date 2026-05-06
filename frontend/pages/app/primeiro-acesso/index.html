@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>App do Cliente · PetFunny</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#ff7f95">
+  <link rel="apple-touch-icon" href="/assets/img/icon-192.png">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+  <main class="page-center client-login-page client-auth-flow-page">
+    <section class="card login-card postit-auth-card client-auth-flow-card">
+      <div class="brand-row client-auth-brand">
+        <div class="brand-logo-box"><img class="brand-logo" src="/assets/img/logo-petfunny-full.png" alt="PetFunny"></div>
+        <div>
+          <p class="eyebrow">App do tutor</p>
+          <h1 id="auth-title">Entrar no Meu PetFunny</h1>
+        </div>
+      </div>
+      <p id="auth-subtitle" class="client-auth-subtitle">Informe seu WhatsApp para receber o código de validação e liberar seu acesso com segurança.</p>
+
+      <div class="client-auth-progress" aria-label="Etapas de acesso">
+        <span class="active" data-progress="whatsapp">WhatsApp</span>
+        <span data-progress="code">Código</span>
+        <span data-progress="profile">Cadastro</span>
+        <span data-progress="pet">Pet</span>
+      </div>
+
+      <form id="step-whatsapp" class="login-form client-auth-step">
+        <div class="form-field">
+          <label for="whatsapp">WhatsApp</label>
+          <input class="input" data-mask="whatsapp" id="whatsapp" name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="(16) 99999-9999" required>
+        </div>
+        <button class="btn btn-full" type="submit">Gerar código pelo WhatsApp</button>
+        <p class="client-auth-copyright">© <span id="client-auth-year"></span> PetFunny - Banho e Tosa. Cuidado, carinho e tecnologia para o seu pet.</p>
+      </form>
+
+      <form id="step-code" class="login-form client-auth-step" hidden>
+        <div class="form-field">
+          <label for="code">Código recebido</label>
+          <input class="input client-code-input" id="code" name="code" inputmode="numeric" maxlength="6" placeholder="Digite os 6 números" required>
+        </div>
+        <div class="client-whatsapp-code-card" id="whatsapp-code-card" hidden>
+          <strong>Envie o código para seu próprio WhatsApp</strong>
+          <small>Toque no botão, envie a mensagem pronta para você mesmo, copie os 6 números recebidos e valide aqui.</small>
+          <a class="btn btn-secondary btn-full" id="open-whatsapp-code" href="#" target="_blank" rel="noopener">Abrir WhatsApp com meu código</a>
+        </div>
+        <div class="form-actions login-actions">
+          <button class="btn btn-secondary" type="button" data-back="whatsapp">Alterar WhatsApp</button>
+          <button class="btn" type="submit">Validar código</button>
+        </div>
+      </form>
+
+      <form id="step-password" class="login-form client-auth-step" hidden>
+        <div class="client-auth-summary" id="existing-tutor-summary"></div>
+        <div class="form-field">
+          <label for="password-existing">Criar senha do app</label>
+          <input class="input" id="password-existing" name="password" type="password" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div class="form-field">
+          <label for="confirm-password-existing">Confirmar senha</label>
+          <input class="input" id="confirm-password-existing" name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div class="form-actions login-actions">
+          <button class="btn btn-secondary" type="button" data-back="code">Voltar</button>
+          <button class="btn" type="submit">Criar senha e continuar</button>
+        </div>
+      </form>
+
+      <form id="step-tutor" class="login-form client-auth-step" hidden>
+        <div class="client-auth-summary">WhatsApp validado. Agora precisamos cadastrar o tutor para criar seu acesso.</div>
+        <div class="form-field">
+          <label for="tutor-name">Nome do tutor</label>
+          <input class="input" id="tutor-name" name="name" autocomplete="name" required>
+        </div>
+        <div class="form-field">
+          <label for="tutor-email">E-mail</label>
+          <input class="input" id="tutor-email" name="email" type="email" autocomplete="email" placeholder="opcional">
+        </div>
+        <div class="form-grid two">
+          <div class="form-field">
+            <label for="tutor-city">Cidade</label>
+            <input class="input" id="tutor-city" name="city" value="Ribeirão Preto">
+          </div>
+          <div class="form-field">
+            <label for="tutor-state">UF</label>
+            <input class="input" id="tutor-state" name="state" value="SP" maxlength="2">
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="tutor-address">Endereço</label>
+          <input class="input" id="tutor-address" name="address" placeholder="opcional">
+        </div>
+        <div class="form-actions login-actions">
+          <button class="btn btn-secondary" type="button" data-back="code">Voltar</button>
+          <button class="btn" type="submit">Cadastrar tutor</button>
+        </div>
+      </form>
+
+      <form id="step-pet" class="login-form client-auth-step" hidden>
+        <div class="client-auth-summary">Última etapa: cadastre o pet e defina sua senha para entrar no app.</div>
+        <div class="form-field">
+          <label for="pet-name">Nome do pet</label>
+          <input class="input" id="pet-name" name="petName" required>
+        </div>
+        <div class="form-grid two">
+          <div class="form-field">
+            <label for="pet-size">Porte</label>
+            <select class="input" id="pet-size" name="size">
+              <option value="pequeno">Pequeno</option>
+              <option value="medio">Médio</option>
+              <option value="grande">Grande</option>
+              <option value="gigante">Gigante</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="pet-breed">Raça</label>
+            <input class="input" id="pet-breed" name="breed" placeholder="opcional">
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="pet-coat">Pelagem</label>
+          <input class="input" id="pet-coat" name="coatType" placeholder="curta, longa, dupla...">
+        </div>
+        <div class="form-field">
+          <label for="pet-notes">Observações importantes</label>
+          <textarea class="input" id="pet-notes" name="notes" rows="3" placeholder="medos, alergias, preferências, restrições..."></textarea>
+        </div>
+        <div class="form-field">
+          <label for="password-new">Criar senha do app</label>
+          <input class="input" id="password-new" name="password" type="password" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div class="form-field">
+          <label for="confirm-password-new">Confirmar senha</label>
+          <input class="input" id="confirm-password-new" name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div class="form-actions login-actions">
+          <button class="btn btn-secondary" type="button" data-back="tutor">Voltar</button>
+          <button class="btn" type="submit">Finalizar e acessar app</button>
+        </div>
+      </form>
+
+      <div class="login-feedback" id="feedback" hidden></div>
+    </section>
+  </main>
+  <script type="module">
+    import { clientApi } from '/assets/js/client-api.js';
+    import { setClientToken, setClientUser, isClientAuthenticated } from '/assets/js/client-auth.js';
+    import { applyInputMasks } from '/assets/js/shell.js';
+    import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+
+    applyInputMasks(document);
+    window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 320));
+
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next') || '/app/home';
+    if (isClientAuthenticated()) window.location.replace(next);
+
+    const state = {
+      whatsapp: '',
+      tutorExists: false,
+      tutor: null,
+      verificationToken: '',
+      onboardingToken: '',
+      whatsappUrl: ''
+    };
+
+    const steps = {
+      whatsapp: document.getElementById('step-whatsapp'),
+      code: document.getElementById('step-code'),
+      password: document.getElementById('step-password'),
+      tutor: document.getElementById('step-tutor'),
+      pet: document.getElementById('step-pet')
+    };
+
+    const title = document.getElementById('auth-title');
+    const subtitle = document.getElementById('auth-subtitle');
+    const feedback = document.getElementById('feedback');
+    const whatsappCodeCard = document.getElementById('whatsapp-code-card');
+    const openWhatsappCode = document.getElementById('open-whatsapp-code');
+    const clientAuthYear = document.getElementById('client-auth-year');
+    if (clientAuthYear) clientAuthYear.textContent = new Date().getFullYear();
+    const progressItems = Array.from(document.querySelectorAll('[data-progress]'));
+
+    const copy = {
+      whatsapp: ['Entrar no Meu PetFunny', 'Informe seu WhatsApp para receber o código de validação e liberar seu acesso com segurança.'],
+      code: ['Validar código', 'Digite os 6 números enviados para o WhatsApp informado.'],
+      password: ['Criar senha do app', 'Cliente encontrado. Defina sua senha para continuar para o app.'],
+      tutor: ['Cadastro do tutor', 'WhatsApp validado. Complete seus dados para criar o acesso.'],
+      pet: ['Cadastro do pet', 'Cadastre o pet e finalize sua senha para entrar no app.']
+    };
+
+    function setStep(step) {
+      Object.entries(steps).forEach(([key, el]) => { el.hidden = key !== step; });
+      const [heading, text] = copy[step] || copy.whatsapp;
+      title.textContent = heading;
+      subtitle.textContent = text;
+      const progressKey = step === 'password' ? 'profile' : step === 'tutor' ? 'profile' : step;
+      progressItems.forEach((item) => item.classList.toggle('active', item.dataset.progress === progressKey));
+      feedback.hidden = true;
+      if (whatsappCodeCard) whatsappCodeCard.hidden = step !== 'code' || !state.whatsappUrl;
+    }
+
+    function showFeedback(message, type = 'success') {
+      feedback.hidden = false;
+      feedback.textContent = message;
+      feedback.dataset.type = type;
+    }
+
+    function completeLogin(response) {
+      setClientToken(response.token);
+      setClientUser({ account: response.account, tutor: response.tutor });
+      window.location.replace(next);
+    }
+
+    document.getElementById('step-whatsapp').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      showLoading('Enviando código para o WhatsApp...');
+      try {
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+        const response = await clientApi.post('/app/auth/request-code', data);
+        state.whatsapp = response.whatsapp || data.whatsapp;
+        state.tutorExists = Boolean(response.tutorExists);
+        state.tutor = response.tutor || null;
+        state.whatsappUrl = response.whatsappUrl || '';
+        if (openWhatsappCode && state.whatsappUrl) openWhatsappCode.href = state.whatsappUrl;
+        setStep('code');
+        document.getElementById('code').focus();
+        showFeedback(response.message || 'Código gerado. Abra o WhatsApp para enviar a mensagem pronta.', 'success');
+      } catch (error) {
+        showFeedback(error.message || 'Não foi possível enviar o código.', 'error');
+      } finally {
+        hideLoading();
+      }
+    });
+
+    document.getElementById('step-code').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      showLoading('Validando código...');
+      try {
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+        data.whatsapp = state.whatsapp;
+        const response = await clientApi.post('/app/auth/verify-code', data);
+        state.verificationToken = response.verificationToken;
+        state.tutorExists = Boolean(response.tutorExists);
+        state.tutor = response.tutor || null;
+        if (state.tutorExists) {
+          const el = document.getElementById('existing-tutor-summary');
+          el.textContent = `Cliente encontrado: ${state.tutor?.name || 'Tutor PetFunny'}. Crie uma senha para acessar o app.`;
+          setStep('password');
+          document.getElementById('password-existing').focus();
+        } else {
+          setStep('tutor');
+          document.getElementById('tutor-name').focus();
+        }
+      } catch (error) {
+        showFeedback(error.message || 'Não foi possível validar o código.', 'error');
+      } finally {
+        hideLoading();
+      }
+    });
+
+    document.getElementById('step-password').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      showLoading('Criando senha e liberando o app...');
+      try {
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+        data.verificationToken = state.verificationToken;
+        const response = await clientApi.post('/app/auth/set-password', data);
+        completeLogin(response);
+      } catch (error) {
+        showFeedback(error.message || 'Não foi possível criar a senha.', 'error');
+        hideLoading();
+      }
+    });
+
+    document.getElementById('step-tutor').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      showLoading('Cadastrando tutor...');
+      try {
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+        data.verificationToken = state.verificationToken;
+        const response = await clientApi.post('/app/auth/register-tutor', data);
+        state.tutor = response.tutor;
+        state.onboardingToken = response.onboardingToken;
+        setStep('pet');
+        document.getElementById('pet-name').focus();
+        showFeedback(response.message || 'Tutor cadastrado. Agora cadastre o pet.', 'success');
+      } catch (error) {
+        showFeedback(error.message || 'Não foi possível cadastrar o tutor.', 'error');
+      } finally {
+        hideLoading();
+      }
+    });
+
+    document.getElementById('step-pet').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      showLoading('Finalizando acesso ao app...');
+      try {
+        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+        data.onboardingToken = state.onboardingToken;
+        const response = await clientApi.post('/app/auth/register-pet', data);
+        completeLogin(response);
+      } catch (error) {
+        showFeedback(error.message || 'Não foi possível finalizar o cadastro.', 'error');
+        hideLoading();
+      }
+    });
+
+    document.querySelectorAll('[data-back]').forEach((button) => {
+      button.addEventListener('click', () => setStep(button.dataset.back));
+    });
+  </script>
+</body>
+</html>

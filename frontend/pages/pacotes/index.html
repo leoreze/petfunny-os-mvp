@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pacotes · PetFunny OS</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { hideLoading, withLoading, finishPageLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  const today = new Date().toISOString().slice(0, 10);
+  const esc = (value = '') => String(value ?? '').replace(/[&<>\"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const debounce = (fn, wait = 320) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; };
+
+  document.body.classList.add('packages-page');
+
+  const state = {
+    options: { services: [], tutors: [], pets: [], packages: [] },
+    packages: [],
+    customerPackages: [],
+    packagePage: 1,
+    salePage: 1,
+    limit: 18,
+    packageDone: false,
+    saleDone: false,
+    loadingMore: false,
+    search: '',
+    status: 'active',
+    packagePetSize: 'todos',
+    soldStatus: 'all',
+    sortBy: 'name',
+    sortDir: 'asc',
+    saleSortBy: 'createdAt',
+    saleSortDir: 'desc'
+  };
+
+  const content = `
+    <section class="hero-panel stack-lg">
+      <div class="page-heading-row between">
+        <div>
+          <p class="eyebrow">Recorrência e fidelização</p>
+          <h1>Pacotes do PetFunny</h1>
+          <p>Monte planos de banho e tosa, venda para tutores recorrentes e deixe o sistema organizar as próximas sessões com mais previsibilidade para a equipe.</p>
+        </div>
+        <div class="actions packages-hero-actions">
+          <button class="btn btn-secondary" id="sell-package" type="button">🎁 Vender pacote</button>
+        </div>
+      </div>
+      <div id="package-metrics">${bigNumberGrid([
+        ['Pacotes ativos', '—', 'planos disponíveis'],
+        ['Clientes com pacote', '—', 'recorrência em andamento'],
+        ['Receita potencial', '—', 'vitrine dos pacotes']
+      ])}</div>
+    </section>
+
+    <section class="module-card stack-md package-list-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line packages-consulta-copy">
+          <div>
+            <h3>Consulta de pacotes</h3>
+            <p>Busque pacotes, revise valores, sessões e frequência antes de oferecer ao tutor.</p>
+          </div>
+        </div>
+        <div class="packages-consulta-actions">
+          <button class="btn" id="new-package" type="button">＋ Novo pacote</button>
+        </div>
+        <div class="filter-row compact-filter-row filters-below">
+          <input class="input" id="search" placeholder="Buscar pacote" autocomplete="off">
+          <select class="select" id="status-filter">
+            <option value="active">Ativos</option>
+            <option value="inactive">Inativos</option>
+            <option value="all">Todos</option>
+          </select>
+          <button class="btn btn-secondary" id="reload" type="button">Atualizar</button>
+        </div>
+      </div>
+
+      <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="packages-scroll">
+        <table class="premium-table">
+          <thead>
+            <tr>
+              <th><span class="th-label">Pacote</span><button class="th-arrow-only package-sort" data-sort="name" type="button" title="Ordenar por pacote"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Valor</span><button class="th-arrow-only package-sort" data-sort="priceCents" type="button" title="Ordenar por valor"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Sessões</span><button class="th-arrow-only package-sort" data-sort="sessionsCount" type="button" title="Ordenar por sessões"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Frequência</span><button class="th-arrow-only package-sort" data-sort="appointmentsPerMonth" type="button" title="Ordenar por frequência"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Clientes</span><button class="th-arrow-only package-sort" data-sort="customersCount" type="button" title="Ordenar por clientes"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Status</span><button class="th-arrow-only package-sort" data-sort="isActive" type="button" title="Ordenar por status"><span class="sort-arrow">↕</span></button></th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="packages-body"><tr><td colspan="7">Preparando pacotes...</td></tr></tbody>
+        </table>
+        <div class="infinite-loader" id="packages-loader" hidden>Carregando mais pacotes...</div>
+      </div>
+    </section>
+
+    <section class="module-card stack-md package-sales-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line packages-sales-copy">
+          <div>
+            <h3>Pacotes vendidos</h3>
+            <p>Acompanhe sessões usadas, sessões restantes, pagamento e andamento dos pacotes contratados.</p>
+          </div>
+          <button class="btn packages-sales-action" id="sell-package-secondary" type="button">🎁 Vender pacote</button>
+        </div>
+        <div class="filter-row compact-filter-row filters-below">
+          <select class="select" id="sold-status-filter">
+            <option value="all">Todos os contratos</option>
+            <option value="active">Ativos</option>
+            <option value="finished">Finalizados</option>
+            <option value="cancelled">Cancelados</option>
+          </select>
+          <button class="btn btn-secondary" id="reload-sales" type="button">Atualizar contratos</button>
+        </div>
+      </div>
+
+      <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="sales-scroll">
+        <table class="premium-table">
+          <thead>
+            <tr>
+              <th><span class="th-label">Tutor</span><button class="th-arrow-only sale-sort" data-sort="tutorName" type="button" title="Ordenar por tutor"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Pet</span><button class="th-arrow-only sale-sort" data-sort="petName" type="button" title="Ordenar por pet"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Pacote</span><button class="th-arrow-only sale-sort" data-sort="packageName" type="button" title="Ordenar por pacote"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Progresso</span><button class="th-arrow-only sale-sort" data-sort="usedSessions" type="button" title="Ordenar por progresso"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Pagamento</span><button class="th-arrow-only sale-sort" data-sort="paymentStatus" type="button" title="Ordenar por pagamento"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Status</span><button class="th-arrow-only sale-sort" data-sort="status" type="button" title="Ordenar por status"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Valor</span><button class="th-arrow-only sale-sort" data-sort="amountCents" type="button" title="Ordenar por valor"><span class="sort-arrow">↕</span></button></th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="customer-packages"><tr><td colspan="8">Preparando contratos...</td></tr></tbody>
+        </table>
+        <div class="infinite-loader" id="sales-loader" hidden>Carregando mais contratos...</div>
+      </div>
+    </section>
+
+    <div class="floating-sale-menu" id="sale-floating-menu" hidden></div>
+
+    <dialog class="premium-modal" id="package-modal">
+      <form method="dialog" class="modal-card" id="package-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Cadastro de pacote</p>
+            <h3 id="package-modal-title">Novo pacote</h3>
+            <p>Defina valor, sessões e serviços inclusos para vender recorrência com clareza.</p>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" id="close-package-modal">×</button>
+        </header>
+        <div class="modal-body custom-scroll">
+          <input type="hidden" id="package-id">
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Nome do pacote</span><input class="input" id="package-name" required placeholder="Ex.: Banho mensal 4 sessões"></label>
+            <label class="form-field"><span>Porte do pacote</span><select class="select" id="package-pet-size"></select></label>
+            <label class="form-field"><span>Quantidade de sessões</span><input class="input" id="package-sessions" type="number" min="1" value="4"></label>
+            <label class="form-field"><span>Agendamentos por mês</span><select class="select" id="package-per-month"><option value="4">4 por mês · semanal</option><option value="2">2 por mês · quinzenal</option><option value="1">1 por mês</option></select></label>
+            <label class="form-field"><span>Status</span><select class="select" id="package-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>
+            <label class="form-field"><span>Desconto %</span><input class="input" id="package-discount" data-mask="percent" inputmode="decimal" value="10"></label>
+            <label class="form-field package-price-field"><span>Preço do pacote</span><input class="input" id="package-price" data-mask="money" inputmode="decimal" placeholder="Calculado automaticamente" readonly><small id="package-price-hint">Selecione serviços e desconto para calcular.</small></label>
+          </div>
+          <label class="form-field mt-20"><span>Descrição comercial</span><textarea class="textarea" id="package-description" rows="3" placeholder="Explique o benefício do pacote para a equipe vender com segurança."></textarea></label>
+          <div class="module-card nested-card mt-20">
+            <div class="section-toolbar compact"><div><h3>Serviços inclusos por porte e tipo</h3><p>Selecione um porte acima. Os serviços aparecem agrupados por tipo, igual ao novo agendamento, e você pode incluir mais de um serviço no mesmo pacote.</p></div></div>
+            <div id="services-checklist" class="check-grid services-by-type"></div>
+          </div>
+        </div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-package-modal">Cancelar</button><button class="btn" type="submit">Salvar pacote</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="premium-modal" id="sell-modal">
+      <form method="dialog" class="modal-card" id="sell-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Venda de pacote</p>
+            <h3>Vender pacote para tutor</h3>
+            <p>Selecione tutor, pet e pacote. O sistema pode criar as próximas sessões automaticamente.</p>
+          </div>
+          <button class="icon-btn" value="cancel" type="button" id="close-sell-modal">×</button>
+        </header>
+        <div class="modal-body custom-scroll">
+          <div class="module-card stack-sm soft-card appointment-lookup-card package-sell-lookup-card">
+            <label class="form-field"><span>WhatsApp do tutor</span><input class="input" id="sell-whatsapp-search" inputmode="tel" autocomplete="tel" placeholder="Digite o WhatsApp para buscar automaticamente"></label>
+            <p class="muted-text">Digite o WhatsApp principal do tutor. Se ele já existir, o tutor e os pets serão preenchidos automaticamente.</p>
+          </div>
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Tutor</span><select class="select" id="sell-tutor" required></select></label>
+            <label class="form-field"><span>Pet</span><select class="select" id="sell-pet" required></select></label>
+            <label class="form-field"><span>Pacote</span><select class="select" id="sell-package-id" required></select></label>
+            <label class="form-field"><span>Data de contratação</span><input class="input" id="sell-starts" type="date" value="${today}" required></label>
+            <label class="form-field"><span>Primeiro horário</span><input class="input" id="sell-time" type="time" value="09:00" required></label>
+            <label class="form-field"><span>Pagamento</span><select class="select" id="sell-payment"><option value="pending">Pendente</option><option value="paid">Pago</option></select></label>
+            <label class="form-field"><span>Forma de pagamento</span><select class="select" id="sell-payment-method"></select></label>
+          </div>
+          <label class="toggle-line mt-20"><input type="checkbox" id="sell-generate" checked> Gerar agenda automaticamente conforme frequência do pacote</label>
+          <label class="toggle-line mt-10"><input type="checkbox" id="sell-recurring"> Recorrência automática: ao acabar as sessões, gerar novo ciclo de agendamentos até o pacote ser cancelado</label>
+        </div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-sell-modal">Cancelar</button><button class="btn" type="submit">Vender e gerar sessões</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="premium-modal" id="sale-view-modal">
+      <div class="modal-card">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Pacote vendido</p>
+            <h3>Visualização do pacote contratado</h3>
+            <p>Resumo do contrato, serviços, pagamento, recorrência e sessões geradas.</p>
+          </div>
+          <button class="icon-btn" type="button" id="close-sale-view-modal">×</button>
+        </header>
+        <div class="modal-body custom-scroll" id="sale-view-body"></div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="sale-view-close-footer">Fechar</button></footer>
+      </div>
+    </dialog>
+
+    <dialog class="premium-modal" id="sale-payment-modal">
+      <form method="dialog" class="modal-card" id="sale-payment-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Pagamento do pacote</p>
+            <h3>Alterar pagamento e forma de pagamento</h3>
+            <p>Atualize o status financeiro do pacote vendido e sincronize com as sessões geradas.</p>
+          </div>
+          <button class="icon-btn" type="button" id="close-sale-payment-modal">×</button>
+        </header>
+        <div class="modal-body custom-scroll">
+          <input type="hidden" id="sale-payment-id">
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Status do pagamento</span><select class="select" id="sale-payment-status"></select></label>
+            <label class="form-field"><span>Forma de pagamento</span><select class="select" id="sale-payment-method"></select></label>
+          </div>
+          <p class="muted mt-20">Quando marcado como pago, o lançamento financeiro do pacote é baixado e a forma de pagamento fica registrada.</p>
+        </div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-sale-payment-modal">Cancelar</button><button class="btn" type="submit">Salvar pagamento</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="premium-modal" id="package-error-modal">
+      <div class="modal-card compact-modal-card">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Atenção</p>
+            <h3>Não foi possível salvar o pacote</h3>
+            <p id="package-error-message">Revise os dados e tente novamente.</p>
+          </div>
+        </header>
+        <footer class="modal-footer"><button class="btn" type="button" id="package-error-ok">OK</button></footer>
+      </div>
+    </dialog>
+  `;
+
+  buildShell({
+    active: 'Pacotes',
+    eyebrow: 'Recorrência',
+    title: 'Pacotes do PetFunny',
+    subtitle: 'Venda planos recorrentes, acompanhe sessões e mantenha a agenda organizada para clientes que voltam todo mês.',
+    content
+  });
+
+  const ids = (id) => document.getElementById(id);
+
+  function centsFromInput(v) {
+    const s = String(v || '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
+    return Math.round(Number(s || 0) * 100);
+  }
+
+
+  function showPackageError(error, fallback = 'Não foi possível salvar o pacote.') {
+    const message = error?.response?.error || error?.data?.error || error?.message || fallback;
+    ids('package-error-message').textContent = message;
+    ids('package-error-modal')?.showModal();
+  }
+
+  function getSelectedServiceItems() {
+    return [...document.querySelectorAll('#services-checklist input[type="checkbox"]:checked')].map((input) => {
+      const quantity = Math.max(1, Number(document.querySelector(`#services-checklist input[data-service-qty="${input.value}"]`)?.value || 1));
+      const service = (state.options.services || []).find((s) => s.id === input.value) || {};
+      return {
+        serviceId: input.value,
+        quantity,
+        serviceName: service.name || 'Serviço',
+        unitPriceCents: Number(service.priceCents || 0),
+        totalCents: Number(service.priceCents || 0) * quantity
+      };
+    });
+  }
+
+  function parsePercentInput(value) {
+    const normalized = String(value || '0').replace(',', '.').replace(/[^0-9.]/g, '');
+    return Math.max(0, Math.min(100, Number(normalized || 0)));
+  }
+
+  function calculatePackagePrice() {
+    const items = getSelectedServiceItems();
+    const subtotalCents = items.reduce((sum, item) => sum + Number(item.totalCents || 0), 0);
+    const discountPercent = parsePercentInput(ids('package-discount')?.value || 0);
+    const discountCents = Math.round(subtotalCents * (discountPercent / 100));
+    const totalCents = Math.max(0, subtotalCents - discountCents);
+    if (ids('package-price')) ids('package-price').value = (totalCents / 100).toFixed(2).replace('.', ',');
+    if (ids('package-price-hint')) ids('package-price-hint').textContent = items.length
+      ? `Serviços: ${money(subtotalCents)} · desconto: ${money(discountCents)} (${discountPercent}%) · pacote: ${money(totalCents)}`
+      : 'Selecione serviços e desconto para calcular.';
+    return { items, subtotalCents, discountCents, totalCents, discountPercent };
+  }
+
+  function getValue(item, key) {
+    if (key === 'isActive') return item.isActive ? 1 : 0;
+    if (['priceCents', 'sessionsCount', 'appointmentsPerMonth', 'customersCount', 'amountCents', 'usedSessions'].includes(key)) return Number(item[key] || 0);
+    return String(item[key] ?? '').toLowerCase();
+  }
+
+  function sortItems(items, key, dir) {
+    const factor = dir === 'asc' ? 1 : -1;
+    return [...items].sort((a, b) => {
+      const va = getValue(a, key);
+      const vb = getValue(b, key);
+      if (va > vb) return factor;
+      if (va < vb) return -factor;
+      return 0;
+    });
+  }
+
+  function updateSortIndicators() {
+    document.querySelectorAll('.package-sort').forEach((btn) => {
+      const arrow = btn.querySelector('.sort-arrow');
+      arrow.textContent = btn.dataset.sort === state.sortBy ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+    document.querySelectorAll('.sale-sort').forEach((btn) => {
+      const arrow = btn.querySelector('.sort-arrow');
+      arrow.textContent = btn.dataset.sort === state.saleSortBy ? (state.saleSortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function updateMetrics(summary = {}) {
+    const active = Number(summary.active || state.packages.filter((p) => p.isActive).length || 0);
+    const customers = state.customerPackages.length;
+    const portfolio = Number(summary.portfolio_cents || state.packages.filter((p) => p.isActive).reduce((sum, p) => sum + Number(p.priceCents || 0), 0));
+    ids('package-metrics').innerHTML = bigNumberGrid([
+      ['Pacotes ativos', String(active), 'planos prontos para venda'],
+      ['Clientes com pacote', String(customers), 'sessões em andamento'],
+      ['Receita potencial', money(portfolio), 'valor dos pacotes ativos']
+    ]);
+  }
+
+  function optionHtml(value, label, selected = false) {
+    return `<option value="${esc(value)}" ${selected ? 'selected' : ''}>${esc(label)}</option>`;
+  }
+
+  function renderOptions() {
+    const petSizeSelect = ids('package-pet-size');
+    if (petSizeSelect) {
+      const petSizes = state.options.petSizes?.length ? state.options.petSizes : [
+        { code: 'todos', name: 'Todos' }, { code: 'pequeno', name: 'Pequeno' }, { code: 'medio', name: 'Médio' }, { code: 'grande', name: 'Grande' }, { code: 'gigante', name: 'Gigante' }
+      ];
+      petSizeSelect.innerHTML = petSizes.map((size) => optionHtml(size.code, size.name, size.code === state.packagePetSize)).join('');
+    }
+
+    const selected = new Set(Array.from(document.querySelectorAll('#services-checklist input:checked')).map((input) => input.value));
+    const targetSize = state.packagePetSize || 'todos';
+    const compatible = (state.options.services || []).filter((service) => {
+      const serviceSizeOk = targetSize === 'todos' || service.petSize === 'todos' || service.petSize === targetSize;
+      const categorySizeOk = targetSize === 'todos' || !service.categoryPetSizeCode || service.categoryPetSizeCode === 'todos' || service.categoryPetSizeCode === targetSize;
+      return serviceSizeOk && categorySizeOk;
+    });
+    const byCategory = new Map();
+    compatible.forEach((service) => {
+      const key = service.categoryId || service.categoryName || 'outros';
+      if (!byCategory.has(key)) byCategory.set(key, { name: service.categoryName || 'Outros serviços', items: [] });
+      byCategory.get(key).items.push(service);
+    });
+    ids('services-checklist').innerHTML = compatible.length ? Array.from(byCategory.values()).map((group) => `
+      <div class="service-type-group package-service-group">
+        <div class="service-type-group-head">
+          <span class="service-type-icon" aria-hidden="true">✂️</span>
+          <div class="service-type-title"><strong>${esc(group.name)}</strong><small>${group.items.length} serviço(s) compatíveis com ${esc(targetSize === 'todos' ? 'todos os portes' : targetSize)}</small></div>
+        </div>
+        <div class="service-check-grid-inner">
+          ${group.items.map((s) => `
+            <label class="service-check-card package-service-check">
+              <input type="checkbox" value="${esc(s.id)}" ${selected.has(s.id) ? 'checked' : ''}>
+              <span><strong>${esc(s.name)}</strong><small>${esc(s.petSizeName || s.petSize || 'Todos')} · ${Number(s.durationMinutes || 0)}min · ${money(s.priceCents)}</small></span>
+              <input class="input service-qty-input" type="number" min="1" value="1" data-service-qty="${esc(s.id)}" title="Quantidade deste serviço no pacote">
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `).join('') : '<p>Nenhum serviço ativo para este porte. Confira Serviços e Configurações antes de montar o pacote.</p>';
+    document.querySelectorAll('#services-checklist input').forEach((input) => input.addEventListener('input', calculatePackagePrice));
+    document.querySelectorAll('#services-checklist input[type="checkbox"]').forEach((input) => input.addEventListener('change', calculatePackagePrice));
+    calculatePackagePrice();
+
+    ids('sell-tutor').innerHTML = optionHtml('', 'Selecione o tutor') + state.options.tutors.map((t) => optionHtml(t.id, `${t.name} · ${t.whatsapp || 'sem WhatsApp'}`)).join('');
+    ids('sell-package-id').innerHTML = optionHtml('', 'Selecione o pacote') + state.options.packages.map((p) => optionHtml(p.id, `${p.name} · ${money(p.priceCents)} · ${p.sessionsCount} sessões`)).join('');
+    const paymentMethodOptions = optionHtml('', 'Selecione a forma') + (state.options.paymentMethods || []).map((m) => optionHtml(m.id, m.name)).join('');
+    if (ids('sell-payment-method')) ids('sell-payment-method').innerHTML = paymentMethodOptions;
+    const statusOptions = (state.options.paymentStatuses || []).length ? (state.options.paymentStatuses || []).map((st) => optionHtml(st.code, st.name || st.code)).join('') : optionHtml('pending', 'Pendente') + optionHtml('paid', 'Pago');
+    if (ids('sale-payment-status')) ids('sale-payment-status').innerHTML = statusOptions;
+    if (ids('sale-payment-method')) ids('sale-payment-method').innerHTML = paymentMethodOptions;
+    renderSellPets();
+  }
+
+  function renderSellPets() {
+    const tutorId = ids('sell-tutor')?.value;
+    const tutor = state.options.tutors.find((t) => t.id === tutorId);
+    if (tutor?.whatsapp && ids('sell-whatsapp-search')) ids('sell-whatsapp-search').value = tutor.whatsapp;
+    const selectedPackage = state.options.packages.find((p) => p.id === ids('sell-package-id')?.value);
+    const packageSize = selectedPackage?.petSize || 'todos';
+    const pets = state.options.pets.filter((p) => {
+      const tutorOk = !tutorId || p.tutorId === tutorId;
+      const sizeOk = packageSize === 'todos' || !packageSize || p.size === packageSize;
+      return tutorOk && sizeOk;
+    });
+    const hint = selectedPackage && packageSize !== 'todos' ? ` · filtrado por porte ${packageSize}` : '';
+    ids('sell-pet').innerHTML = optionHtml('', `Selecione o pet${hint}`) + pets.map((p) => optionHtml(p.id, `${p.name} · ${p.sizeName || p.size || 'sem porte'}`)).join('');
+  }
+
+  async function lookupSellTutorByWhatsapp() {
+    const input = ids('sell-whatsapp-search');
+    const whatsapp = String(input?.value || '').replace(/\D/g, '');
+    if (whatsapp.length < 10) return;
+    try {
+      await withLoading(async () => {
+        const data = await api.get(`/agenda/client-lookup?whatsapp=${encodeURIComponent(whatsapp)}`);
+        if (!data.found) {
+          ids('sell-tutor').value = '';
+          ids('sell-pet').innerHTML = '<option value="">Tutor não encontrado</option>';
+          toast.warning ? toast.warning('Tutor não encontrado. Cadastre o tutor antes de vender o pacote.') : toast('Tutor não encontrado. Cadastre o tutor antes de vender o pacote.', 'warning');
+          return;
+        }
+        if (!state.options.tutors.some((t) => t.id === data.tutor.id)) state.options.tutors.push(data.tutor);
+        (data.pets || []).forEach((pet) => { if (!state.options.pets.some((p) => p.id === pet.id)) state.options.pets.push(pet); });
+        const currentPackage = ids('sell-package-id')?.value || '';
+        const currentPaymentMethod = ids('sell-payment-method')?.value || '';
+        renderOptions();
+        ids('sell-package-id').value = currentPackage;
+        ids('sell-payment-method').value = currentPaymentMethod;
+        ids('sell-whatsapp-search').value = data.tutor.whatsapp || input.value;
+        ids('sell-tutor').value = data.tutor.id;
+        renderSellPets();
+        if ((data.pets || []).length === 1) ids('sell-pet').value = data.pets[0].id;
+        toast.success('Tutor localizado. Pets carregados automaticamente.');
+      }, 'Buscando tutor pelo WhatsApp...');
+    } catch (error) {
+      showPackageError(error, 'Não foi possível buscar o tutor pelo WhatsApp.');
+    }
+  }
+
+  function buildPackageWhatsAppMessage(item = {}, appointments = []) {
+    const commandUrl = `${location.origin}${item.packageCommandUrl || `/documentos/pacote-comanda/${item.id}`}`;
+    const receiptUrl = `${location.origin}${item.packageReceiptUrl || `/documentos/pacote-recibo/${item.id}`}`;
+    const agendaLines = appointments.length
+      ? appointments.map((a) => {
+          const when = a.startsAt ? new Date(a.startsAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Data a confirmar';
+          return `• ${a.packageSessionLabel || `${a.packageSessionNumber || ''} de ${a.packageTotalSessions || ''}`}: ${when}`;
+        }).join('\n')
+      : '• Sessões ainda não geradas.';
+    return `Olá, ${item.tutorName || 'tudo bem'}! 🐶✨\n\nSegue o resumo do pacote ${item.packageName || 'PetFunny'} para ${item.petName || 'seu pet'}.\n\nAgendamentos do pacote:\n${agendaLines}\n\nComanda do pacote:\n${commandUrl}\n\nRecibo do pacote:\n${receiptUrl}\n\nQualquer ajuste de horário, é só chamar o PetFunny.`;
+  }
+
+  async function sendSaleMessage(id) {
+    try {
+      await withLoading(async () => {
+        const data = await api.get(`/api/pacotes/clientes/${id}`);
+        const item = data.item || {};
+        const message = buildPackageWhatsAppMessage(item, data.appointments || []);
+        const phone = String(item.tutorWhatsapp || '').replace(/\D/g, '');
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+      }, 'Preparando mensagem do pacote...');
+    } catch (error) {
+      showPackageError(error, 'Não foi possível preparar a mensagem do pacote.');
+    }
+  }
+
+  function packageRow(p) {
+    return `<tr data-id="${esc(p.id)}">
+      <td><strong>${esc(p.name)}</strong><small>${esc(p.description || 'Sem descrição comercial')}</small></td>
+      <td><strong>${money(p.priceCents)}</strong><small>valor do pacote</small></td>
+      <td><span class="mini-badge">${Number(p.sessionsCount || 0)} sessões</span><small>Porte: ${esc(p.petSizeName || p.petSize || 'todos')}</small></td>
+      <td><strong>${Number(p.appointmentsPerMonth || 0)}/mês</strong><small>${Number(p.appointmentsPerMonth || 0) === 4 ? 'semanal' : Number(p.appointmentsPerMonth || 0) === 2 ? 'quinzenal' : 'personalizado'}</small></td>
+      <td><strong>${Number(p.customersCount || 0)}</strong><small>contrato(s)</small></td>
+      <td><span class="status-pill ${p.isActive ? 'ok' : 'muted-pill'}">${p.isActive ? 'Ativo' : 'Inativo'}</span></td>
+      <td><div class="row-actions"><button class="icon-btn edit-package" data-id="${esc(p.id)}" type="button" title="Editar pacote">✎</button></div></td>
+    </tr>`;
+  }
+
+  function saleRow(cp) {
+    const paid = String(cp.paymentStatus || '').toLowerCase() === 'paid' || String(cp.paymentStatus || '').toLowerCase() === 'pago';
+    const recurring = cp.recurring || cp.recurrenceRule?.enabled;
+    return `<tr data-id="${esc(cp.id)}">
+      <td><strong>${esc(cp.tutorName || 'Tutor')}</strong><small>${esc(cp.tutorWhatsapp || 'sem WhatsApp')}</small></td>
+      <td>${esc(cp.petName || '—')}</td>
+      <td><strong>${esc(cp.packageName || 'Pacote')}</strong><small>${recurring ? 'Recorrência automática ativa' : 'Sem recorrência automática'}</small></td>
+      <td><span class="mini-badge">${esc(cp.progressLabel || `${cp.usedSessions || 0} de ${cp.totalSessions || 0}`)}</span><small>${Number(cp.remainingSessions || 0)} restante(s) · ${Number(cp.appointmentCount || 0)} agenda(s)</small>${cp.packageCommandUrl ? `<a class="inline-link" href="${esc(cp.packageCommandUrl)}" target="_blank" rel="noopener">Abrir comanda do pacote</a>` : ''}</td>
+      <td><span class="status-pill ${paid ? 'ok' : 'warning-pill'}">${paid ? 'Pago' : 'Pendente'}</span><small>${esc(cp.paymentMethodName || 'forma não informada')}</small></td>
+      <td><span class="status-pill info-pill">${esc(cp.status || 'ativo')}</span></td>
+      <td><strong>${money(cp.amountCents)}</strong></td>
+      <td>
+        <div class="row-menu-wrap">
+          <button class="kebab-btn sale-menu-btn" type="button" data-id="${esc(cp.id)}" title="Ações do pacote" aria-expanded="false">⋯</button>
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  function renderPackages(reset = true) {
+    const sorted = sortItems(state.packages, state.sortBy, state.sortDir);
+    const end = state.packagePage * state.limit;
+    const visible = sorted.slice(0, end);
+    state.packageDone = visible.length >= sorted.length;
+    ids('packages-body').innerHTML = visible.length ? visible.map(packageRow).join('') : '<tr><td colspan="7">Nenhum pacote encontrado.</td></tr>';
+    ids('packages-loader').hidden = state.packageDone;
+    document.querySelectorAll('.edit-package').forEach((btn) => btn.addEventListener('click', () => openPackage(btn.dataset.id)));
+    updateSortIndicators();
+  }
+
+  function renderCustomerPackages() {
+    const sorted = sortItems(state.customerPackages, state.saleSortBy, state.saleSortDir);
+    const end = state.salePage * state.limit;
+    const visible = sorted.slice(0, end);
+    state.saleDone = visible.length >= sorted.length;
+    ids('customer-packages').innerHTML = visible.length ? visible.map(saleRow).join('') : '<tr><td colspan="8">Nenhum pacote vendido encontrado.</td></tr>';
+    ids('sales-loader').hidden = state.saleDone;
+    bindSaleMenus();
+    updateSortIndicators();
+  }
+
+  async function loadPackages() {
+    const [options, packages, customers] = await Promise.all([
+      api.get('/api/pacotes/options'),
+      api.get(`/api/pacotes?search=${encodeURIComponent(state.search)}&status=${encodeURIComponent(state.status)}`),
+      api.get(`/api/pacotes/clientes?status=${encodeURIComponent(state.soldStatus)}`)
+    ]);
+    state.options = options;
+    state.packages = packages.items || [];
+    state.customerPackages = customers.items || [];
+    state.packagePage = 1;
+    state.salePage = 1;
+    renderOptions();
+    updateMetrics(packages.summary || {});
+    renderPackages();
+    renderCustomerPackages();
+  }
+
+  async function refreshAll() {
+    await withLoading(async () => loadPackages(), 'Carregando pacotes do PetFunny...');
+  }
+
+  function openPackage(id) {
+    const p = state.packages.find((x) => x.id === id);
+    ids('package-id').value = p?.id || '';
+    ids('package-name').value = p?.name || '';
+    ids('package-price').value = p ? (Number(p.priceCents || 0) / 100).toFixed(2).replace('.', ',') : '';
+    state.packagePetSize = p?.petSize || 'todos';
+    ids('package-sessions').value = p?.sessionsCount || 4;
+    ids('package-per-month').value = p?.appointmentsPerMonth || 4;
+    ids('package-discount').value = p?.discountPercent || 0;
+    ids('package-active').value = String(p?.isActive ?? true);
+    ids('package-description').value = p?.description || '';
+    renderOptions();
+    setTimeout(() => {
+      (p?.services || []).forEach((s) => {
+        const input = document.querySelector(`#services-checklist input[type="checkbox"][value="${s.serviceId}"]`);
+        const qty = document.querySelector(`#services-checklist input[data-service-qty="${s.serviceId}"]`);
+        if (input) input.checked = true;
+        if (qty) qty.value = Math.max(1, Number(s.quantity || 1));
+      });
+      calculatePackagePrice();
+    }, 0);
+    ids('package-modal-title').textContent = p ? 'Editar pacote' : 'Novo pacote';
+    ids('package-modal').showModal();
+  }
+
+  async function savePackage(ev) {
+    ev.preventDefault();
+    const calculated = calculatePackagePrice();
+    const services = calculated.items.map((item) => ({ serviceId: item.serviceId, quantity: item.quantity }));
+    const payload = {
+      name: ids('package-name').value,
+      description: ids('package-description').value,
+      priceCents: calculated.totalCents,
+      petSize: ids('package-pet-size').value || 'todos',
+      sessionsCount: ids('package-sessions').value,
+      appointmentsPerMonth: ids('package-per-month').value,
+      discountPercent: ids('package-discount').value,
+      isActive: ids('package-active').value === 'true',
+      services
+    };
+    const id = ids('package-id').value;
+    try {
+      await withLoading(async () => {
+        id ? await api.put(`/api/pacotes/${id}`, payload) : await api.post('/api/pacotes', payload);
+        ids('package-modal').close();
+        await loadPackages();
+        toast.success(id ? 'Pacote atualizado com sucesso.' : 'Pacote cadastrado com sucesso.');
+      }, 'Salvando pacote...');
+    } catch (error) {
+      console.error('[pacotes] erro ao salvar pacote', error);
+      showPackageError(error);
+    }
+  }
+
+  async function sellPackage(ev) {
+    ev.preventDefault();
+    const payload = {
+      tutorId: ids('sell-tutor').value,
+      petId: ids('sell-pet').value,
+      packageId: ids('sell-package-id').value,
+      startsOn: ids('sell-starts').value,
+      firstTime: ids('sell-time').value,
+      paymentStatus: ids('sell-payment').value,
+      paymentMethodId: ids('sell-payment-method')?.value || '',
+      generateAppointments: ids('sell-generate').checked,
+      recurring: ids('sell-recurring')?.checked || false
+    };
+    await withLoading(async () => {
+      await api.post('/api/pacotes/clientes', payload);
+      ids('sell-modal').close();
+      await loadPackages();
+      toast.success('Pacote vendido e sessões criadas na agenda.');
+    }, 'Vendendo pacote...');
+  }
+
+  function closeSaleFloatingMenu() {
+    const menu = ids('sale-floating-menu');
+    if (!menu) return;
+    menu.hidden = true;
+    menu.classList.remove('open');
+    menu.innerHTML = '';
+    document.querySelectorAll('.sale-menu-btn[aria-expanded="true"]').forEach((btn) => btn.setAttribute('aria-expanded', 'false'));
+  }
+
+  function positionSaleFloatingMenu(button, menu) {
+    const rect = button.getBoundingClientRect();
+    const gutter = 12;
+    menu.hidden = false;
+    menu.classList.add('open');
+    menu.style.display = 'grid';
+    menu.style.position = 'fixed';
+    menu.style.zIndex = '2147483647';
+    menu.style.pointerEvents = 'auto';
+    const width = Math.max(menu.offsetWidth || 264, 264);
+    const height = Math.max(menu.offsetHeight || 250, 180);
+    const left = Math.min(window.innerWidth - width - gutter, Math.max(gutter, rect.right - width));
+    let top = rect.bottom + 8;
+    if (top + height > window.innerHeight - gutter) top = Math.max(gutter, rect.top - height - 8);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  function bindSaleMenus() {
+    const floating = ids('sale-floating-menu');
+    document.querySelectorAll('.sale-menu-btn').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const id = btn.dataset.id;
+        const item = state.customerPackages.find((cp) => String(cp.id) === String(id)) || {};
+        const alreadyOpen = !floating.hidden && floating.dataset.id === id;
+        closeSaleFloatingMenu();
+        if (alreadyOpen) return;
+        floating.dataset.id = id;
+        floating.innerHTML = `
+          <button type="button" data-sale-action="view" data-id="${esc(id)}">👁 Visualizar pacote</button>
+          <button type="button" data-sale-action="payment" data-id="${esc(id)}">💳 Alterar pagamento</button>
+          <button type="button" data-sale-action="message" data-id="${esc(id)}">💬 Enviar mensagem</button>
+          <a href="${esc(item.packageCommandUrl || '#')}" target="_blank" rel="noopener">🧾 Comanda do pacote</a>
+          <a href="${esc(item.packageReceiptUrl || '#')}" target="_blank" rel="noopener">✅ Recibo do pacote</a>
+          ${item.status === 'cancelled' ? '' : `<button type="button" data-sale-action="cancel" data-id="${esc(id)}">⛔ Cancelar pacote</button>`}
+        `;
+        btn.setAttribute('aria-expanded', 'true');
+        positionSaleFloatingMenu(btn, floating);
+      });
+    });
+  }
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.floating-sale-menu') && !event.target.closest('.sale-menu-btn')) closeSaleFloatingMenu();
+  });
+  window.addEventListener('resize', closeSaleFloatingMenu);
+  window.addEventListener('scroll', closeSaleFloatingMenu, true);
+  document.addEventListener('click', async (event) => {
+    const actionButton = event.target.closest('[data-sale-action]');
+    if (!actionButton) return;
+    const id = actionButton.dataset.id;
+    const action = actionButton.dataset.saleAction;
+    closeSaleFloatingMenu();
+    if (action === 'view') return openSaleView(id);
+    if (action === 'payment') return openSalePayment(id);
+    if (action === 'message') return sendSaleMessage(id);
+    if (action === 'cancel') {
+      if (!confirm('Cancelar este pacote? A recorrência automática será interrompida.')) return;
+      await withLoading(async () => {
+        await api.patch(`/api/pacotes/clientes/${id}/status`, { status: 'cancelled' });
+        await loadPackages();
+        toast.success('Pacote cancelado e recorrência interrompida.');
+      }, 'Cancelando pacote...');
+    }
+  });
+
+  async function openSaleView(id) {
+    await withLoading(async () => {
+      const data = await api.get(`/api/pacotes/clientes/${id}`);
+      const item = data.item || {};
+      const services = data.services || [];
+      const appointments = data.appointments || [];
+      ids('sale-view-body').innerHTML = `
+        <div class="detail-grid">
+          <article><span>Tutor</span><strong>${esc(item.tutorName || '—')}</strong><small>${esc(item.tutorWhatsapp || '')}</small></article>
+          <article><span>Pet</span><strong>${esc(item.petName || '—')}</strong></article>
+          <article><span>Pacote</span><strong>${esc(item.packageName || '—')}</strong><small>${esc(item.recurring || item.recurrenceRule?.enabled ? 'Recorrência automática ativa' : 'Sem recorrência automática')}</small></article>
+          <article><span>Pagamento</span><strong>${esc(item.paymentStatus || 'pending')}</strong><small>${esc(item.paymentMethodName || 'forma não informada')}</small></article>
+          <article><span>Progresso</span><strong>${esc(item.progressLabel || '')}</strong><small>${Number(item.remainingSessions || 0)} sessão(ões) restante(s)</small></article>
+          <article><span>Valor</span><strong>${money(item.amountCents)}</strong></article>
+        </div>
+        <div class="module-card nested-card mt-20"><h3>Documentos do pacote</h3><div class="row-actions"><a class="btn btn-secondary" href="${esc(item.packageCommandUrl || '#')}" target="_blank" rel="noopener">Abrir comanda consolidada</a><a class="btn btn-secondary" href="${esc(item.packageReceiptUrl || '#')}" target="_blank" rel="noopener">Abrir recibo consolidado</a></div></div>
+        <div class="module-card nested-card mt-20"><h3>Serviços do pacote</h3>${services.length ? `<div class="package-detail-list">${services.map((s) => `<div><strong>${esc(s.serviceName || s.name)}</strong><small>${Number(s.quantity || 1)}x · unitário ${money(s.priceCents)} · total ${money(Number(s.priceCents || 0) * Number(s.quantity || 1))}</small></div>`).join('')}</div>` : '<p class="muted">Nenhum serviço vinculado.</p>'}</div>
+        <div class="module-card nested-card mt-20"><h3>Sessões geradas</h3>${appointments.length ? `<div class="package-detail-list">${appointments.map((a) => `<div><strong>${esc(a.packageSessionLabel || `${a.packageSessionNumber || ''} de ${a.packageTotalSessions || ''}`)}</strong><small>${new Date(a.startsAt || a.starts_at).toLocaleString('pt-BR')} · ${esc(a.status || '')} · ${money(a.totalCents || a.total_cents || 0)}</small>${a.commandUrl ? `<a class="inline-link" href="${esc(item.packageCommandUrl || a.commandUrl)}" target="_blank" rel="noopener">Abrir comanda do pacote</a>` : ''}</div>`).join('')}</div>` : '<p class="muted">Nenhuma sessão gerada.</p>'}</div>`;
+      ids('sale-view-modal').showModal();
+    }, 'Abrindo pacote vendido...');
+  }
+
+  function openSalePayment(id) {
+    const item = state.customerPackages.find((cp) => cp.id === id);
+    ids('sale-payment-id').value = id;
+    renderOptions();
+    ids('sale-payment-status').value = item?.paymentStatus || 'pending';
+    ids('sale-payment-method').value = item?.paymentMethodId || '';
+    ids('sale-payment-modal').showModal();
+  }
+
+  async function saveSalePayment(ev) {
+    ev.preventDefault();
+    const id = ids('sale-payment-id').value;
+    await withLoading(async () => {
+      await api.patch(`/api/pacotes/clientes/${id}/payment`, {
+        paymentStatus: ids('sale-payment-status').value,
+        paymentMethodId: ids('sale-payment-method').value
+      });
+      ids('sale-payment-modal').close();
+      await loadPackages();
+      toast.success('Pagamento do pacote atualizado.');
+    }, 'Atualizando pagamento...');
+  }
+
+  function maybeLoadMore() {
+    const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 360;
+    if (!nearBottom || state.loadingMore) return;
+    state.loadingMore = true;
+    let changed = false;
+    if (!state.packageDone) { state.packagePage += 1; renderPackages(false); changed = true; }
+    if (!state.saleDone) { state.salePage += 1; renderCustomerPackages(); changed = true; }
+    setTimeout(() => { state.loadingMore = false; }, 120);
+  }
+
+  function bindEvents() {
+    ids('new-package').addEventListener('click', () => openPackage());
+    ids('sell-package').addEventListener('click', () => ids('sell-modal').showModal());
+    ids('sell-package-secondary').addEventListener('click', () => ids('sell-modal').showModal());
+    ids('close-package-modal').addEventListener('click', () => ids('package-modal').close());
+    ids('cancel-package-modal').addEventListener('click', () => ids('package-modal').close());
+    ids('close-sell-modal').addEventListener('click', () => ids('sell-modal').close());
+    ids('cancel-sell-modal').addEventListener('click', () => ids('sell-modal').close());
+    ids('close-sale-view-modal').addEventListener('click', () => ids('sale-view-modal').close());
+    ids('sale-view-close-footer').addEventListener('click', () => ids('sale-view-modal').close());
+    ids('close-sale-payment-modal').addEventListener('click', () => ids('sale-payment-modal').close());
+    ids('cancel-sale-payment-modal').addEventListener('click', () => ids('sale-payment-modal').close());
+    ids('sale-payment-form').addEventListener('submit', saveSalePayment);
+    ids('package-error-ok')?.addEventListener('click', () => ids('package-error-modal')?.close());
+    ids('package-discount')?.addEventListener('input', calculatePackagePrice);
+    ids('package-form').addEventListener('submit', savePackage);
+    ids('sell-form').addEventListener('submit', sellPackage);
+    ids('package-pet-size')?.addEventListener('change', () => { state.packagePetSize = ids('package-pet-size').value || 'todos'; renderOptions(); });
+    ids('sell-whatsapp-search')?.addEventListener('input', debounce(lookupSellTutorByWhatsapp, 520));
+    ids('sell-whatsapp-search')?.addEventListener('blur', lookupSellTutorByWhatsapp);
+    ids('sell-tutor').addEventListener('change', renderSellPets);
+    ids('sell-package-id').addEventListener('change', renderSellPets);
+    ids('reload').addEventListener('click', refreshAll);
+    ids('reload-sales').addEventListener('click', refreshAll);
+    ids('search').addEventListener('input', debounce(() => { state.search = ids('search').value.trim(); refreshAll(); }, 320));
+    ids('status-filter').addEventListener('change', () => { state.status = ids('status-filter').value; refreshAll(); });
+    ids('sold-status-filter').addEventListener('change', () => { state.soldStatus = ids('sold-status-filter').value; refreshAll(); });
+    document.querySelectorAll('.package-sort').forEach((btn) => btn.addEventListener('click', () => {
+      const key = btn.dataset.sort;
+      state.sortDir = state.sortBy === key && state.sortDir === 'asc' ? 'desc' : 'asc';
+      state.sortBy = key;
+      state.packagePage = 1;
+      renderPackages();
+    }));
+    document.querySelectorAll('.sale-sort').forEach((btn) => btn.addEventListener('click', () => {
+      const key = btn.dataset.sort;
+      state.saleSortDir = state.saleSortBy === key && state.saleSortDir === 'asc' ? 'desc' : 'asc';
+      state.saleSortBy = key;
+      state.salePage = 1;
+      renderCustomerPackages();
+    }));
+    document.addEventListener('click', () => document.querySelectorAll('.sale-card-menu.open').forEach((m) => { m.classList.remove('open'); m.classList.remove('is-open-floating'); }));
+    window.addEventListener('scroll', maybeLoadMore, { passive: true });
+  }
+
+  async function boot() {
+    try {
+      bindEvents();
+      await loadPackages();
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('sell') === '1') ids('sell-modal')?.showModal();
+      if (params.get('new') === '1') openPackage();
+    } catch (error) {
+      console.error('[pacotes] erro ao carregar', error);
+      toast.error('Não foi possível carregar os pacotes agora.');
+    } finally {
+      setupPremiumInteractions();
+      finishPageLoading();
+      hideLoading();
+    }
+  }
+
+  boot();
+</script>
+</body>
+</html>
