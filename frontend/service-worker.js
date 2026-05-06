@@ -1,7 +1,8 @@
-const CACHE_NAME = 'petfunny-app-v1.5.72';
+const CACHE_NAME = 'petfunny-app-v1.5.98';
 const APP_SHELL = [
   '/app/login',
   '/app/home',
+  '/app/pagamento-pix',
   '/assets/css/app.css',
   '/assets/js/client-api.js',
   '/assets/js/client-auth.js',

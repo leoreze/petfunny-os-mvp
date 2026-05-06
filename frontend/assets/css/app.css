@@ -5557,7 +5557,37 @@ dialog.tutor-premium-document-modal::backdrop {
 .client-field select:focus,
 .client-field textarea:focus { border-color: rgba(20,183,194,.75); box-shadow: 0 0 0 4px rgba(20,183,194,.12); }
 .client-field input:disabled { background: #fff1f5; color: #9b6675; }
-.client-check-list { display: grid; gap: 10px; }
+.client-check-list { display: grid; gap: 14px; }
+.client-service-group {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255,255,255,.86), rgba(20,183,194,.08));
+  border: 1px solid rgba(255,105,140,.16);
+  box-shadow: 0 16px 30px rgba(54,43,64,.06);
+}
+.client-service-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 4px 4px;
+  color: #2f2940;
+  font-weight: 950;
+}
+.client-service-group-title span { display: inline-flex; align-items: center; gap: 7px; }
+.client-service-group-title span::before { content: '🐾'; font-size: .9rem; }
+.client-service-group-title small {
+  color: #12a6b8;
+  font-size: .72rem;
+  font-weight: 900;
+  background: rgba(20,183,194,.10);
+  border: 1px solid rgba(20,183,194,.16);
+  border-radius: 999px;
+  padding: 5px 8px;
+}
+.client-service-group-list { display: grid; gap: 8px; }
 .client-check-list label {
   display: grid;
   grid-template-columns: 20px 1fr;
@@ -5565,7 +5595,7 @@ dialog.tutor-premium-document-modal::backdrop {
   align-items: start;
   padding: 12px;
   border-radius: 18px;
-  background: rgba(255,255,255,.78);
+  background: rgba(255,255,255,.90);
   border: 1px solid rgba(20,183,194,.16);
 }
 .client-check-list strong { display: block; color: #302944; }
@@ -7210,4 +7240,171 @@ dialog.tutor-premium-document-modal::backdrop {
   min-height: 112px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   word-break: break-all;
+}
+
+/* v1.5.92 - App Tutor: horários válidos pela configuração do admin */
+.client-field-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(57, 68, 76, 0.72);
+}
+.client-field select[name="appointmentTime"] {
+  border-color: rgba(0, 151, 167, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,246,244,0.88)),
+    #fff;
+}
+.client-field select[name="appointmentTime"]:focus {
+  box-shadow: 0 0 0 4px rgba(0, 151, 167, 0.13), 0 10px 30px rgba(255, 126, 141, 0.12);
+  border-color: rgba(0, 151, 167, 0.55);
+}
+
+/* v1.5.95 — Landing serviços em linha própria e agrupados por tipo */
+.pf-services-section {
+  display: block !important;
+}
+.pf-services-section .pf-section-head {
+  max-width: 900px;
+  margin-bottom: 18px;
+}
+.pf-services-section .pf-service-filter {
+  width: 100%;
+  justify-content: space-between;
+  margin: 22px 0 26px;
+}
+.pf-services-section .pf-service-filter select {
+  min-width: min(360px, 100%);
+}
+.pf-service-grid {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 22px !important;
+}
+.pf-service-type-block {
+  padding: clamp(16px, 3vw, 24px);
+  border: 1px solid rgba(22, 190, 202, .16);
+  border-radius: 34px;
+  background: linear-gradient(145deg, rgba(255,255,255,.88), rgba(255,246,249,.72));
+  box-shadow: 0 20px 42px rgba(35, 45, 62, .08);
+}
+.pf-service-type-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.pf-service-type-head > span {
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255,111,145,.18), rgba(22,190,202,.18));
+  font-size: 1.55rem;
+}
+.pf-service-type-head strong,
+.pf-service-type-head small {
+  display: block;
+}
+.pf-service-type-head strong {
+  color: var(--pf-ink);
+  font-size: 1.22rem;
+  letter-spacing: -.02em;
+}
+.pf-service-type-head small {
+  color: #687587;
+  font-weight: 900;
+  margin-top: 2px;
+}
+.pf-service-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.pf-service-type-grid .pf-service-card {
+  min-height: 175px;
+}
+@media (max-width: 980px) {
+  .pf-service-type-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .pf-service-type-grid { grid-template-columns: 1fr; }
+  .pf-services-section .pf-service-filter { align-items: stretch; flex-direction: column; }
+}
+
+/* v1.5.95 — Login admin sem credenciais expostas */
+.login-copyright {
+  margin: 22px 0 0;
+  text-align: center;
+  color: rgba(47, 57, 72, .68);
+  font-size: .82rem;
+  font-weight: 800;
+}
+
+
+/* v1.5.97 — Pix em página completa no App do Tutor, sem modal */
+.client-pix-page-panel,
+.client-pix-modal {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto 24px;
+}
+.client-pix-page-panel .client-pix-header,
+.client-pix-modal .client-pix-header {
+  background: linear-gradient(135deg, var(--client-salmon, #f36f8b), var(--client-salmon-mid, #f7a0aa) 54%, var(--client-aqua, #26bfcb));
+  box-shadow: 0 18px 34px rgba(243,111,139,.20), 0 10px 22px rgba(38,191,203,.12);
+}
+.client-pix-page-panel .client-pix-actions,
+.client-pix-modal .client-pix-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.client-pix-page-panel .client-pix-actions .btn,
+.client-pix-modal .client-pix-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+.client-pix-page-panel .client-pix-actions .btn-secondary,
+.client-pix-modal .client-pix-actions .btn-secondary {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--client-salmon, #f36f8b), var(--client-salmon-mid, #f7a0aa) 56%, var(--client-aqua, #26bfcb)) !important;
+  border: 0 !important;
+  box-shadow: 0 16px 34px rgba(243,111,139,.24), 0 10px 22px rgba(38,191,203,.10) !important;
+}
+.client-pix-page-panel .client-pix-actions .btn-ghost,
+.client-pix-modal .client-pix-actions .btn-ghost {
+  color: var(--client-ink, #263141) !important;
+  background: rgba(255,255,255,.84) !important;
+  border: 1px solid rgba(38,191,203,.26) !important;
+}
+.client-pix-page-panel .client-pix-status,
+.client-pix-modal .client-pix-status,
+.client-pix-page-panel .client-pix-warning,
+.client-pix-modal .client-pix-warning {
+  border: 1px solid rgba(243,111,139,.16);
+  background: linear-gradient(135deg, rgba(243,111,139,.12), rgba(38,191,203,.10));
+}
+.client-pix-page-panel .client-pix-qr,
+.client-pix-modal .client-pix-qr {
+  width: min(300px, 82vw);
+  height: min(300px, 82vw);
+}
+
+/* v1.5.98 — orientacao Pix Mercado Pago sem link expirado */
+.client-pix-page-panel .client-pix-help,
+.client-pix-modal .client-pix-help {
+  border: 1px dashed rgba(38, 191, 203, .36);
+  background: linear-gradient(135deg, rgba(38,191,203,.10), rgba(243,111,139,.09));
+  color: var(--client-ink, #263141);
+  border-radius: 18px;
+  padding: 12px 14px;
+  font-size: .88rem;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: center;
 }

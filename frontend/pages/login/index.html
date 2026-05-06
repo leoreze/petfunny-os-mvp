@@ -13,12 +13,12 @@
         <div class="brand-logo-box"><img class="brand-logo" src="/assets/img/logo-petfunny-full.png" alt="PetFunny"></div>
         <div><p class="eyebrow">Acesso restrito</p><h1>PetFunny OS</h1></div>
       </div>
-      <p>Sistema interno de gestão do PetFunny - Banho e Tosa. Entre com o usuário administrador criado no seed.</p>
+      <p>Sistema interno de gestão do PetFunny - Banho e Tosa. Acesso reservado para a equipe autorizada.</p>
 
       <form class="login-form" id="login-form" autocomplete="on">
         <div class="form-field">
           <label for="email">Email</label>
-          <input class="input" id="email" name="email" type="email" value="admin@petfunny.local" required autocomplete="username">
+          <input class="input" id="email" name="email" type="email" required autocomplete="username">
         </div>
         <div class="form-field">
           <label for="password">Senha</label>
@@ -31,10 +31,7 @@
         </div>
       </form>
 
-      <div class="login-helper">
-        <strong>Senha dev padrão:</strong> PetFunny@2026<br>
-        <small>Altere a senha no ambiente de produção usando ADMIN_PASSWORD antes de rodar o seed.</small>
-      </div>
+      <p class="login-copyright">© <span id="login-year"></span> PetFunny - Banho e Tosa. Todos os direitos reservados.</p>
     </section>
   </main>
 
@@ -52,6 +49,7 @@
       window.location.replace(next);
     }
 
+    document.getElementById('login-year').textContent = new Date().getFullYear();
     const form = document.getElementById('login-form');
     const feedback = document.getElementById('login-feedback');
     const submit = document.getElementById('login-submit');

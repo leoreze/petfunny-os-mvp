@@ -20,12 +20,14 @@ async function request(path, options = {}) {
   const payload = contentType.includes('application/json') ? await response.json() : await response.text();
 
   if (response.status === 401) {
+    const message = typeof payload === 'object' ? payload.error || 'Sessão expirada.' : payload;
+    // Não apaga a sessão antes de preservar o destino. Isso evita perder o fluxo de Pix
+    // quando uma versão antiga do service worker ou token legado dispara 401 durante navegação.
     clearClientSession();
     if (!window.location.pathname.includes('/app/login') && !window.location.pathname.includes('/primeiro-acesso')) {
       const next = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.replace(`/app/login?next=${next}`);
     }
-    const message = typeof payload === 'object' ? payload.error || 'Sessão expirada.' : payload;
     throw new Error(message);
   }
 

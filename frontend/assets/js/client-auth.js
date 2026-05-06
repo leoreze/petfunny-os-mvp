@@ -1,17 +1,33 @@
 const CLIENT_TOKEN_KEY = 'petfunny_client_token';
+const CLIENT_TOKEN_LEGACY_KEYS = ['petfunny_app_token'];
 const CLIENT_USER_KEY = 'petfunny_client_user';
 
 export function setClientToken(token) {
   if (!token) return;
   localStorage.setItem(CLIENT_TOKEN_KEY, token);
+  sessionStorage.setItem(CLIENT_TOKEN_KEY, token);
 }
 
 export function getClientToken() {
-  return localStorage.getItem(CLIENT_TOKEN_KEY);
+  const token = localStorage.getItem(CLIENT_TOKEN_KEY) || sessionStorage.getItem(CLIENT_TOKEN_KEY);
+  if (token) return token;
+  for (const key of CLIENT_TOKEN_LEGACY_KEYS) {
+    const legacy = localStorage.getItem(key) || sessionStorage.getItem(key);
+    if (legacy) {
+      setClientToken(legacy);
+      return legacy;
+    }
+  }
+  return '';
 }
 
 export function clearClientSession() {
   localStorage.removeItem(CLIENT_TOKEN_KEY);
+  sessionStorage.removeItem(CLIENT_TOKEN_KEY);
+  CLIENT_TOKEN_LEGACY_KEYS.forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
   localStorage.removeItem(CLIENT_USER_KEY);
 }
 

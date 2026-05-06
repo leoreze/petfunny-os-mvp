@@ -48,5 +48,7 @@ export const env = {
   mercadoPagoAccessToken: String(process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim(),
   mercadoPagoWebhookSecret: String(process.env.MERCADO_PAGO_WEBHOOK_SECRET || '').trim(),
   mercadoPagoPublicKey: String(process.env.MERCADO_PAGO_PUBLIC_KEY || '').trim(),
+  mercadoPagoAllowTestPix: String(process.env.MERCADO_PAGO_ALLOW_TEST_PIX || '').trim().toLowerCase() === 'true',
+  mercadoPagoPixExpirationMinutes: Math.max(5, Math.min(60, Number(process.env.MERCADO_PAGO_PIX_EXPIRATION_MINUTES || 15) || 15)),
   loadedEnvFile
 };

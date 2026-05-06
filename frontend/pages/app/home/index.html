@@ -24,12 +24,21 @@
   const empty = (icon, title, text) => `<article class="client-empty"><span>${icon}</span><h3>${title}</h3><p>${text}</p></article>`;
   const escapeHtml = (value = '') => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
   const today = () => new Date().toISOString().slice(0, 10);
-  const tomorrowAt = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(9, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
-  };
+  function initialScheduleDate() {
+    const contextDate = getRoletaScheduleContext()?.date;
+    const date = contextDate || today();
+    return date < today() ? today() : date;
+  }
+  function initialScheduleTime(dateValue = initialScheduleDate()) {
+    const weekday = new Date(`${dateValue}T12:00:00`).getDay();
+    const slots = (options.timeSlotCapacities || []).filter((slot) => Number(slot.weekday) === Number(weekday) && Number(slot.capacity || 0) > 0);
+    return slots[0]?.slotTime || '09:00';
+  }
+  function localStartsAt(dateValue, timeValue) {
+    const date = String(dateValue || '').slice(0, 10);
+    const time = String(timeValue || '').slice(0, 5);
+    return date && time ? `${date}T${time}` : '';
+  }
 
   function getRoletaScheduleContext() {
     const params = new URLSearchParams(window.location.search);
@@ -51,7 +60,7 @@
 
   const heroFor = {
     home: ['Timeline do Meu PetFunny', 'Atualizações, lembretes e avisos inteligentes sobre a rotina do seu pet.'],
-    agenda: ['Criar agendamento', 'Escolha o pet, serviços e horário. A equipe PetFunny acompanha tudo pelo admin.'],
+    agenda: ['Criar agendamento', ''],
     pets: ['Pets cadastrados', 'Cadastre e atualize dados de cada pet para um atendimento mais seguro.'],
     historico: ['Histórico', 'Acesse atendimentos anteriores, comandas e recibos.'],
     pacotes: ['Contratar pacotes', 'Escolha o pet, o pacote, a data inicial e acompanhe as sessões.'],
@@ -174,31 +183,34 @@
     const firstPet = roletaContext?.petId || data.pets?.[0]?.id || '';
     const serviceList = serviceOptionsForPet(firstPet);
     const roletaNote = roletaContext ? `🎁 Mimo ganho na Roleta PetFunny: ${roletaContext.giftTitle}${roletaContext.giftDescription ? ` — ${roletaContext.giftDescription}` : ''}` : '';
-    const roletaBanner = roletaContext ? `<article class="client-roleta-winner-banner">
-      <div class="winner-icon">🎁</div>
-      <div>
-        <p class="eyebrow">Você ganhou na Roleta de Mimos</p>
-        <h3>${escapeHtml(roletaContext.giftTitle)}</h3>
-        <p>${escapeHtml(roletaContext.giftDescription || 'Agora escolha o pet, o serviço e o horário para a equipe PetFunny acompanhar seu mimo.')}</p>
-      </div>
-    </article>` : '';
-    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Novo agendamento</h2><p>Solicite um horário usando os mesmos serviços cadastrados no admin.</p></div>
-      ${roletaBanner}
-      <form class="client-form-card ${roletaContext ? 'is-roleta-highlight' : ''}" id="appointment-form">
-        ${roletaContext ? `<input type="hidden" name="giftSpinId" value="${escapeHtml(roletaContext.spinId)}"><input type="hidden" name="rouletteGiftTitle" value="${escapeHtml(roletaContext.giftTitle)}"><input type="hidden" name="rouletteGiftDescription" value="${escapeHtml(roletaContext.giftDescription)}">` : ''}
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Novo agendamento</h2></div>
+      <form class="client-form-card" id="appointment-form">
         ${selectField('Pet', 'petId', petOpts, firstPet, 'Escolha o pet')}
         ${selectField('Colaborador preferido', 'collaboratorId', collaboratorOpts, '', 'Sem preferência')}
-        ${field('Data e horário', 'startsAt', tomorrowAt(), 'type="datetime-local"')}
+        ${field('Data do atendimento', 'appointmentDate', initialScheduleDate(), `type="date" min="${today()}"`)}
+        <label class="client-field"><span>Horário disponível</span><select name="appointmentTime" id="appointment-time"><option value="">Carregando horários...</option></select><small class="client-field-hint" id="appointment-time-hint">Os horários seguem as Configurações do admin.</small></label>
         <div class="client-field"><span>Serviços</span><div class="client-check-list" id="services-list">${renderServiceChecks(serviceList)}</div></div>
         ${textArea('Observações para a equipe', 'notes', roletaNote)}
-        <button class="btn" type="submit">${roletaContext ? 'Agendar usando meu mimo' : 'Criar agendamento'}</button>
+        <button class="btn" type="submit">Criar agendamento</button>
       </form>
     </section>
     <section class="client-mobile-section"><div class="client-section-title"><h2>Próximos agendamentos</h2><p>${data.upcomingAppointments.length} horário(s) encontrados.</p></div>${data.upcomingAppointments.map((item) => renderAppointmentCard(item)).join('') || empty('📅', 'Sem agendamentos futuros', 'Crie um novo agendamento pelo app.')}</section>`;
   }
 
   function renderServiceChecks(services = []) {
-    return services.map((service) => `<label><input type="checkbox" name="serviceIds" value="${service.id}"><span><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.categoryName || 'Serviço')} · ${money(service.priceCents)}</small></span></label>`).join('') || '<p class="client-muted">Nenhum serviço encontrado para o porte do pet.</p>';
+    if (!services.length) return '<p class="client-muted">Nenhum serviço encontrado para o porte do pet.</p>';
+    const groups = services.reduce((acc, service) => {
+      const key = service.categoryName || service.category || 'Serviços PetFunny';
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(service);
+      return acc;
+    }, {});
+    return Object.entries(groups).map(([category, items]) => `<section class="client-service-group">
+      <div class="client-service-group-title"><span>${escapeHtml(category)}</span><small>${items.length} serviço(s)</small></div>
+      <div class="client-service-group-list">
+        ${items.map((service) => `<label><input type="checkbox" name="serviceIds" value="${service.id}"><span><strong>${escapeHtml(service.name)}</strong><small>${money(service.priceCents)}</small></span></label>`).join('')}
+      </div>
+    </section>`).join('');
   }
 
   function petForm(pet = {}) {
@@ -247,7 +259,7 @@
   }
 
   function renderPagamento() {
-    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pagamento Pix do agendamento</h2><p>Escaneie o QR Code ou copie o Pix. O agendamento será criado somente após a confirmação do Mercado Pago.</p></div><article class="client-form-card" id="pix-page-card"><div class="client-pix-status">Carregando dados do Pix...</div></article></section>`;
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pagamento Pix do agendamento</h2><p>Finalize o Pix em uma tela segura. Escaneie o QR Code oficial do Mercado Pago ou use o Pix copia e cola. O agendamento só aparece na agenda depois da confirmação do pagamento.</p></div><article class="client-form-card" id="pix-page-card"><div class="client-pix-status">Carregando dados do Pix...</div></article></section>`;
   }
 
   function renderRoleta() {
@@ -360,21 +372,21 @@
     return text.startsWith('data:image/') ? text : `data:image/png;base64,${text}`;
   }
 
-  function paymentModalHtml(intent = {}) {
+  function paymentPageHtml(intent = {}) {
     const expires = intent.expiresAt ? new Date(intent.expiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '5 minutos';
     const qrSrc = pixQrImageSrc(intent.qrCodeBase64 || '');
     const isValidPixCode = String(intent.qrCode || '').trim().startsWith('000201');
-    return `<div class="client-pix-modal">
+    return `<div class="client-pix-page-panel">
       <div class="client-pix-header"><span>Pix Mercado Pago</span><strong>${money(intent.amountCents || 0)}</strong></div>
       ${intent.mercadoPagoTestMode ? '<div class="client-pix-warning"><strong>Atenção:</strong> credencial de teste detectada. Para pagar com banco real, use credenciais de produção do Mercado Pago.</div>' : ''}
-      <p>Escaneie o QR Code oficial retornado pelo Mercado Pago ou copie o código Pix. O QR Code expira às <strong>${escapeHtml(expires)}</strong>. O agendamento só será salvo após a confirmação do pagamento.</p>
+      <p>Use somente o QR Code oficial ou o Pix copia e cola abaixo. O link de cobrança do Mercado Pago foi removido porque pode abrir como indisponível quando o Pix expira ou quando a sessão do Mercado Pago muda. O QR Code expira às <strong>${escapeHtml(expires)}</strong>.</p>
       ${qrSrc ? `<img class="client-pix-qr" src="${escapeHtml(qrSrc)}" alt="QR Code Pix Mercado Pago oficial">` : '<div class="client-pix-qr placeholder">QR Code indisponível</div>'}
-      ${!isValidPixCode ? '<div class="client-pix-warning">O código Pix retornado não parece válido. Gere outro Pix ou revise as credenciais do Mercado Pago.</div>' : ''}
+      ${!isValidPixCode ? '<div class="client-pix-warning">O código Pix retornado não parece válido. Gere outro Pix ou revise as credenciais de produção do Mercado Pago.</div>' : ''}
       <label class="client-field"><span>Pix copia e cola</span><textarea id="pix-copy-code" readonly rows="5">${escapeHtml(intent.qrCode || '')}</textarea></label>
       <div class="client-card-actions client-pix-actions">
         <button class="btn btn-secondary" id="copy-pix-code-inline" type="button">Copiar código Pix</button>
-        ${intent.ticketUrl ? `<a class="btn btn-ghost" href="${escapeHtml(intent.ticketUrl)}" target="_blank" rel="noopener">Abrir no Mercado Pago</a>` : ''}
       </div>
+      <div class="client-pix-help">Se o banco informar pagamento indisponível, gere um novo Pix. Não use QR antigo, print ou link de cobrança expirado.</div>
       <div class="client-pix-status" id="pix-payment-status">Aguardando confirmação do Mercado Pago...</div>
     </div>`;
   }
@@ -410,6 +422,16 @@
     });
   }
 
+  function goToPixPaymentPage(intent) {
+    if (!intent?.id) {
+      openModal('Pix não gerado', '<p>Não recebemos o identificador do pagamento. Tente novamente.</p>', '<button class="btn" data-close-modal>OK</button>');
+      return;
+    }
+    sessionStorage.setItem('petfunny_pending_pix_intent', JSON.stringify(intent));
+    localStorage.setItem('petfunny_last_pending_pix_intent', JSON.stringify(intent));
+    window.location.href = `/app/pagamento-pix?intent=${encodeURIComponent(intent.id)}`;
+  }
+
   async function bindPixPaymentPage() {
     const card = document.getElementById('pix-page-card');
     if (!card) return;
@@ -419,7 +441,7 @@
       return;
     }
     let intent = null;
-    try { intent = JSON.parse(sessionStorage.getItem('petfunny_pending_pix_intent') || 'null'); } catch {}
+    try { intent = JSON.parse(sessionStorage.getItem('petfunny_pending_pix_intent') || localStorage.getItem('petfunny_last_pending_pix_intent') || 'null'); } catch {}
     try {
       const response = await clientApi.get(`/app/appointments/payment/${intentId}`);
       intent = response.paymentIntent || intent;
@@ -433,7 +455,7 @@
       card.innerHTML = '<div class="client-pix-status">Não foi possível carregar o Pix. Volte para a agenda e tente novamente.</div><a class="btn" href="/app/agenda">Voltar para agenda</a>';
       return;
     }
-    card.innerHTML = paymentModalHtml(intent) + '<div class="client-card-actions"><a class="btn btn-ghost" href="/app/agenda">Cancelar e voltar</a></div>';
+    card.innerHTML = paymentPageHtml(intent) + '<div class="client-card-actions"><a class="btn btn-ghost" href="/app/agenda">Cancelar e voltar</a></div>';
     const copyPix = async () => {
       const code = document.getElementById('pix-copy-code')?.value || '';
       try { await navigator.clipboard.writeText(code); toast('Código Pix copiado.'); } catch { toast('Copie o código Pix manualmente.'); }
@@ -449,9 +471,47 @@
     }
   }
 
+  async function loadAppAvailableSlots(dateValue, selectedTime = '') {
+    const select = document.getElementById('appointment-time');
+    const hint = document.getElementById('appointment-time-hint');
+    if (!select || !dateValue) return;
+    select.innerHTML = '<option value="">Carregando horários...</option>';
+    if (hint) hint.textContent = 'Consultando vagas disponíveis nas Configurações do PetFunny...';
+    try {
+      const response = await clientApi.get(`/app/availability?date=${encodeURIComponent(dateValue)}`);
+      const slots = response.slots || [];
+      if (!slots.length) {
+        select.innerHTML = '<option value="">Sem horários disponíveis</option>';
+        select.disabled = true;
+        if (hint) hint.textContent = 'Esta data não tem horários disponíveis. Escolha outra data.';
+        return;
+      }
+      select.disabled = false;
+      const preferred = selectedTime || initialScheduleTime(dateValue);
+      select.innerHTML = slots.map((slot) => `<option value="${escapeHtml(slot.time)}" ${String(slot.time) === String(preferred).slice(0, 5) ? 'selected' : ''}>${escapeHtml(slot.label || slot.time)}</option>`).join('');
+      if (hint) hint.textContent = 'Somente horários com vagas configuradas aparecem aqui.';
+      if (![...select.options].some((option) => option.selected)) select.selectedIndex = 0;
+    } catch (error) {
+      select.innerHTML = '<option value="">Erro ao carregar horários</option>';
+      select.disabled = true;
+      if (hint) hint.textContent = error.message || 'Não foi possível carregar os horários.';
+    }
+  }
+
+  function bindAppointmentAvailability() {
+    const form = document.getElementById('appointment-form');
+    if (!form) return;
+    const dateInput = form.querySelector('[name="appointmentDate"]');
+    const timeSelect = form.querySelector('[name="appointmentTime"]');
+    if (!dateInput || !timeSelect) return;
+    loadAppAvailableSlots(dateInput.value, timeSelect.value);
+    dateInput.addEventListener('change', () => loadAppAvailableSlots(dateInput.value, ''));
+  }
+
   function bindEvents() {
     bindPushEvents();
     bindPixPaymentPage();
+    bindAppointmentAvailability();
     document.getElementById('appointment-form')?.addEventListener('change', (event) => {
       if (event.target.name === 'petId') {
         document.getElementById('services-list').innerHTML = renderServiceChecks(serviceOptionsForPet(event.target.value));
@@ -461,12 +521,18 @@
       event.preventDefault();
       const form = event.currentTarget;
       const payload = formPayload(form);
+      payload.startsAt = localStartsAt(payload.appointmentDate, payload.appointmentTime);
+      delete payload.appointmentDate;
+      delete payload.appointmentTime;
       payload.serviceIds = [...form.querySelectorAll('input[name="serviceIds"]:checked')].map((input) => input.value);
+      if (!payload.startsAt || form.querySelector('[name="appointmentTime"]')?.disabled) {
+        openModal('Escolha um horário', '<p>Selecione uma data e um horário disponível para continuar.</p>', '<button class="btn" data-close-modal>OK</button>');
+        return;
+      }
       try {
         const response = await clientApi.post('/app/appointments', payload);
         if (response.requiresPayment && response.paymentIntent) {
-          sessionStorage.setItem('petfunny_pending_pix_intent', JSON.stringify(response.paymentIntent));
-          window.location.href = `/app/pagamento-pix?intent=${encodeURIComponent(response.paymentIntent.id)}`;
+          goToPixPaymentPage(response.paymentIntent);
           return;
         }
         clearRoletaScheduleContext();

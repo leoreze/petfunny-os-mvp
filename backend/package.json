@@ -1,10 +1,11 @@
 {
   "name": "petfunny-os-backend",
-  "version": "1.5.77",
+  "version": "1.5.100",
   "type": "module",
   "main": "src/server.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=20 <25",
+    "npm": ">=10"
   },
   "scripts": {
     "start": "node src/server.js",
@@ -13,7 +14,8 @@
     "db:seed": "node src/scripts/seed.js",
     "db:reset": "node src/scripts/reset.js",
     "push:keys": "node src/scripts/generateVapidKeys.js",
-    "push:repair": "npm install web-push@3.6.7 asn1.js@5.4.1 http_ece@1.2.0 https-proxy-agent@7.0.6 jws@4.0.0 minimist@1.2.8 --save --no-audit --no-fund"
+    "push:repair": "npm install web-push@3.6.7 asn1.js@5.4.1 http_ece@1.2.0 https-proxy-agent@7.0.6 jws@4.0.0 minimist@1.2.8 --save --no-audit --no-fund",
+    "render:build": "npm install --omit=dev --no-audit --no-fund --legacy-peer-deps && npm run db:migrate"
   },
   "dependencies": {
     "cors": "^2.8.5",

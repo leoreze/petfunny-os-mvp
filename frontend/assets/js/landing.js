@@ -31,26 +31,47 @@ function renderServiceFilter() {
   select.addEventListener('change', () => renderServices(siteServices, select.value));
 }
 
+function serviceTypeName(item = {}) {
+  return safe(item.categoryName || item.serviceTypeName || item.typeName || item.serviceType || item.category || 'Cuidados PetFunny');
+}
+
 function renderServices(services = [], sizeFilter = 'all') {
   const grid = $('#service-grid');
   if (!grid) return;
   const source = Array.isArray(services) && services.length ? services : [
-    { name: 'Banho premium', description: 'Higienização cuidadosa, perfume equilibrado e finalização caprichada.', petSize: 'all', petSizeName: 'todos os portes' },
-    { name: 'Tosa completa', description: 'Acabamento por porte, estilo, pelagem e necessidade do pet.', petSize: 'all', petSizeName: 'todos os portes' },
-    { name: 'Tosa higiênica', description: 'Mais conforto, limpeza e bem-estar para a rotina do pet.', petSize: 'all', petSizeName: 'todos os portes' },
-    { name: 'Hidratação', description: 'Tratamento para deixar a pelagem mais macia, bonita e fácil de cuidar.', petSize: 'all', petSizeName: 'todos os portes' }
+    { name: 'Banho premium', description: 'Higienização cuidadosa, perfume equilibrado e finalização caprichada.', petSize: 'all', petSizeName: 'todos os portes', categoryName: 'Banho' },
+    { name: 'Tosa completa', description: 'Acabamento por porte, estilo, pelagem e necessidade do pet.', petSize: 'all', petSizeName: 'todos os portes', categoryName: 'Tosa' },
+    { name: 'Tosa higiênica', description: 'Mais conforto, limpeza e bem-estar para a rotina do pet.', petSize: 'all', petSizeName: 'todos os portes', categoryName: 'Tosa' },
+    { name: 'Hidratação', description: 'Tratamento para deixar a pelagem mais macia, bonita e fácil de cuidar.', petSize: 'all', petSizeName: 'todos os portes', categoryName: 'Tratamentos' }
   ];
   const filtered = sizeFilter && sizeFilter !== 'all'
     ? source.filter((item) => !item.petSize || item.petSize === sizeFilter || item.petSize === 'all')
     : source;
+  const list = (filtered.length ? filtered : source).slice(0, 18);
   const icons = ['🛁', '✂️', '💎', '🧼', '🐾', '✨', '🫧', '💖'];
-  grid.innerHTML = (filtered.length ? filtered : source).slice(0, 12).map((item, index) => `
-    <article class="pf-service-card" data-pet-size="${safe(item.petSize || 'all')}">
-      <span>${icons[index % icons.length]}</span>
-      <h3>${safe(item.name, 'Serviço PetFunny')}</h3>
-      <p>${safe(item.description, `${safe(item.categoryName, 'Cuidado especial')} · ${safe(item.petSizeName || item.petSize, 'todos os portes')}`)}</p>
-      <small>${safe(item.petSizeName || item.petSize, 'Todos os portes')}</small>
-    </article>
+  const groups = list.reduce((acc, item) => {
+    const key = serviceTypeName(item);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+  grid.innerHTML = Object.entries(groups).map(([typeName, items], groupIndex) => `
+    <section class="pf-service-type-block">
+      <header class="pf-service-type-head">
+        <span>${icons[groupIndex % icons.length]}</span>
+        <div><strong>${safe(typeName, 'Serviços PetFunny')}</strong><small>${items.length} serviço${items.length === 1 ? '' : 's'} disponível${items.length === 1 ? '' : 'is'}</small></div>
+      </header>
+      <div class="pf-service-type-grid">
+        ${items.map((item, index) => `
+          <article class="pf-service-card" data-pet-size="${safe(item.petSize || 'all')}">
+            <span>${icons[(groupIndex + index + 1) % icons.length]}</span>
+            <h3>${safe(item.name, 'Serviço PetFunny')}</h3>
+            <p>${safe(item.description, `${safe(typeName, 'Cuidado especial')} · ${safe(item.petSizeName || item.petSize, 'todos os portes')}`)}</p>
+            <small>${safe(item.petSizeName || item.petSize, 'Todos os portes')}</small>
+          </article>
+        `).join('')}
+      </div>
+    </section>
   `).join('');
 }
 

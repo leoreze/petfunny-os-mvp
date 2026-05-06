@@ -79,7 +79,7 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
           <span class="client-area-postit">${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).tag)}</span>
           <p class="eyebrow">App do tutor</p>
           <h1>${escapeHtml(title)}</h1>
-          <p>${escapeHtml(subtitle)}</p>
+          ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
           <div class="client-area-hero-actions">
             <a class="btn btn-sm" href="${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).href)}">${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).actionLabel)}</a>
             <span class="client-profile-pill">🐾 ${escapeHtml(tutor.name || 'Tutor PetFunny')}</span>

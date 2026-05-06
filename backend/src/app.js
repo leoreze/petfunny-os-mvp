@@ -2925,7 +2925,7 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
 app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
-    const [pets, services, collaborators, petSizes, packages, paymentMethods, gifts] = await Promise.all([
+    const [pets, services, collaborators, petSizes, packages, paymentMethods, gifts, operational] = await Promise.all([
       query(`SELECT id, name, size, breed, coat_type FROM pets WHERE tutor_id=$1::uuid AND deleted_at IS NULL AND status='active' ORDER BY name ASC`, [tutorId]),
       query(`
         SELECT s.id, s.name, s.price_cents, s.duration_minutes, s.pet_size, ps.name AS pet_size_name,
@@ -2949,7 +2949,8 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
         ORDER BY p.name ASC
       `),
       query(`SELECT id, name, NULL::text AS type FROM payment_methods WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY sort_order ASC, name ASC`),
-      query(`SELECT id, title, description, estimated_cost_cents FROM gifts WHERE deleted_at IS NULL AND status='active' AND (starts_on IS NULL OR starts_on <= CURRENT_DATE) AND (ends_on IS NULL OR ends_on >= CURRENT_DATE) ORDER BY title ASC LIMIT 20`)
+      query(`SELECT id, title, description, estimated_cost_cents FROM gifts WHERE deleted_at IS NULL AND status='active' AND (starts_on IS NULL OR starts_on <= CURRENT_DATE) AND (ends_on IS NULL OR ends_on >= CURRENT_DATE) ORDER BY title ASC LIMIT 20`),
+      getOperationalSettingsPayload()
     ]);
 
     res.json({
@@ -2959,7 +2960,10 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
       petSizes: petSizes.rows.map((row) => ({ code: row.code, name: row.name, sortOrder: Number(row.sort_order || 0) })),
       packages: packages.rows.map((row) => ({ id: row.id, name: row.name, description: row.description, petSize: row.pet_size || 'todos', sessionsCount: Number(row.sessions_count || 0), appointmentsPerMonth: Number(row.appointments_per_month || 0), priceCents: Number(row.price_cents || 0), discountPercent: Number(row.discount_percent || 0), servicesText: row.services_text || '' })),
       paymentMethods: paymentMethods.rows.map((row) => ({ id: row.id, name: row.name, type: row.type })),
-      gifts: gifts.rows.map((row) => ({ id: row.id, title: row.title, description: row.description, estimatedCostCents: Number(row.estimated_cost_cents || 0) }))
+      gifts: gifts.rows.map((row) => ({ id: row.id, title: row.title, description: row.description, estimatedCostCents: Number(row.estimated_cost_cents || 0) })),
+      businessHours: operational.businessHours,
+      timeSlotCapacities: operational.timeSlotCapacities,
+      slotPolicy: operational.slotPolicy
     });
   } catch (error) {
     next(error);
@@ -3061,7 +3065,10 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     const tutorName = req.clientApp.tutor?.name || 'Tutor PetFunny';
     const tutorEmail = req.clientApp.tutor?.email || req.clientApp.account?.email || '';
     const petId = cleanText(req.body?.petId);
-    const startsAt = toIsoOrNull(req.body?.startsAt);
+    const rawStartsAt = cleanText(req.body?.startsAt);
+    const rawSlotParts = getLocalSlotParts(rawStartsAt);
+    const startsAtLocal = rawSlotParts?.date && rawSlotParts?.time ? `${rawSlotParts.date}T${rawSlotParts.time}` : '';
+    const startsAt = rawSlotParts?.date && rawSlotParts?.time ? saoPauloLocalToIso(rawSlotParts.date, rawSlotParts.time) : toIsoOrNull(rawStartsAt);
     const serviceIds = Array.isArray(req.body?.serviceIds) ? req.body.serviceIds.filter(Boolean) : [];
     const collaboratorId = cleanText(req.body?.collaboratorId);
     const giftSpinId = cleanText(req.body?.giftSpinId);
@@ -3074,7 +3081,7 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
 
     const pet = await query(`SELECT id, name FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
     if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
-    await assertSlotAvailable(startsAt, 'agendado', null);
+    await assertSlotAvailable(startsAtLocal || rawStartsAt || startsAt, 'agendado', null);
     const services = await query(`SELECT id, name, price_cents, duration_minutes FROM services WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND is_active = TRUE`, [serviceIds]);
     if (!services.rowCount) return res.status(400).json({ error: 'Nenhum serviço ativo encontrado.' });
     const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
@@ -3103,6 +3110,7 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     const payload = {
       petId,
       startsAt,
+      startsAtLocal: startsAtLocal || '',
       serviceIds: services.rows.map((row) => row.id),
       collaboratorId,
       notes: appointmentNotes,
@@ -3111,7 +3119,8 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
       rouletteGiftDescription: giftDescription
     };
     const description = `Agendamento PetFunny · ${pet.rows[0].name} · ${services.rows.map((row) => row.name).join(', ')}`.slice(0, 250);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const pixExpirationMinutes = getMercadoPagoPixExpirationMinutes();
+    const expiresAt = new Date(Date.now() + pixExpirationMinutes * 60 * 1000).toISOString();
     const intent = await query(`
       INSERT INTO appointment_payment_intents (tutor_id, client_account_id, pet_id, status, amount_cents, description, pending_payload, expires_at)
       VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending', $4::integer, $5::text, $6::jsonb, $7::timestamptz)
@@ -3584,6 +3593,15 @@ app.delete('/api/servicos/:id', requireAuth, async (req, res, next) => {
 });
 
 
+function saoPauloLocalToIso(dateValue, timeValue) {
+  const date = String(dateValue || '').slice(0, 10);
+  const time = String(timeValue || '').slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const parsed = new Date(`${date}T${time}:00-03:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function toIsoOrNull(value) {
   const text = String(value || '').trim();
   if (!text) return null;
@@ -3605,6 +3623,28 @@ function isMercadoPagoConfigured() {
 function isMercadoPagoTestMode() {
   const token = String(env.mercadoPagoAccessToken || '').trim();
   return /^TEST-/i.test(token) || /TEST/i.test(token.slice(0, 32));
+}
+
+function getMercadoPagoPixExpirationMinutes() {
+  return Math.max(5, Math.min(60, Number(env.mercadoPagoPixExpirationMinutes || 15) || 15));
+}
+
+function mercadoPagoPixExpirationDate(minutes = 15) {
+  const expires = new Date(Date.now() + Math.max(5, Math.min(60, Number(minutes || 15))) * 60 * 1000);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(expires).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}.000-03:00`;
 }
 
 function normalizePixQrCode(value = '') {
@@ -3702,13 +3742,20 @@ function sanitizePaymentIntent(row = {}) {
 }
 
 async function createMercadoPagoPixPayment({ intentId, amountCents, description, payerEmail, payerName }) {
+  if (isMercadoPagoTestMode() && !env.mercadoPagoAllowTestPix) {
+    const error = new Error('Credencial de teste do Mercado Pago detectada. Para pagar com app de banco real, use MERCADO_PAGO_ACCESS_TOKEN de produção. Se quiser apenas testar sandbox, defina MERCADO_PAGO_ALLOW_TEST_PIX=true.');
+    error.status = 400;
+    error.details = { tokenMode: 'test', productionRequiredForBankApp: true };
+    throw error;
+  }
   const appUrl = String(env.appUrl || '').replace(/\/$/, '');
   const body = {
     transaction_amount: Number((Number(amountCents || 0) / 100).toFixed(2)),
     description: description || 'Agendamento PetFunny',
     payment_method_id: 'pix',
     external_reference: String(intentId),
-    date_of_expiration: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    metadata: { source: 'petfunny_app', intent_id: String(intentId) },
+    date_of_expiration: mercadoPagoPixExpirationDate(getMercadoPagoPixExpirationMinutes()),
     payer: {
       email: payerEmail || `cliente+${String(intentId).slice(0, 8)}@petfunny.com.br`,
       first_name: payerName || 'Tutor PetFunny'
@@ -3798,7 +3845,7 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
       FROM appointment_payment_intents api
       LEFT JOIN tutors t ON t.id = api.tutor_id
       WHERE api.id=$1::uuid AND api.deleted_at IS NULL
-      FOR UPDATE
+      FOR UPDATE OF api
     `, [intentId]);
     if (!intentResult.rowCount) {
       const error = new Error('Pagamento do agendamento não encontrado.');
@@ -3819,11 +3866,12 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     const payload = intent.pending_payload || {};
     const petId = payload.petId;
     const startsAt = payload.startsAt;
+    const startsAtLocal = payload.startsAtLocal || '';
     const collaboratorParam = payload.collaboratorId || '';
     const notes = payload.notes || '';
     const serviceIds = Array.isArray(payload.serviceIds) ? payload.serviceIds : [];
     if (!petId || !startsAt || !serviceIds.length) throw new Error('Dados pendentes do agendamento estão incompletos.');
-    await assertSlotAvailable(startsAt, 'agendado', null);
+    await assertSlotAvailable(startsAtLocal || startsAt, 'agendado', null);
     const services = await query(`SELECT id, name, price_cents, duration_minutes FROM services WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND is_active = TRUE`, [serviceIds]);
     if (!services.rowCount) throw new Error('Serviços do agendamento não estão mais disponíveis.');
     const duration = services.rows.reduce((sum, row) => sum + Number(row.duration_minutes || 60), 0);
@@ -3877,8 +3925,10 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
 
 function getLocalSlotParts(startsAtValue) {
   const text = String(startsAtValue || '').trim();
+  if (!text) return null;
+  const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
   const match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
-  if (match) {
+  if (match && !hasExplicitTimezone) {
     const weekday = new Date(`${match[1]}T12:00:00`).getDay();
     return { date: match[1], time: match[2], weekday };
   }
@@ -3890,13 +3940,34 @@ function getLocalSlotParts(startsAtValue) {
   return { date: localDate, time: localTime, weekday };
 }
 
+function slotValidationError(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
+}
+
+function getSaoPauloNowParts() {
+  const now = new Date();
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const time = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+  return { date, time };
+}
+
+function isPastLocalSlot(dateValue, timeValue = '00:00') {
+  const date = String(dateValue || '').slice(0, 10);
+  const time = String(timeValue || '').slice(0, 5);
+  const now = getSaoPauloNowParts();
+  return date < now.date || (date === now.date && time <= now.time);
+}
+
 async function assertSlotAvailable(startsAtValue, statusCode, excludeAppointmentId = null) {
   const statusResult = await query('SELECT blocks_slot FROM appointment_statuses WHERE code = $1::text AND deleted_at IS NULL LIMIT 1', [statusCode]);
   const blocksSlot = statusResult.rows[0]?.blocks_slot !== false;
   if (!blocksSlot) return;
 
   const parts = getLocalSlotParts(startsAtValue);
-  if (!parts?.date || !parts?.time) throw new Error('Data/hora inválida para o agendamento.');
+  if (!parts?.date || !parts?.time) throw slotValidationError('Data/hora inválida para o agendamento.');
+  if (isPastLocalSlot(parts.date, parts.time)) throw slotValidationError('Este horário já passou. Escolha uma data e horário disponíveis.');
 
   const slotResult = await query(`
     SELECT bh.is_open,
@@ -3910,12 +3981,12 @@ async function assertSlotAvailable(startsAtValue, statusCode, excludeAppointment
     LIMIT 1
   `, [parts.weekday, parts.time]);
   const slot = slotResult.rows[0];
-  if (!slot || !slot.is_open) throw new Error('O dia selecionado está fechado nas Configurações.');
+  if (!slot || !slot.is_open) throw slotValidationError('O dia selecionado está fechado nas Configurações.');
   const hhmm = String(slot.slot_time || parts.time).slice(0, 5);
   if (hhmm < String(slot.opens_at).slice(0, 5) || hhmm >= String(slot.closes_at).slice(0, 5)) {
-    throw new Error('Horário fora do funcionamento configurado.');
+    throw slotValidationError('Horário fora do funcionamento configurado. Escolha um horário disponível no app ou ajuste o horário de funcionamento em Configurações.');
   }
-  if (Number(slot.capacity || 0) <= 0) throw new Error('Este horário está sem vagas configuradas.');
+  if (Number(slot.capacity || 0) <= 0) throw slotValidationError('Este horário está sem vagas configuradas. Escolha outro horário ou ajuste as vagas em Configurações.');
 
   const countResult = await query(`
     SELECT COUNT(a.id)::int AS total
@@ -3927,9 +3998,86 @@ async function assertSlotAvailable(startsAtValue, statusCode, excludeAppointment
       AND ($3::uuid IS NULL OR a.id <> $3::uuid)
   `, [parts.date, parts.time, excludeAppointmentId]);
   if (Number(countResult.rows[0]?.total || 0) >= Number(slot.capacity || 0)) {
-    throw new Error('Limite de agendamentos atingido para este dia e horário. Ajuste os slots em Configurações ou escolha outro horário.');
+    throw slotValidationError('Limite de agendamentos atingido para este dia e horário. Escolha outro horário disponível.');
   }
 }
+
+async function getAvailableAppSlotsForDate(dateValue, excludeAppointmentId = null) {
+  const date = cleanText(dateValue);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+  const now = getSaoPauloNowParts();
+  if (date < now.date) return [];
+  const weekday = new Date(`${date}T12:00:00`).getDay();
+  const slotsResult = await query(`
+    WITH configured_slots AS (
+      SELECT
+        bh.weekday,
+        bh.is_open,
+        bh.opens_at,
+        bh.closes_at,
+        tsc.slot_time,
+        COALESCE(tsc.capacity, 0)::int AS capacity
+      FROM business_hours bh
+      INNER JOIN time_slot_capacities tsc ON tsc.weekday = bh.weekday
+      WHERE bh.weekday = $1::integer
+        AND bh.is_open = TRUE
+        AND tsc.slot_time >= bh.opens_at
+        AND tsc.slot_time < bh.closes_at
+        AND COALESCE(tsc.capacity, 0) > 0
+    ), occupied AS (
+      SELECT
+        TO_CHAR(date_trunc('hour', a.starts_at AT TIME ZONE 'America/Sao_Paulo'), 'HH24:MI') AS slot_time,
+        COUNT(a.id)::int AS total
+      FROM appointments a
+      INNER JOIN appointment_statuses s ON s.code = a.status AND s.blocks_slot = TRUE
+      WHERE a.deleted_at IS NULL
+        AND TO_CHAR(a.starts_at AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') = $2::text
+        AND ($3::uuid IS NULL OR a.id <> $3::uuid)
+      GROUP BY 1
+    )
+    SELECT
+      TO_CHAR(cs.slot_time, 'HH24:MI') AS time,
+      cs.capacity,
+      COALESCE(o.total, 0)::int AS occupied,
+      GREATEST(cs.capacity - COALESCE(o.total, 0), 0)::int AS available
+    FROM configured_slots cs
+    LEFT JOIN occupied o ON o.slot_time = TO_CHAR(cs.slot_time, 'HH24:MI')
+    WHERE cs.capacity > COALESCE(o.total, 0)
+    ORDER BY cs.slot_time ASC
+  `, [weekday, date, excludeAppointmentId]);
+  return slotsResult.rows
+    .filter((row) => date !== now.date || String(row.time || '').slice(0, 5) > now.time)
+    .map((row) => ({
+      time: row.time,
+      label: `${row.time} · ${Number(row.available || 0)} vaga${Number(row.available || 0) === 1 ? '' : 's'}`,
+      capacity: Number(row.capacity || 0),
+      occupied: Number(row.occupied || 0),
+      available: Number(row.available || 0)
+    }));
+}
+
+app.get('/api/app/availability', requireClientAuth, async (req, res, next) => {
+  try {
+    const date = cleanText(req.query?.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Informe uma data válida para consultar horários.' });
+    const slots = await getAvailableAppSlotsForDate(date);
+    res.json({ date, slots, message: slots.length ? 'Horários disponíveis carregados.' : 'Nenhum horário disponível para esta data.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+app.get('/api/agenda/availability', requireAuth, async (req, res, next) => {
+  try {
+    const date = cleanText(req.query?.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Informe uma data válida para consultar horários.' });
+    const slots = await getAvailableAppSlotsForDate(date, cleanText(req.query?.excludeAppointmentId) || null);
+    res.json({ date, slots, message: slots.length ? 'Horários disponíveis carregados.' : 'Nenhum horário disponível para esta data.' });
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get('/api/agenda/options', requireAuth, async (req, res, next) => {
   try {

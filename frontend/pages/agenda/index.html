@@ -261,6 +261,9 @@
   };
 
   function dateAdd(date, days) { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10); }
+  function localToday() { return new Date().toISOString().slice(0,10); }
+  function localNowTime() { return new Date().toTimeString().slice(0,5); }
+  function isPastSlot(date, time = '00:00') { return date < localToday() || (date === localToday() && String(time).slice(0,5) <= localNowTime()); }
   function firstDayOfMonth(date) { const d = new Date(`${date}T12:00:00`); return new Date(d.getFullYear(), d.getMonth(), 1); }
   function filteredItems() {
     const q = nodes.search.value.trim().toLowerCase();
@@ -270,7 +273,12 @@
 
   function slotTimesForDate(date) {
     const weekday = new Date(`${date}T12:00:00`).getDay();
-    return state.slots.filter(s => Number(s.weekday) === weekday && Number(s.capacity) > 0).map(s => s.slotTime);
+    if (!date || date < localToday()) return [];
+    return state.slots
+      .filter(s => Number(s.weekday) === weekday && Number(s.capacity) > 0)
+      .map(s => String(s.slotTime).slice(0,5))
+      .filter(t => !isPastSlot(date, t))
+      .filter(t => Math.max(0, slotCapacity(date, t) - slotUsed(date, t)) > 0);
   }
 
   function slotCapacity(date, time) {
@@ -303,7 +311,7 @@
 
   function quickScheduleButton(date, time = '') {
     const available = time ? Math.max(0, slotCapacity(date, time) - slotUsed(date, time)) : daySlotStats(date).available;
-    if (available <= 0) return '';
+    if (available <= 0 || (time && isPastSlot(date, time)) || (!time && date < localToday())) return '';
     return `<button class="quick-schedule-btn" type="button" data-new-date="${esc(date)}" data-new-time="${esc(time)}" title="Novo agendamento neste horário">＋</button>`;
   }
 
@@ -318,9 +326,21 @@
     renderTimes();
   }
 
-  function renderTimes() {
-    const times = slotTimesForDate(fields.date.value || state.date);
-    fields.time.innerHTML = times.length ? times.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('') : '<option value="">Sem slots neste dia</option>';
+  async function renderTimes(selectedTime = '') {
+    const date = fields.date.value || state.date;
+    fields.time.disabled = true;
+    fields.time.innerHTML = '<option value="">Carregando horários...</option>';
+    try {
+      const exclude = fields.id?.value ? `&excludeAppointmentId=${encodeURIComponent(fields.id.value)}` : '';
+      const response = await api.get(`/agenda/availability?date=${encodeURIComponent(date)}${exclude}`);
+      const slots = response.slots || [];
+      fields.time.innerHTML = slots.length ? slots.map(slot => `<option value="${esc(slot.time)}" ${String(slot.time).slice(0,5) === String(selectedTime).slice(0,5) ? 'selected' : ''}>${esc(slot.label || slot.time)}</option>`).join('') : '<option value="">Sem horários disponíveis</option>';
+      fields.time.disabled = !slots.length;
+    } catch (error) {
+      const times = slotTimesForDate(date);
+      fields.time.innerHTML = times.length ? times.map(t => `<option value="${esc(t)}" ${String(t).slice(0,5) === String(selectedTime).slice(0,5) ? 'selected' : ''}>${esc(t)}</option>`).join('') : '<option value="">Sem horários disponíveis</option>';
+      fields.time.disabled = !times.length;
+    }
   }
 
   function notesFromContext(tutor, pet) {
@@ -825,8 +845,9 @@
     renderPetsForTutor();
     fields.petId.value = item?.petId || '';
     fields.date.value = item?.startsAt ? String(item.startsAt).slice(0,10) : (prefill?.date || state.date);
-    renderTimes();
-    fields.time.value = item?.startsAt ? hm(item.startsAt) : (prefill?.time || fields.time.options[0]?.value || '');
+    if (fields.date.min !== undefined) fields.date.min = localToday();
+    await renderTimes(item?.startsAt ? hm(item.startsAt) : (prefill?.time || ''));
+    if (item?.startsAt || prefill?.time) fields.time.value = item?.startsAt ? hm(item.startsAt) : prefill.time;
     fields.status.value = item?.status || 'agendado';
     fields.collab.value = item?.collaboratorId || '';
     fields.paymentStatus.value = item?.paymentStatus || 'pending';
@@ -856,6 +877,10 @@
       discountPercent: fields.discount.value,
       notes: fields.notes.value
     };
+    if (!fields.time.value || fields.time.disabled || isPastSlot(fields.date.value, fields.time.value)) {
+      await showResultModal({ type: 'error', title: 'Horário indisponível', message: 'Escolha uma data e horário disponíveis antes de salvar.', okText: 'OK' });
+      return;
+    }
     try {
       const editing = Boolean(fields.id.value);
       if (editing) await api.put(`/agenda/${fields.id.value}`, payload); else await api.post('/agenda', payload);
@@ -925,7 +950,8 @@
   fields.whatsapp?.addEventListener('blur', lookupClientByWhatsapp);
   fields.tutorId?.addEventListener('change', () => { renderPetsForTutor({ autoSelectSingle: true }); completeFieldsFromSelection({ forceNotes: true }); });
   fields.petId?.addEventListener('change', () => { completeFieldsFromSelection({ forceNotes: true }); renderServiceChecks(); });
-  fields.date?.addEventListener('change', renderTimes);
+  fields.date?.addEventListener('change', () => renderTimes(''));
+  if (fields.date && fields.date.min !== undefined) fields.date.min = localToday();
   fields.services?.addEventListener('change', updateTotal);
   fields.discount?.addEventListener('input', updateTotal);
   nodes.form?.addEventListener('submit', saveAppointment);
