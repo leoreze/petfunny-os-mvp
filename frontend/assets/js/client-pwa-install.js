@@ -1,10 +1,6 @@
 const DISMISS_KEY = 'petfunny_pwa_install_dismissed_until';
 let deferredInstallPrompt = null;
 
-function isMobileDevice() {
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') || window.innerWidth <= 820;
-}
-
 function isStandalone() {
   return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
 }
@@ -27,7 +23,7 @@ function closeInstallModal() {
 }
 
 function renderInstallModal() {
-  if (!isMobileDevice() || isStandalone() || dismissedRecently() || document.querySelector('.client-install-backdrop')) return;
+  if (isStandalone() || dismissedRecently() || document.querySelector('.client-install-backdrop')) return;
   const canNativeInstall = Boolean(deferredInstallPrompt);
   const ios = isIos();
   const wrap = document.createElement('div');
@@ -38,10 +34,10 @@ function renderInstallModal() {
       <div class="client-install-logo"><img src="/assets/img/icon-192.png" alt="PetFunny"></div>
       <p class="eyebrow">Meu PetFunny no celular</p>
       <h2>Instale o app do tutor</h2>
-      <p>Tenha agenda, pacotes, recibos, roleta de mimos e avisos do PetFunny direto na tela inicial do seu celular.</p>
-      ${ios ? `<div class="client-install-tip"><strong>No iPhone:</strong> toque em Compartilhar <span>↗</span> e depois em <strong>Adicionar à Tela de Início</strong>.</div>` : ''}
+      <p>Tenha agenda, pacotes, promoções, recibos, roleta de mimos e avisos do PetFunny direto na tela inicial do celular ou computador.</p>
+      ${ios ? `<div class="client-install-tip"><strong>No iPhone:</strong> toque em Compartilhar <span>↗</span> e depois em <strong>Adicionar à Tela de Início</strong>.</div>` : (!canNativeInstall ? `<div class="client-install-tip"><strong>No desktop:</strong> procure o ícone de instalação na barra de endereço do navegador ou use o menu do Chrome/Edge e escolha <strong>Instalar app</strong>.</div>` : '')}
       <div class="client-install-actions">
-        <button class="btn" id="client-install-app" type="button" ${canNativeInstall ? '' : 'disabled'}>${canNativeInstall ? 'Instalar aplicativo' : (ios ? 'Siga as instruções acima' : 'Instalação disponível em instantes')}</button>
+        <button class="btn" id="client-install-app" type="button" ${canNativeInstall ? '' : 'data-pwa-dismiss'}>${canNativeInstall ? 'Instalar aplicativo' : (ios ? 'Ver instruções para iPhone' : 'Ver instruções de instalação')}</button>
         <button class="btn btn-secondary" type="button" data-pwa-dismiss>Agora não</button>
       </div>
     </section>`;

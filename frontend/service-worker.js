@@ -1,4 +1,4 @@
-const CACHE_NAME = 'petfunny-app-v1.5.103';
+const CACHE_NAME = 'petfunny-app-v1.5.110';
 const APP_SHELL = [
   '/app/login',
   '/app/home',
@@ -29,11 +29,22 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
+
+  // O service worker pertence ao App do Tutor. Ele não deve interceptar o admin
+  // nem a landing, porque isso pode devolver index.html em rotas como
+  // /admin/promocoes e esconder a página CRUD real.
+  const isClientAppRoute = url.pathname === '/app' || url.pathname.startsWith('/app/') || url.pathname.startsWith('/cliente');
+  const isClientAsset = url.pathname.startsWith('/assets/js/client-') || url.pathname.startsWith('/assets/img/icon-') || url.pathname === '/assets/css/app.css' || url.pathname === '/manifest.webmanifest' || url.pathname === '/favicon.ico' || url.pathname === '/assets/img/favicon-petfunny.png';
+  if (!isClientAppRoute && !isClientAsset) return;
+
   event.respondWith(
     fetch(request).then((response) => {
       const copy = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => null);
+      if (response.ok && (isClientAppRoute || isClientAsset)) {
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => null);
+      }
       return response;
     }).catch(() => caches.match(request).then((cached) => cached || caches.match('/app/home')))
   );

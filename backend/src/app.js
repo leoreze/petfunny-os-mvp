@@ -2195,6 +2195,19 @@ app.post('/api/app/auth/request-code', async (req, res, next) => {
     `, [whatsapp]);
 
     const tutor = tutorResult.rows[0] || null;
+    const attribution = getAppCrmAttribution(req);
+    await syncAppCrmLead({
+      whatsapp,
+      tutorId: tutor?.id || null,
+      name: tutor?.name || '',
+      email: tutor?.email || '',
+      stage: 'lead_entrou',
+      source: attribution.source,
+      origin: attribution.origin,
+      notes: `Lead entrou no App do Tutor. ${attribution.details}`.trim(),
+      interactionSubject: 'Lead entrou no app',
+      interactionMessage: `WhatsApp informado na tela de acesso do App do Tutor. ${attribution.details}`.trim()
+    });
 
     if (tutor) {
       const accountResult = await query(`
@@ -2256,6 +2269,17 @@ app.post('/api/app/auth/verify-code', async (req, res, next) => {
     `, [whatsapp]);
     const tutor = tutorResult.rows[0] || null;
     const tutorExists = Boolean(tutor) || Boolean(codeRow.tutor_exists);
+    await syncAppCrmLead({
+      whatsapp,
+      tutorId: tutor?.id || null,
+      name: tutor?.name || '',
+      email: tutor?.email || '',
+      stage: 'codigo_validado',
+      source: 'app_tutor',
+      notes: 'Código do WhatsApp validado no App do Tutor.',
+      interactionSubject: 'Código validado',
+      interactionMessage: 'O tutor validou o código de acesso enviado pelo WhatsApp.'
+    });
 
     res.json({
       ok: true,
@@ -2304,6 +2328,17 @@ app.post('/api/app/auth/set-password', async (req, res, next) => {
 
     await activateClientAccount(accountResult.rows[0].id, password);
     await query('UPDATE client_accounts SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1', [accountResult.rows[0].id]);
+    await syncAppCrmLead({
+      whatsapp: payload.whatsapp,
+      tutorId: tutor.id,
+      name: tutor.name,
+      email: tutor.email,
+      stage: 'senha_cadastrada',
+      source: 'app_tutor',
+      notes: 'Tutor cadastrou senha e liberou o acesso ao App do Tutor.',
+      interactionSubject: 'Senha cadastrada',
+      interactionMessage: 'O tutor criou a senha de acesso ao app.'
+    });
 
     const token = jwt.sign(
       { sub: accountResult.rows[0].id, tutorId: tutor.id, scope: 'client_app', channel: 'whatsapp', tenant: false },
@@ -2368,6 +2403,18 @@ app.post('/api/app/auth/register-tutor', async (req, res, next) => {
       RETURNING id, status
     `, [tutor.id, whatsapp]);
 
+    await syncAppCrmLead({
+      whatsapp,
+      tutorId: tutor.id,
+      name: tutor.name,
+      email: tutor.email,
+      stage: 'cadastro_tutor',
+      source: 'app_tutor',
+      notes: 'Tutor preencheu o cadastro inicial pelo App do Tutor.',
+      interactionSubject: 'Cadastro do tutor',
+      interactionMessage: 'O tutor completou nome, e-mail, cidade/UF e dados básicos pelo app.'
+    });
+
     res.status(201).json({
       ok: true,
       tutor: sanitizeTutor(tutor),
@@ -2406,6 +2453,17 @@ app.post('/api/app/auth/register-pet', async (req, res, next) => {
 
     await activateClientAccount(payload.accountId, password);
     await query('UPDATE client_accounts SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1', [payload.accountId]);
+    await syncAppCrmLead({
+      whatsapp: payload.whatsapp,
+      tutorId: payload.tutorId,
+      name: '',
+      email: '',
+      stage: 'pet_cadastrado',
+      source: 'app_tutor',
+      notes: `Pet cadastrado no App do Tutor: ${name}.`,
+      interactionSubject: 'Pet cadastrado',
+      interactionMessage: `O tutor cadastrou o pet ${name} e finalizou o acesso ao app.`
+    });
 
     const tutorResult = await query(`
       SELECT id, name, whatsapp, email, city, state, tags
@@ -2923,6 +2981,81 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
 
 
 
+
+app.get('/api/promocoes', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`
+      SELECT pr.*, s.name AS service_name
+      FROM promotions pr
+      LEFT JOIN services s ON s.id = pr.service_id
+      WHERE pr.deleted_at IS NULL
+      ORDER BY pr.is_active DESC, pr.created_at DESC
+    `);
+    res.json({ promotions: result.rows.map(sanitizePromotion) });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/promocoes/options', requireAuth, async (req, res, next) => {
+  try {
+    const [services, sizes] = await Promise.all([
+      query(`
+        SELECT s.id, s.name, s.pet_size, sc.name AS category_name
+        FROM services s
+        LEFT JOIN service_categories sc ON sc.id = s.category_id
+        WHERE s.deleted_at IS NULL AND s.is_active = TRUE
+        ORDER BY sc.sort_order ASC NULLS LAST, sc.name ASC NULLS LAST, s.name ASC
+      `),
+      query(`SELECT code, name FROM pet_sizes WHERE is_active = TRUE ORDER BY sort_order ASC, name ASC`).catch(() => ({ rows: [] }))
+    ]);
+    res.json({
+      services: services.rows.map((row) => ({ id: row.id, name: row.name, petSize: row.pet_size, categoryName: row.category_name || 'Serviços PetFunny' })),
+      petSizes: sizes.rows.map((row) => ({ code: row.code, name: row.name }))
+    });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/promocoes', requireAuth, async (req, res, next) => {
+  try {
+    const title = cleanText(req.body?.title);
+    if (!title) return res.status(400).json({ error: 'Informe o nome da promoção.' });
+    const discountPercent = Math.max(0, Math.min(100, Number(String(req.body?.discountPercent || '0').replace(',', '.')) || 0));
+    if (discountPercent <= 0) return res.status(400).json({ error: 'Informe um desconto maior que zero.' });
+    const weekdays = normalizeWeekdays(req.body?.weekdays);
+    const result = await query(`
+      INSERT INTO promotions (title, description, service_id, pet_size, discount_percent, weekdays, starts_on, ends_on, status, is_active)
+      VALUES ($1::text, NULLIF($2::text,''), NULLIF($3::text,'')::uuid, COALESCE(NULLIF($4::text,''),'todos'), $5::numeric, $6::smallint[], NULLIF($7::text,'')::date, NULLIF($8::text,'')::date, COALESCE(NULLIF($9::text,''),'active'), $10::boolean)
+      RETURNING *
+    `, [title, cleanText(req.body?.description), cleanText(req.body?.serviceId), cleanText(req.body?.petSize), discountPercent, weekdays, cleanText(req.body?.startsOn), cleanText(req.body?.endsOn), cleanText(req.body?.status), req.body?.isActive !== false]);
+    res.status(201).json({ promotion: sanitizePromotion(result.rows[0]), message: 'Promoção criada com sucesso.' });
+  } catch (error) { next(error); }
+});
+
+app.put('/api/promocoes/:id', requireAuth, async (req, res, next) => {
+  try {
+    const title = cleanText(req.body?.title);
+    if (!title) return res.status(400).json({ error: 'Informe o nome da promoção.' });
+    const discountPercent = Math.max(0, Math.min(100, Number(String(req.body?.discountPercent || '0').replace(',', '.')) || 0));
+    if (discountPercent <= 0) return res.status(400).json({ error: 'Informe um desconto maior que zero.' });
+    const weekdays = normalizeWeekdays(req.body?.weekdays);
+    const result = await query(`
+      UPDATE promotions
+      SET title=$2::text, description=NULLIF($3::text,''), service_id=NULLIF($4::text,'')::uuid, pet_size=COALESCE(NULLIF($5::text,''),'todos'), discount_percent=$6::numeric, weekdays=$7::smallint[], starts_on=NULLIF($8::text,'')::date, ends_on=NULLIF($9::text,'')::date, status=COALESCE(NULLIF($10::text,''),'active'), is_active=$11::boolean, updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL
+      RETURNING *
+    `, [req.params.id, title, cleanText(req.body?.description), cleanText(req.body?.serviceId), cleanText(req.body?.petSize), discountPercent, weekdays, cleanText(req.body?.startsOn), cleanText(req.body?.endsOn), cleanText(req.body?.status), req.body?.isActive !== false]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Promoção não encontrada.' });
+    res.json({ promotion: sanitizePromotion(result.rows[0]), message: 'Promoção atualizada.' });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/promocoes/:id', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`UPDATE promotions SET deleted_at=NOW(), is_active=FALSE, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING id`, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Promoção não encontrada.' });
+    res.json({ ok: true, message: 'Promoção removida.' });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/app/public-options', async (req, res, next) => {
   try {
     const petOptions = await getPetOptionsPayload({ activeOnly: true });
@@ -2944,7 +3077,7 @@ app.get('/api/app/public-options', async (req, res, next) => {
 app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
-    const [pets, services, collaborators, petSizes, petBreeds, packages, paymentMethods, gifts, operational] = await Promise.all([
+    const [pets, services, collaborators, petSizes, petBreeds, packages, paymentMethods, gifts, promotions, operational] = await Promise.all([
       query(`SELECT id, name, size, breed, coat_type FROM pets WHERE tutor_id=$1::uuid AND deleted_at IS NULL AND status='active' ORDER BY name ASC`, [tutorId]),
       query(`
         SELECT s.id, s.name, s.price_cents, s.duration_minutes, s.pet_size, ps.name AS pet_size_name,
@@ -2976,6 +3109,15 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
       `),
       query(`SELECT id, name, NULL::text AS type FROM payment_methods WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY sort_order ASC, name ASC`),
       query(`SELECT id, title, description, estimated_cost_cents FROM gifts WHERE deleted_at IS NULL AND status='active' AND (starts_on IS NULL OR starts_on <= CURRENT_DATE) AND (ends_on IS NULL OR ends_on >= CURRENT_DATE) ORDER BY title ASC LIMIT 20`),
+      query(`
+        SELECT pr.*, s.name AS service_name
+        FROM promotions pr
+        LEFT JOIN services s ON s.id = pr.service_id
+        WHERE pr.deleted_at IS NULL AND pr.is_active = TRUE AND pr.status='active'
+          AND (pr.starts_on IS NULL OR pr.starts_on <= CURRENT_DATE)
+          AND (pr.ends_on IS NULL OR pr.ends_on >= CURRENT_DATE)
+        ORDER BY pr.created_at DESC
+      `).catch(() => ({ rows: [] })),
       getOperationalSettingsPayload()
     ]);
 
@@ -2988,6 +3130,7 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
       packages: packages.rows.map((row) => ({ id: row.id, name: row.name, description: row.description, petSize: row.pet_size || 'todos', sessionsCount: Number(row.sessions_count || 0), appointmentsPerMonth: Number(row.appointments_per_month || 0), priceCents: Number(row.price_cents || 0), discountPercent: Number(row.discount_percent || 0), servicesText: row.services_text || '' })),
       paymentMethods: paymentMethods.rows.map((row) => ({ id: row.id, name: row.name, type: row.type })),
       gifts: gifts.rows.map((row) => ({ id: row.id, title: row.title, description: row.description, estimatedCostCents: Number(row.estimated_cost_cents || 0) })),
+      promotions: promotions.rows.map(sanitizePromotion),
       businessHours: operational.businessHours,
       timeSlotCapacities: operational.timeSlotCapacities,
       slotPolicy: operational.slotPolicy
@@ -3085,6 +3228,73 @@ app.delete('/api/app/pets/:id', requireClientAuth, async (req, res, next) => {
   }
 });
 
+
+function normalizeWeekdays(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(raw.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))];
+}
+
+function sanitizePromotion(row = {}) {
+  return {
+    id: row.id,
+    title: row.title || 'Promoção PetFunny',
+    description: row.description || '',
+    serviceId: row.service_id || null,
+    serviceName: row.service_name || '',
+    petSize: row.pet_size || 'todos',
+    discountPercent: Number(row.discount_percent || 0),
+    weekdays: Array.isArray(row.weekdays) ? row.weekdays.map(Number) : [],
+    startsOn: row.starts_on || null,
+    endsOn: row.ends_on || null,
+    status: row.status || 'active',
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+async function getActivePromotionsForSchedule({ startsAtLocal, petSize = 'todos', serviceIds = [] } = {}) {
+  const parts = getLocalSlotParts(startsAtLocal || '');
+  const dateValue = parts?.date || String(startsAtLocal || '').slice(0, 10);
+  const weekday = dateValue ? new Date(`${dateValue}T12:00:00`).getDay() : null;
+  if (!dateValue || weekday === null || Number.isNaN(weekday)) return [];
+  const result = await query(`
+    SELECT pr.*, s.name AS service_name
+    FROM promotions pr
+    LEFT JOIN services s ON s.id = pr.service_id
+    WHERE pr.deleted_at IS NULL
+      AND pr.is_active = TRUE
+      AND pr.status = 'active'
+      AND (pr.starts_on IS NULL OR pr.starts_on <= $1::date)
+      AND (pr.ends_on IS NULL OR pr.ends_on >= $1::date)
+      AND (COALESCE(array_length(pr.weekdays, 1), 0) = 0 OR $2::smallint = ANY(pr.weekdays))
+      AND (pr.pet_size = 'todos' OR pr.pet_size = $3::text)
+      AND (pr.service_id IS NULL OR pr.service_id = ANY($4::uuid[]))
+    ORDER BY pr.discount_percent DESC, pr.created_at DESC
+  `, [dateValue, weekday, petSize || 'todos', serviceIds]);
+  return result.rows.map(sanitizePromotion);
+}
+
+function applyPromotionsToItems(items = [], promotions = []) {
+  const applied = [];
+  const adjustedItems = items.map((item) => {
+    const candidates = promotions.filter((promo) => !promo.serviceId || String(promo.serviceId) === String(item.serviceId));
+    const best = candidates.sort((a, b) => Number(b.discountPercent || 0) - Number(a.discountPercent || 0))[0];
+    const discountPercent = best ? Math.max(0, Math.min(100, Number(best.discountPercent || 0))) : 0;
+    const gross = Number(item.unitPriceCents || 0) * Number(item.quantity || 1);
+    const discountCents = Math.round(gross * discountPercent / 100);
+    const totalCents = Math.max(0, gross - discountCents);
+    if (best && discountPercent > 0) {
+      applied.push({ promotionId: best.id, title: best.title, serviceId: item.serviceId, serviceName: item.description, discountPercent, discountCents });
+    }
+    return { ...item, discountPercent, discountCents, totalCents };
+  });
+  const subtotalCents = adjustedItems.reduce((sum, item) => sum + Number(item.unitPriceCents || 0) * Number(item.quantity || 1), 0);
+  const discountCents = adjustedItems.reduce((sum, item) => sum + Number(item.discountCents || 0), 0);
+  const totalCents = Math.max(0, subtotalCents - discountCents);
+  return { items: adjustedItems, subtotalCents, discountCents, totalCents, appliedPromotions: applied };
+}
+
 app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
@@ -3106,13 +3316,14 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     if (!serviceIds.length) return res.status(400).json({ error: 'Selecione ao menos um serviço.' });
     if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento Pix indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN no servidor para o app salvar agendamentos pagos.' });
 
-    const pet = await query(`SELECT id, name FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
+    const pet = await query(`SELECT id, name, size FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
     if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
     await assertSlotAvailable(startsAtLocal || rawStartsAt || startsAt, 'agendado', null);
     const services = await query(`SELECT id, name, price_cents, duration_minutes FROM services WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND is_active = TRUE`, [serviceIds]);
     if (!services.rowCount) return res.status(400).json({ error: 'Nenhum serviço ativo encontrado.' });
-    const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
-    const totals = centsFromServices(items, 0);
+    const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
+    const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || rawStartsAt, petSize: pet.rows[0]?.size || 'todos', serviceIds: services.rows.map((row) => row.id) });
+    const totals = applyPromotionsToItems(baseItems, activePromotions);
     if (totals.totalCents <= 0) return res.status(400).json({ error: 'O valor total do agendamento precisa ser maior que zero para gerar Pix.' });
 
     let appointmentNotes = cleanText(req.body?.notes);
@@ -3143,7 +3354,8 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
       notes: appointmentNotes,
       giftSpinId: giftSpin?.id || giftSpinId || '',
       rouletteGiftTitle: giftTitle,
-      rouletteGiftDescription: giftDescription
+      rouletteGiftDescription: giftDescription,
+      appliedPromotions: totals.appliedPromotions || []
     };
     const description = `Agendamento PetFunny · ${pet.rows[0].name} · ${services.rows.map((row) => row.name).join(', ')}`.slice(0, 250);
     const pixExpirationMinutes = getMercadoPagoPixExpirationMinutes();
@@ -3328,7 +3540,7 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
     if (!petId) return res.status(400).json({ error: 'Escolha o pet para contratar o pacote.' });
     if (!packageId) return res.status(400).json({ error: 'Escolha um pacote.' });
     if (String(startsOn).slice(0, 10) < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'Escolha uma data inicial válida para o pacote.' });
-    const pet = await query(`SELECT id, name FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
+    const pet = await query(`SELECT id, name, size FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
     if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
     const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL AND is_active=TRUE LIMIT 1', [packageId]);
     if (!pack.rowCount) return res.status(404).json({ error: 'Pacote ativo não encontrado.' });
@@ -4053,16 +4265,18 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     if (!services.rowCount) throw new Error('Serviços do agendamento não estão mais disponíveis.');
     const duration = services.rows.reduce((sum, row) => sum + Number(row.duration_minutes || 60), 0);
     const endsAt = new Date(new Date(startsAt).getTime() + duration * 60000).toISOString();
-    const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
-    const totals = centsFromServices(items, 0);
+    const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
+    const petForPromotion = await query(`SELECT size FROM pets WHERE id=$1::uuid LIMIT 1`, [petId]).catch(() => ({ rows: [] }));
+    const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || startsAt, petSize: petForPromotion.rows[0]?.size || 'todos', serviceIds });
+    const totals = applyPromotionsToItems(baseItems, activePromotions);
     const pixMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND lower(name) LIKE '%pix%' ORDER BY sort_order ASC LIMIT 1`).catch(() => ({ rows: [] }));
     const created = await query(`
       INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id)
-      VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::timestamptz, $5::timestamptz, 'agendado', 'app_tutor', $6::integer, 0, 0, $7::integer, $8::text, 'paid', NULLIF($9::text,'')::uuid)
+      VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::timestamptz, $5::timestamptz, 'agendado', 'app_tutor', $6::integer, $7::numeric, $8::integer, $9::integer, $10::text, 'paid', NULLIF($11::text,'')::uuid)
       RETURNING id
-    `, [intent.tutor_id, petId, collaboratorParam, startsAt, endsAt, totals.subtotalCents, totals.totalCents, notes, pixMethod.rows[0]?.id || '']);
-    for (const item of items) {
-      await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, 1, $5::integer, 0, $5::integer)`, [created.rows[0].id, petId, item.serviceId, item.description, item.unitPriceCents]);
+    `, [intent.tutor_id, petId, collaboratorParam, startsAt, endsAt, totals.subtotalCents, totals.appliedPromotions?.[0]?.discountPercent || 0, totals.discountCents, totals.totalCents, notes, pixMethod.rows[0]?.id || '']);
+    for (const item of totals.items) {
+      await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, 1, $5::integer, $6::numeric, $7::integer)`, [created.rows[0].id, petId, item.serviceId, item.description, item.unitPriceCents, item.discountPercent || 0, item.totalCents]);
     }
     if (payload.giftSpinId) {
       await query(`
@@ -4076,6 +4290,7 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
       VALUES ($1::uuid, $2::uuid, 'income', 'agendamento_app_pix', $3::text, $4::integer, $5::date, 'paid')
       ON CONFLICT DO NOTHING
     `, [intent.tutor_id, created.rows[0].id, `Agendamento pago via Pix Mercado Pago`, totals.totalCents, String(startsAt).slice(0, 10)]).catch(() => null);
+    await createOrUpdateReceiptForAppointment(created.rows[0].id, null).catch((error) => console.warn('[app:pix] recibo não gerado:', error.message));
     await query(`
       UPDATE appointment_payment_intents
       SET status='paid', mp_status=$2::text, provider_response=$3::jsonb, paid_at=NOW(), appointment_id=$4::uuid, updated_at=NOW()
@@ -4083,6 +4298,17 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     `, [intent.id, providerStatus, JSON.stringify(providerResponse || {}), created.rows[0].id]);
     await query('COMMIT');
     const appointment = await getAppointmentById(created.rows[0].id);
+    await syncAppCrmLead({
+      whatsapp: appointment?.tutor_whatsapp || '',
+      tutorId: intent.tutor_id,
+      name: appointment?.tutor_name || intent.tutor_name || '',
+      email: intent.tutor_email || '',
+      stage: 'primeiro_agendamento',
+      source: 'app_tutor',
+      notes: `Primeiro agendamento pago pelo app: ${appointment?.pet_name || 'pet'} em ${appointment?.starts_at || startsAt}.`,
+      interactionSubject: 'Primeiro agendamento',
+      interactionMessage: 'O tutor concluiu o pagamento Pix e o primeiro agendamento foi criado pelo app.'
+    });
     const pushTargets = await query(`SELECT * FROM push_subscriptions WHERE tutor_id=$1::uuid AND status='active' AND deleted_at IS NULL`, [intent.tutor_id]).catch(() => ({ rows: [] }));
     if (pushTargets.rowCount) {
       await sendPushToSubscriptions(pushTargets.rows, {
@@ -5791,14 +6017,117 @@ function sanitizeCrmInteraction(row = {}) {
   };
 }
 
+const CRM_APP_STAGE_ORDER = {
+  lead_entrou: 10,
+  codigo_validado: 20,
+  cadastro_tutor: 30,
+  senha_cadastrada: 40,
+  pet_cadastrado: 50,
+  primeiro_agendamento: 60,
+  conversa_iniciada: 70,
+  proposta_enviada: 80,
+  fechado: 90,
+  perdido: 0
+};
+
 const CRM_STAGES = [
   { code: 'lead_entrou', name: 'Lead entrou', color: '#00a9b7' },
-  { code: 'diagnostico_enviado', name: 'Diagnóstico enviado', color: '#7c3aed' },
+  { code: 'codigo_validado', name: 'Código validado', color: '#24b8c5' },
+  { code: 'cadastro_tutor', name: 'Cadastro do tutor', color: '#ff9d98' },
+  { code: 'senha_cadastrada', name: 'Senha cadastrada', color: '#ff7f95' },
+  { code: 'pet_cadastrado', name: 'Pet cadastrado', color: '#7c3aed' },
+  { code: 'primeiro_agendamento', name: 'Primeiro agendamento', color: '#12a876' },
   { code: 'conversa_iniciada', name: 'Conversa iniciada', color: '#ff9d98' },
   { code: 'proposta_enviada', name: 'Proposta enviada', color: '#f59e0b' },
-  { code: 'fechado', name: 'Fechado', color: '#12a876' },
+  { code: 'fechado', name: 'Fechado', color: '#10b981' },
   { code: 'perdido', name: 'Perdido', color: '#94a3b8' }
 ];
+
+function getAppCrmAttribution(req) {
+  const body = req?.body || {};
+  const headers = req?.headers || {};
+  const referer = cleanText(body.referrer || body.referer || req?.get?.('referer') || req?.get?.('referrer') || '');
+  const userAgent = cleanText(body.userAgent || headers['user-agent'] || '');
+  const utmSource = cleanText(body.utmSource || body.utm_source || body.source || '');
+  const utmMedium = cleanText(body.utmMedium || body.utm_medium || '');
+  const utmCampaign = cleanText(body.utmCampaign || body.utm_campaign || '');
+  const landingPath = cleanText(body.landingPath || body.landing_path || req?.path || '');
+  const origin = utmSource || (referer ? 'referral' : 'app_tutor');
+  const details = [
+    `Origem: ${origin}`,
+    referer ? `Referer: ${referer}` : '',
+    utmMedium ? `utm_medium: ${utmMedium}` : '',
+    utmCampaign ? `utm_campaign: ${utmCampaign}` : '',
+    landingPath ? `Tela: ${landingPath}` : '',
+    userAgent ? `Dispositivo: ${userAgent.slice(0, 140)}` : ''
+  ].filter(Boolean).join(' | ');
+  return { source: 'app_tutor', origin, details };
+}
+
+function mergeCrmNotes(currentNotes, nextNote) {
+  const current = cleanText(currentNotes);
+  const next = cleanText(nextNote);
+  if (!next) return current;
+  if (current.includes(next)) return current;
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  return [current, `[${stamp}] ${next}`].filter(Boolean).join('\n');
+}
+
+async function syncAppCrmLead({ whatsapp, tutorId = null, name = '', email = '', stage = 'lead_entrou', source = 'app_tutor', origin = '', notes = '', interactionSubject = '', interactionMessage = '' } = {}) {
+  try {
+    const normalizedWhatsapp = normalizeWhatsapp(whatsapp);
+    if (!normalizedWhatsapp && !tutorId) return null;
+    const safeStage = CRM_APP_STAGE_ORDER[stage] !== undefined ? stage : 'lead_entrou';
+    const fallbackName = cleanText(name) || `Lead ${normalizedWhatsapp || 'App PetFunny'}`;
+    const existing = await query(`
+      SELECT id, stage, notes, source
+      FROM crm_leads
+      WHERE deleted_at IS NULL
+        AND (whatsapp = $1::text OR ($2::uuid IS NOT NULL AND tutor_id = $2::uuid))
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `, [normalizedWhatsapp || '', tutorId || null]);
+
+    let leadId = existing.rows[0]?.id || null;
+    if (leadId) {
+      const currentStage = existing.rows[0].stage || 'lead_entrou';
+      const keepTerminal = ['fechado', 'perdido'].includes(currentStage);
+      const nextStage = keepTerminal ? currentStage : ((CRM_APP_STAGE_ORDER[safeStage] || 0) >= (CRM_APP_STAGE_ORDER[currentStage] || 0) ? safeStage : currentStage);
+      const mergedNotes = mergeCrmNotes(existing.rows[0].notes, notes || origin || 'Acesso pelo App do Tutor');
+      await query(`
+        UPDATE crm_leads
+        SET tutor_id = COALESCE($2::uuid, tutor_id),
+            name = COALESCE(NULLIF($3::text, ''), name),
+            whatsapp = COALESCE(NULLIF($4::text, ''), whatsapp),
+            email = COALESCE(NULLIF($5::text, ''), email),
+            stage = $6::text,
+            source = CASE WHEN source IS NULL OR source = '' OR source = 'manual' THEN $7::text ELSE source END,
+            notes = $8::text,
+            last_contact_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1::uuid
+      `, [leadId, tutorId || null, fallbackName, normalizedWhatsapp, cleanText(email), nextStage, source || 'app_tutor', mergedNotes]);
+    } else {
+      const inserted = await query(`
+        INSERT INTO crm_leads (tutor_id, name, whatsapp, email, stage, source, last_contact_at, notes)
+        VALUES ($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text, NOW(), $7::text)
+        RETURNING id
+      `, [tutorId || null, fallbackName, normalizedWhatsapp || null, cleanText(email) || null, safeStage, source || 'app_tutor', mergeCrmNotes('', notes || origin || 'Lead entrou pelo App do Tutor')]);
+      leadId = inserted.rows[0]?.id || null;
+    }
+
+    if (leadId && interactionMessage) {
+      await query(`
+        INSERT INTO crm_interactions (lead_id, tutor_id, channel, direction, subject, message, occurred_at)
+        VALUES ($1::uuid, $2::uuid, 'app', 'inbound', $3::text, $4::text, NOW())
+      `, [leadId, tutorId || null, interactionSubject || 'Evento do App do Tutor', interactionMessage]);
+    }
+    return leadId;
+  } catch (error) {
+    console.warn('[crm:app-flow] não foi possível sincronizar lead:', error.message);
+    return null;
+  }
+}
 
 app.get('/api/crm/options', requireAuth, async (req, res, next) => {
   try {
@@ -5811,7 +6140,7 @@ app.get('/api/crm/options', requireAuth, async (req, res, next) => {
     `);
     res.json({
       stages: CRM_STAGES,
-      sources: ['manual','whatsapp','instagram','landing_page','indicacao','google','cliente_inativo'],
+      sources: ['manual','app_tutor','whatsapp','instagram','landing_page','indicacao','google','cliente_inativo'],
       channels: ['whatsapp','telefone','instagram','email','presencial'],
       tutors: tutors.rows.map(sanitizeTutor)
     });
@@ -7287,12 +7616,16 @@ app.use(express.static(frontendRoot, {
   }
 }));
 
+// Rotas explícitas do módulo Promoções antes da landing/fallback.
+// Isso evita que /admin/promocoes caia na landing caso exista cache antigo do PWA ou fallback agressivo.
+app.get(['/admin/promocoes', '/promocoes'], (req, res) => sendFrontendFile(res, 'pages/promocoes/index.html'));
+
 app.get(['/', '/site', '/landing'], (req, res) => sendFrontendFile(res, 'index.html'));
 app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/login/index.html'));
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
-app.get(['/app', '/app/home', '/app/agenda', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
+app.get(['/app', '/app/home', '/app/agenda', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
 
 const modulePages = {
@@ -7305,6 +7638,7 @@ const modulePages = {
   financeiro: 'financeiro',
   'comandas-recibos': 'comandas-recibos',
   crm: 'crm',
+  promocoes: 'promocoes',
   'roleta-de-mimos': 'roleta-de-mimos',
   relatorios: 'relatorios',
   notificacoes: 'notificacoes',

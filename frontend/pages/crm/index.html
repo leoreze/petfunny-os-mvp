@@ -1,163 +1,252 @@
 <!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRM & Marketing · PetFunny OS</title><link rel="stylesheet" href="/assets/css/app.css"></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CRM & Marketing · PetFunny OS</title>
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
 <body>
 <script type="module">
-  import { buildShell } from '/assets/js/shell.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
   import { api } from '/assets/js/api.js';
-  import { withLoading, hideLoading } from '/assets/js/loading.js';
-  import { showToast } from '/assets/js/toast.js';
+  import { toast } from '/assets/js/toast.js';
+  import { finishPageLoading } from '/assets/js/loading.js';
 
-  const fmtDate = (v)=>v ? new Date(v).toLocaleDateString('pt-BR') : '—';
-  const wa = (v)=>String(v||'').replace(/\D/g,'');
-  let state = { leads: [], summary: {}, stages: [], options: {}, activeLead: null, templates: [] };
+  document.body.classList.add('crm-marketing-page');
+
+  const state = {
+    leads: [], stages: [], options: {}, summary: {}, inactive: [], templates: [],
+    search: '', stage: 'all', source: 'all', sortBy: 'updatedAt', sortDir: 'desc', visible: 18, editing: null, activeLead: null
+  };
+
+  const esc = (v='') => String(v ?? '').replace(/[&<>\"]/g, (m) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[m]));
+  const fmtDate = (v) => v ? new Date(v).toLocaleDateString('pt-BR') : '—';
+  const fmtDateTime = (v) => v ? new Date(v).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : '—';
+  const wa = (v) => String(v || '').replace(/\D/g, '');
+  const debounce = (fn, wait=260) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; };
 
   const content = `
-    <section class="finance-toolbar outside-toolbar">
-      <div>
-        <p class="eyebrow">Relacionamento que vende</p>
-        <h1>CRM & Marketing</h1>
-        <p>Pipeline comercial, clientes inativos, histórico de contatos e mensagens prontas para WhatsApp.</p>
+    <section class="hero-panel stack-lg crm-hero-panel">
+      <div class="page-heading-row between">
+        <div>
+          <p class="eyebrow">CRM & Marketing</p>
+          <h1>Funil comercial do PetFunny</h1>
+          <p>Acompanhe quem entrou pelo app, validou WhatsApp, cadastrou senha, adicionou pets e chegou ao primeiro agendamento. Transforme intenção em recorrência.</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" id="refresh-crm" type="button">↻ Atualizar</button>
+          <button class="btn" id="new-lead" type="button">＋ Novo lead</button>
+        </div>
       </div>
-      <div class="actions no-card-actions">
-        <button class="btn secondary" type="button" id="refresh-crm">↻ Atualizar</button>
-        <button class="btn" type="button" id="new-lead">+ Novo lead</button>
-      </div>
+      <div id="crm-metrics">${bigNumberGrid([
+        ['Leads totais', '—', 'base comercial'],
+        ['Em aberto', '—', 'precisam de ação'],
+        ['Fechados', '—', 'viraram clientes'],
+        ['Sem contato', '—', 'mais de 7 dias']
+      ])}</div>
     </section>
 
-    <section class="kpi-grid spacious-grid">
-      <article class="metric-card"><span>Leads totais</span><strong id="crm-total">—</strong><small>Base do funil</small></article>
-      <article class="metric-card"><span>Em aberto</span><strong id="crm-open">—</strong><small>Precisam de ação</small></article>
-      <article class="metric-card"><span>Fechados</span><strong id="crm-closed">—</strong><small>Conversões registradas</small></article>
-      <article class="metric-card"><span>Sem contato recente</span><strong id="crm-stale">—</strong><small>Mais de 7 dias</small></article>
-    </section>
-
-    <section class="panel page-section">
-      <div class="panel-head compact-head"><div><p class="eyebrow">Pipeline</p><h2>Distribuição por etapa</h2><p>Arraste visualmente o lead mudando a etapa pelo botão rápido.</p></div></div>
-      <div class="crm-board custom-scroll" id="crm-board"></div>
-    </section>
-
-    <section class="panel page-section">
-      <div class="panel-head compact-head"><div><p class="eyebrow">Lista</p><h2>Leads e clientes</h2><p>Busca por nome, WhatsApp, origem ou etapa.</p></div></div>
-      <div class="filter-row">
-        <input class="input" id="crm-search" placeholder="Buscar por nome, WhatsApp ou e-mail">
-        <select class="select" id="crm-stage"><option value="all">Todas as etapas</option></select>
-        <select class="select" id="crm-source"><option value="all">Todas as origens</option></select>
-        <button class="btn secondary" id="crm-filter">Filtrar</button>
+    <section class="module-card stack-md crm-pipeline-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line"><div><h3>Fluxo do app até o primeiro agendamento</h3><p>O sistema registra automaticamente a origem do acesso, validação do código, senha, pets e agendamento pago pelo app.</p></div></div>
       </div>
-      <div class="table-scroll custom-scroll"><table><thead><tr><th>Lead</th><th>Contato</th><th>Etapa</th><th>Origem</th><th>Último contato</th><th>Ações</th></tr></thead><tbody id="crm-table"><tr><td colspan="6">Preparando tudo...</td></tr></tbody></table></div>
+      <div class="crm-flow-board" id="crm-flow-board"></div>
+    </section>
+
+    <section class="module-card stack-md crm-list-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line"><div><h3>Consulta de leads</h3><p>Busque por nome, WhatsApp, origem ou etapa. Use os filtros para priorizar ações de WhatsApp e campanhas.</p></div></div>
+        <div class="filter-row compact-filter-row filters-below crm-filter-row">
+          <input class="input" id="crm-search" placeholder="Buscar por nome, WhatsApp ou e-mail" autocomplete="off">
+          <select class="select" id="crm-stage"><option value="all">Todas as etapas</option></select>
+          <select class="select" id="crm-source"><option value="all">Todas as origens</option></select>
+          <button class="btn btn-secondary" id="clear-crm-filters" type="button">Limpar filtros</button>
+        </div>
+      </div>
+      <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="crm-scroll">
+        <table class="premium-table crm-table">
+          <thead><tr>
+            <th><span class="th-label">Lead</span><button class="th-arrow-only crm-sort" data-sort="name" type="button"><span class="sort-arrow">↕</span></button></th>
+            <th><span class="th-label">Contato</span><button class="th-arrow-only crm-sort" data-sort="whatsapp" type="button"><span class="sort-arrow">↕</span></button></th>
+            <th><span class="th-label">Etapa</span><button class="th-arrow-only crm-sort" data-sort="stage" type="button"><span class="sort-arrow">↕</span></button></th>
+            <th><span class="th-label">Origem</span><button class="th-arrow-only crm-sort" data-sort="source" type="button"><span class="sort-arrow">↕</span></button></th>
+            <th><span class="th-label">Último contato</span><button class="th-arrow-only crm-sort" data-sort="lastContactAt" type="button"><span class="sort-arrow">↕</span></button></th>
+            <th><span class="th-label">Pets</span><button class="th-arrow-only crm-sort" data-sort="petsCount" type="button"><span class="sort-arrow">↕</span></button></th>
+            <th>Ações</th>
+          </tr></thead>
+          <tbody id="crm-body"><tr><td colspan="7">Preparando CRM...</td></tr></tbody>
+        </table>
+        <div class="infinite-loader" id="crm-loader" hidden>Carregando mais leads...</div>
+      </div>
     </section>
 
     <section class="grid-two page-section">
-      <article class="panel"><div class="panel-head compact-head"><div><p class="eyebrow">Reativação</p><h2>Clientes inativos</h2><p>Clientes sem atendimento recente para campanha de retorno.</p></div></div><div class="cards-list" id="inactive-list"></div></article>
-      <article class="panel"><div class="panel-head compact-head"><div><p class="eyebrow">Marketing</p><h2>Mensagens prontas</h2><p>Textos rápidos para WhatsApp sem depender de API externa.</p></div></div><div class="cards-list" id="template-list"></div></article>
+      <article class="module-card stack-md"><div class="section-toolbar"><div><p class="eyebrow">Reativação</p><h3>Clientes inativos</h3><p>Clientes sem atendimento recente para campanha de retorno.</p></div></div><div class="cards-list" id="inactive-list"></div></article>
+      <article class="module-card stack-md"><div class="section-toolbar"><div><p class="eyebrow">WhatsApp</p><h3>Mensagens prontas</h3><p>Textos rápidos para campanhas e follow-up.</p></div></div><div class="cards-list" id="template-list"></div></article>
     </section>
 
-    <dialog class="modal" id="lead-modal"><form class="modal-card" method="dialog" id="lead-form"><header class="modal-header"><div><p class="eyebrow">CRM</p><h2 id="lead-modal-title">Novo lead</h2></div><button class="icon-button" value="cancel">✕</button></header><div class="modal-body custom-scroll"><div class="form-grid form-row-gap"><label class="form-field"><span>Nome</span><input class="input" id="lead-name" required></label><label class="form-field"><span>WhatsApp</span><input class="input" id="lead-whatsapp" data-mask="whatsapp"></label><label class="form-field"><span>E-mail</span><input class="input" id="lead-email" type="email"></label><label class="form-field"><span>Etapa</span><select class="select" id="lead-stage"></select></label><label class="form-field"><span>Origem</span><select class="select" id="lead-source"></select></label><label class="form-field"><span>Vincular tutor existente</span><select class="select" id="lead-tutor"><option value="">Sem vínculo</option></select></label><label class="form-field full"><span>Observações</span><textarea class="textarea" id="lead-notes" rows="4"></textarea></label></div></div><footer class="modal-footer"><button class="btn secondary" value="cancel">Cancelar</button><button class="btn" id="save-lead" value="default">Salvar</button></footer></form></dialog>
+    <dialog class="premium-modal" id="lead-modal"><form class="modal-card" method="dialog" id="lead-form">
+      <header class="modal-header"><div><p class="eyebrow">CRM</p><h3 id="lead-title">Novo lead</h3><p>Registre uma oportunidade manual ou ajuste uma entrada automática do app.</p></div><button class="icon-btn" id="close-lead" type="button">×</button></header>
+      <div class="modal-body custom-scroll"><div class="form-grid form-row-gap">
+        <label class="form-field"><span>Nome</span><input class="input" id="lead-name" required></label>
+        <label class="form-field"><span>WhatsApp</span><input class="input" id="lead-whatsapp" data-mask="whatsapp"></label>
+        <label class="form-field"><span>E-mail</span><input class="input" id="lead-email" type="email"></label>
+        <label class="form-field"><span>Etapa</span><select class="select" id="lead-stage"></select></label>
+        <label class="form-field"><span>Origem</span><select class="select" id="lead-source"></select></label>
+        <label class="form-field"><span>Vincular tutor</span><select class="select" id="lead-tutor"><option value="">Sem vínculo</option></select></label>
+        <label class="form-field full"><span>Observações</span><textarea class="textarea" id="lead-notes" rows="5"></textarea></label>
+      </div></div>
+      <footer class="modal-footer"><button class="btn btn-secondary" id="cancel-lead" type="button">Cancelar</button><button class="btn" type="submit">Salvar lead</button></footer>
+    </form></dialog>
 
-    <dialog class="modal" id="interaction-modal"><form class="modal-card" method="dialog" id="interaction-form"><header class="modal-header"><div><p class="eyebrow">Histórico</p><h2 id="interaction-title">Registrar contato</h2></div><button class="icon-button" value="cancel">✕</button></header><div class="modal-body custom-scroll"><div class="form-grid form-row-gap"><label class="form-field"><span>Canal</span><select class="select" id="interaction-channel"></select></label><label class="form-field"><span>Direção</span><select class="select" id="interaction-direction"><option value="outbound">Saída</option><option value="inbound">Entrada</option></select></label><label class="form-field full"><span>Assunto</span><input class="input" id="interaction-subject"></label><label class="form-field full"><span>Mensagem</span><textarea class="textarea" id="interaction-message" rows="6" required></textarea></label><div class="full cards-list" id="interaction-history"></div></div></div><footer class="modal-footer"><button class="btn secondary" value="cancel">Fechar</button><button class="btn" id="save-interaction" value="default">Registrar</button></footer></form></dialog>
+    <dialog class="premium-modal" id="interaction-modal"><form class="modal-card" method="dialog" id="interaction-form">
+      <header class="modal-header"><div><p class="eyebrow">Histórico</p><h3 id="interaction-title">Contato</h3><p>Registre conversas e veja os eventos automáticos do funil.</p></div><button class="icon-btn" id="close-interaction" type="button">×</button></header>
+      <div class="modal-body custom-scroll"><div class="form-grid form-row-gap">
+        <label class="form-field"><span>Canal</span><select class="select" id="interaction-channel"></select></label>
+        <label class="form-field"><span>Direção</span><select class="select" id="interaction-direction"><option value="outbound">Saída</option><option value="inbound">Entrada</option></select></label>
+        <label class="form-field full"><span>Assunto</span><input class="input" id="interaction-subject"></label>
+        <label class="form-field full"><span>Mensagem</span><textarea class="textarea" id="interaction-message" rows="5" required></textarea></label>
+        <div class="full cards-list" id="interaction-history"></div>
+      </div></div>
+      <footer class="modal-footer"><button class="btn btn-secondary" id="cancel-interaction" type="button">Fechar</button><button class="btn" type="submit">Registrar contato</button></footer>
+    </form></dialog>
   `;
 
-  buildShell({ active:'CRM & Marketing', eyebrow:'Relacionamento que vende', title:'CRM & Marketing', subtitle:'Pipeline, campanhas e contatos do PetFunny.', content });
-  const $ = (id)=>document.getElementById(id);
+  buildShell({ active:'CRM & Marketing', eyebrow:'Relacionamento que vende', title:'CRM & Marketing', subtitle:'Pipeline automático do App do Tutor, campanhas e relacionamento.', content });
+  setupPremiumInteractions?.();
+  const $ = (id) => document.getElementById(id);
 
-  function stageMeta(code){ return (state.stages||[]).find(s=>s.code===code) || { name: code || '—', color:'#00a9b7' }; }
-  function fillSelect(id, items, label='name', value='code'){
-    const el=$(id); if(!el) return;
-    const first = el.querySelector('option[value="all"]') ? el.querySelector('option[value="all"]').outerHTML : (el.querySelector('option[value=""]') ? el.querySelector('option[value=""]').outerHTML : '');
-    el.innerHTML = first + items.map(item=>`<option value="${item[value] ?? item}">${item[label] ?? item}</option>`).join('');
+  function stageMeta(code){ return (state.stages||[]).find(s=>s.code===code) || { code, name: code || '—', color:'#00a9b7' }; }
+  function fillSelect(id, items, emptyHtml='') { const el=$(id); if(!el) return; el.innerHTML = emptyHtml + items.map(item=>`<option value="${esc(item.code ?? item.id ?? item)}">${esc(item.name ?? item)}</option>`).join(''); }
+
+  function filteredLeads(){
+    const q = state.search.trim().toLowerCase();
+    return state.leads.filter(l => {
+      if(state.stage !== 'all' && l.stage !== state.stage) return false;
+      if(state.source !== 'all' && l.source !== state.source) return false;
+      if(!q) return true;
+      return [l.name,l.whatsapp,l.email,l.source,l.notes,l.tutorName].join(' ').toLowerCase().includes(q);
+    }).sort((a,b)=>{
+      const dir = state.sortDir === 'asc' ? 1 : -1;
+      const av = a[state.sortBy] ?? '';
+      const bv = b[state.sortBy] ?? '';
+      if(typeof av === 'number' || typeof bv === 'number') return (Number(av||0)-Number(bv||0))*dir;
+      return String(av||'').localeCompare(String(bv||''),'pt-BR',{numeric:true})*dir;
+    });
   }
 
-  function renderSummary(){
-    $('crm-total').textContent = state.summary.total_leads ?? 0;
-    $('crm-open').textContent = state.summary.open_leads ?? 0;
-    $('crm-closed').textContent = state.summary.closed_leads ?? 0;
-    $('crm-stale').textContent = state.summary.without_recent_contact ?? 0;
+  function renderMetrics(){
+    $('crm-metrics').innerHTML = bigNumberGrid([
+      ['Leads totais', String(state.summary.total_leads ?? 0), 'base comercial'],
+      ['Em aberto', String(state.summary.open_leads ?? 0), 'precisam de ação'],
+      ['Fechados', String(state.summary.closed_leads ?? 0), 'conversões'],
+      ['Sem contato', String(state.summary.without_recent_contact ?? 0), 'mais de 7 dias']
+    ]);
   }
 
-  function renderBoard(){
-    $('crm-board').innerHTML = state.stages.map(stage=>{
-      const leads = state.leads.filter(l=>l.stage===stage.code).slice(0,8);
-      return `<div class="crm-col" style="--stage-color:${stage.color}"><div class="crm-col-head"><strong>${stage.name}</strong><span>${leads.length}</span></div>${leads.map(lead=>`<article class="appointment-card crm-card" draggable="true" data-id="${lead.id}"><button class="card-kebab" data-open="${lead.id}">⋯</button><strong>${lead.name}</strong><small>${lead.whatsapp||'Sem WhatsApp'} · ${lead.source}</small><p>${lead.notes || 'Sem observações.'}</p></article>`).join('') || '<p class="empty-small">Sem leads nesta etapa.</p>'}</div>`;
+  function renderFlow(){
+    $('crm-flow-board').innerHTML = state.stages.map(stage => {
+      const leads = state.leads.filter(l => l.stage === stage.code).slice(0, 6);
+      return `<article class="crm-flow-step" style="--stage-color:${esc(stage.color)}"><div><strong>${esc(stage.name)}</strong><span>${leads.length}</span></div>${leads.map(l=>`<button class="crm-flow-lead" data-contact="${esc(l.id)}"><b>${esc(l.name)}</b><small>${esc(l.whatsapp || l.source || 'App')}</small></button>`).join('') || '<p class="empty-small">Sem leads</p>'}</article>`;
     }).join('');
+    document.querySelectorAll('[data-contact]').forEach(btn => btn.addEventListener('click', () => openInteraction(btn.dataset.contact)));
   }
 
-  function renderRows(){
-    $('crm-table').innerHTML = state.leads.map(lead=>{
+  function renderRows(reset=false){
+    const list = filteredLeads();
+    if(reset) state.visible = 18;
+    const shown = list.slice(0, state.visible);
+    $('crm-body').innerHTML = shown.map(lead => {
       const st = stageMeta(lead.stage);
-      return `<tr><td><strong>${lead.name}</strong><br><small>${lead.tutorName ? 'Tutor: '+lead.tutorName : 'Lead avulso'}</small></td><td>${lead.whatsapp || '—'}<br><small>${lead.email || ''}</small></td><td><select class="select mini-stage" data-id="${lead.id}">${state.stages.map(s=>`<option value="${s.code}" ${s.code===lead.stage?'selected':''}>${s.name}</option>`).join('')}</select><br><span class="badge" style="background:${st.color}18;color:${st.color};border-color:${st.color}33">${st.name}</span></td><td>${lead.source}</td><td>${fmtDate(lead.lastContactAt)}</td><td><div class="actions compact-actions"><button class="btn secondary edit-lead" data-id="${lead.id}">Editar</button><button class="btn contact-lead" data-id="${lead.id}">Contato</button></div></td></tr>`;
-    }).join('') || '<tr><td colspan="6">Nenhum lead encontrado.</td></tr>';
-    document.querySelectorAll('.mini-stage').forEach(el=>el.addEventListener('change',()=>changeStage(el.dataset.id, el.value)));
-    document.querySelectorAll('.edit-lead').forEach(btn=>btn.addEventListener('click',()=>openLead(btn.dataset.id)));
-    document.querySelectorAll('.contact-lead').forEach(btn=>btn.addEventListener('click',()=>openInteraction(btn.dataset.id)));
+      return `<tr>
+        <td><strong>${esc(lead.name)}</strong><br><small>${lead.tutorName ? `Tutor: ${esc(lead.tutorName)}` : 'Lead do funil'}</small></td>
+        <td>${esc(lead.whatsapp || '—')}<br><small>${esc(lead.email || '')}</small></td>
+        <td><select class="select mini-stage" data-id="${esc(lead.id)}">${state.stages.map(s=>`<option value="${esc(s.code)}" ${s.code===lead.stage?'selected':''}>${esc(s.name)}</option>`).join('')}</select><br><span class="badge" style="background:${esc(st.color)}18;color:${esc(st.color)};border-color:${esc(st.color)}33">${esc(st.name)}</span></td>
+        <td><span class="badge soft">${esc(lead.source || 'manual')}</span></td>
+        <td>${fmtDateTime(lead.lastContactAt)}</td>
+        <td>${Number(lead.petsCount || 0)}</td>
+        <td><div class="actions compact-actions"><button class="btn btn-secondary edit-lead" data-id="${esc(lead.id)}">Editar</button><button class="btn contact-lead" data-id="${esc(lead.id)}">Contato</button></div></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7">Nenhum lead encontrado.</td></tr>';
+    $('crm-loader').hidden = state.visible >= list.length;
+    document.querySelectorAll('.mini-stage').forEach(el => el.addEventListener('change', () => changeStage(el.dataset.id, el.value)));
+    document.querySelectorAll('.edit-lead').forEach(btn => btn.addEventListener('click', () => openLead(btn.dataset.id)));
+    document.querySelectorAll('.contact-lead').forEach(btn => btn.addEventListener('click', () => openInteraction(btn.dataset.id)));
   }
 
   function renderInactive(){
-    $('inactive-list').innerHTML = (state.summaryInactive||[]).map(item=>`<article class="module-card compact-card"><strong>${item.name}</strong><small>${item.whatsapp || 'Sem WhatsApp'} · ${item.petsCount} pet(s)</small><p>Último atendimento: ${fmtDate(item.lastAppointmentAt)}</p><a class="btn secondary" target="_blank" href="https://wa.me/${wa(item.whatsapp)}?text=${encodeURIComponent('Oi, '+item.name+'! Sentimos falta do seu pet aqui no PetFunny. Quer reservar um horário esta semana?')}">Enviar WhatsApp</a></article>`).join('') || '<p class="empty-small">Nenhum cliente inativo encontrado.</p>';
+    $('inactive-list').innerHTML = state.inactive.map(item => `<article class="module-card compact-card"><strong>${esc(item.name)}</strong><small>${esc(item.whatsapp || 'Sem WhatsApp')} · ${Number(item.petsCount || 0)} pet(s)</small><p>Último atendimento: ${fmtDate(item.lastAppointmentAt)}</p><a class="btn btn-secondary" target="_blank" rel="noopener" href="https://wa.me/${wa(item.whatsapp)}?text=${encodeURIComponent('Oi, '+item.name+'! Sentimos falta do seu pet aqui no PetFunny. Quer reservar um horário esta semana?')}">Enviar WhatsApp</a></article>`).join('') || '<p class="empty-small">Nenhum cliente inativo encontrado.</p>';
   }
-
   function renderTemplates(){
-    $('template-list').innerHTML = state.templates.map(t=>`<article class="module-card compact-card"><strong>${t.title}</strong><p>${t.text}</p><button class="btn secondary copy-template" data-text="${encodeURIComponent(t.text)}">Copiar texto</button></article>`).join('');
-    document.querySelectorAll('.copy-template').forEach(btn=>btn.addEventListener('click', async()=>{ await navigator.clipboard.writeText(decodeURIComponent(btn.dataset.text)); showToast('Mensagem copiada.','success'); }));
+    $('template-list').innerHTML = state.templates.map(t => `<article class="module-card compact-card"><strong>${esc(t.title)}</strong><p>${esc(t.text)}</p><button class="btn btn-secondary copy-template" data-text="${encodeURIComponent(t.text)}">Copiar texto</button></article>`).join('');
+    document.querySelectorAll('.copy-template').forEach(btn => btn.addEventListener('click', async () => { await navigator.clipboard.writeText(decodeURIComponent(btn.dataset.text)); toast.success('Mensagem copiada.'); }));
   }
 
   async function load(){
-    await withLoading(async()=>{
-      const [options, summary, leads, templates] = await Promise.all([
-        api.get('/api/crm/options'), api.get('/api/crm/summary'), api.get(`/api/crm/leads?search=${encodeURIComponent($('crm-search')?.value||'')}&stage=${$('crm-stage')?.value||'all'}&source=${$('crm-source')?.value||'all'}`), api.get('/api/crm/messages/templates')
-      ]);
-      state.options = options; state.stages = options.stages || []; state.summary = summary.summary || {}; state.summaryInactive = summary.inactiveCustomers || []; state.leads = leads.items || []; state.templates = templates.items || [];
-      fillSelect('crm-stage', state.stages); fillSelect('crm-source', options.sources || [], undefined, undefined); fillSelect('lead-stage', state.stages); fillSelect('lead-source', options.sources || [], undefined, undefined); fillSelect('interaction-channel', options.channels || [], undefined, undefined);
-      const tutorSelect = $('lead-tutor'); tutorSelect.innerHTML = '<option value="">Sem vínculo</option>' + (options.tutors||[]).map(t=>`<option value="${t.id}">${t.name} · ${t.whatsapp||''}</option>`).join('');
-      renderSummary(); renderBoard(); renderRows(); renderInactive(); renderTemplates();
-    }, 'Carregando CRM & Marketing...');
+    try {
+      const qs = `search=${encodeURIComponent(state.search)}&stage=${encodeURIComponent(state.stage)}&source=${encodeURIComponent(state.source)}`;
+      const [options, summary, leads, templates] = await Promise.all([api.get('/api/crm/options'), api.get('/api/crm/summary'), api.get(`/api/crm/leads?${qs}`), api.get('/api/crm/messages/templates')]);
+      state.options = options; state.stages = options.stages || []; state.summary = summary.summary || {}; state.inactive = summary.inactiveCustomers || []; state.leads = leads.items || []; state.templates = templates.items || [];
+      fillSelect('crm-stage', state.stages, '<option value="all">Todas as etapas</option>');
+      fillSelect('crm-source', options.sources || [], '<option value="all">Todas as origens</option>');
+      fillSelect('lead-stage', state.stages);
+      fillSelect('lead-source', options.sources || []);
+      fillSelect('interaction-channel', options.channels || []);
+      $('lead-tutor').innerHTML = '<option value="">Sem vínculo</option>' + (options.tutors || []).map(t => `<option value="${esc(t.id)}">${esc(t.name)} · ${esc(t.whatsapp || '')}</option>`).join('');
+      renderMetrics(); renderFlow(); renderRows(true); renderInactive(); renderTemplates();
+    } catch(error) { toast.error(error.message || 'Erro ao carregar CRM.'); }
   }
 
   function openLead(id=null){
-    state.activeLead = id ? state.leads.find(l=>l.id===id) : null;
-    $('lead-modal-title').textContent = id ? 'Editar lead' : 'Novo lead';
-    $('lead-name').value = state.activeLead?.name || '';
-    $('lead-whatsapp').value = state.activeLead?.whatsapp || '';
-    $('lead-email').value = state.activeLead?.email || '';
-    $('lead-stage').value = state.activeLead?.stage || 'lead_entrou';
-    $('lead-source').value = state.activeLead?.source || 'manual';
-    $('lead-tutor').value = state.activeLead?.tutorId || '';
-    $('lead-notes').value = state.activeLead?.notes || '';
+    state.editing = id ? state.leads.find(l => l.id === id) : null;
+    $('lead-title').textContent = id ? 'Editar lead' : 'Novo lead';
+    $('lead-name').value = state.editing?.name || '';
+    $('lead-whatsapp').value = state.editing?.whatsapp || '';
+    $('lead-email').value = state.editing?.email || '';
+    $('lead-stage').value = state.editing?.stage || 'lead_entrou';
+    $('lead-source').value = state.editing?.source || 'manual';
+    $('lead-tutor').value = state.editing?.tutorId || '';
+    $('lead-notes').value = state.editing?.notes || '';
     $('lead-modal').showModal();
   }
-
   async function saveLead(){
     const payload = { name:$('lead-name').value, whatsapp:$('lead-whatsapp').value, email:$('lead-email').value, stage:$('lead-stage').value, source:$('lead-source').value, tutorId:$('lead-tutor').value, notes:$('lead-notes').value };
-    await withLoading(async()=>{ state.activeLead ? await api.put(`/api/crm/leads/${state.activeLead.id}`, payload) : await api.post('/api/crm/leads', payload); }, 'Salvando lead...');
-    $('lead-modal').close(); showToast('Lead salvo.','success'); await load();
+    try { state.editing ? await api.put(`/api/crm/leads/${state.editing.id}`, payload) : await api.post('/api/crm/leads', payload); $('lead-modal').close(); toast.success('Lead salvo.'); await load(); }
+    catch(error){ toast.error(error.message || 'Erro ao salvar lead.'); }
   }
-
-  async function changeStage(id, stage){
-    await withLoading(()=>api.patch(`/api/crm/leads/${id}/stage`, { stage }), 'Atualizando etapa...');
-    await load();
-  }
-
+  async function changeStage(id, stage){ try { await api.patch(`/api/crm/leads/${id}/stage`, { stage }); toast.success('Etapa atualizada.'); await load(); } catch(error){ toast.error(error.message || 'Erro ao atualizar etapa.'); } }
   async function openInteraction(id){
-    state.activeLead = state.leads.find(l=>l.id===id);
+    state.activeLead = state.leads.find(l => l.id === id);
     $('interaction-title').textContent = `Contato · ${state.activeLead?.name || ''}`;
-    $('interaction-subject').value=''; $('interaction-message').value=''; $('interaction-channel').value='whatsapp';
-    const data = await withLoading(()=>api.get(`/api/crm/leads/${id}/interactions`), 'Carregando histórico...');
-    $('interaction-history').innerHTML = (data.items||[]).map(i=>`<article class="module-card compact-card"><strong>${i.subject || i.channel}</strong><small>${fmtDate(i.occurredAt)} · ${i.direction}</small><p>${i.message}</p></article>`).join('') || '<p class="empty-small">Sem histórico ainda.</p>';
-    $('interaction-modal').showModal();
+    $('interaction-subject').value = ''; $('interaction-message').value = ''; $('interaction-channel').value = 'whatsapp';
+    try { const data = await api.get(`/api/crm/leads/${id}/interactions`); $('interaction-history').innerHTML = (data.items || []).map(i => `<article class="module-card compact-card"><strong>${esc(i.subject || i.channel)}</strong><small>${fmtDateTime(i.occurredAt)} · ${esc(i.direction)}</small><p>${esc(i.message)}</p></article>`).join('') || '<p class="empty-small">Sem histórico ainda.</p>'; $('interaction-modal').showModal(); }
+    catch(error){ toast.error(error.message || 'Erro ao abrir histórico.'); }
   }
-
   async function saveInteraction(){
     if(!state.activeLead) return;
-    await withLoading(()=>api.post(`/api/crm/leads/${state.activeLead.id}/interactions`, { channel:$('interaction-channel').value, direction:$('interaction-direction').value, subject:$('interaction-subject').value, message:$('interaction-message').value }), 'Registrando contato...');
-    $('interaction-modal').close(); showToast('Contato registrado.','success'); await load();
+    try { await api.post(`/api/crm/leads/${state.activeLead.id}/interactions`, { channel:$('interaction-channel').value, direction:$('interaction-direction').value, subject:$('interaction-subject').value, message:$('interaction-message').value }); $('interaction-modal').close(); toast.success('Contato registrado.'); await load(); }
+    catch(error){ toast.error(error.message || 'Erro ao registrar contato.'); }
   }
 
   $('refresh-crm').addEventListener('click', load);
-  $('new-lead').addEventListener('click', ()=>openLead());
-  $('crm-filter').addEventListener('click', load);
-  $('crm-search').addEventListener('keydown', ev=>{ if(ev.key==='Enter') load(); });
-  $('lead-form').addEventListener('submit', ev=>{ ev.preventDefault(); saveLead().catch(error=>showToast(error.message,'error')); });
-  $('interaction-form').addEventListener('submit', ev=>{ ev.preventDefault(); saveInteraction().catch(error=>showToast(error.message,'error')); });
-  load().finally(hideLoading);
+  $('new-lead').addEventListener('click', () => openLead());
+  $('clear-crm-filters').addEventListener('click', () => { state.search=''; state.stage='all'; state.source='all'; $('crm-search').value=''; $('crm-stage').value='all'; $('crm-source').value='all'; load(); });
+  $('crm-search').addEventListener('input', debounce(() => { state.search = $('crm-search').value; load(); }));
+  $('crm-stage').addEventListener('change', () => { state.stage = $('crm-stage').value; load(); });
+  $('crm-source').addEventListener('change', () => { state.source = $('crm-source').value; load(); });
+  document.querySelectorAll('.crm-sort').forEach(btn => btn.addEventListener('click', () => { const key=btn.dataset.sort; state.sortDir = state.sortBy === key && state.sortDir === 'asc' ? 'desc' : 'asc'; state.sortBy = key; renderRows(true); }));
+  window.addEventListener('scroll', () => { if((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 260) { const total=filteredLeads().length; if(state.visible < total) { state.visible += 18; renderRows(); } } }, { passive:true });
+  $('lead-form').addEventListener('submit', (e) => { e.preventDefault(); saveLead(); });
+  $('interaction-form').addEventListener('submit', (e) => { e.preventDefault(); saveInteraction(); });
+  ['close-lead','cancel-lead'].forEach(id => $(id).addEventListener('click', () => $('lead-modal').close()));
+  ['close-interaction','cancel-interaction'].forEach(id => $(id).addEventListener('click', () => $('interaction-modal').close()));
+  load().finally(() => finishPageLoading());
 </script>
-</body></html>
+</body>
+</html>

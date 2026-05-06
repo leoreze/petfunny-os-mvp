@@ -427,6 +427,27 @@ CREATE TABLE IF NOT EXISTS gift_spins (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+
+
+CREATE TABLE IF NOT EXISTS promotions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  description TEXT,
+  service_id UUID REFERENCES services(id) ON DELETE SET NULL,
+  pet_size TEXT NOT NULL DEFAULT 'todos',
+  discount_percent NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (discount_percent >= 0 AND discount_percent <= 100),
+  weekdays SMALLINT[] NOT NULL DEFAULT ARRAY[]::SMALLINT[],
+  starts_on DATE,
+  ends_on DATE,
+  status TEXT NOT NULL DEFAULT 'active',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions (is_active, status, starts_on, ends_on) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_promotions_service ON promotions (service_id) WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   key TEXT NOT NULL UNIQUE,
@@ -505,6 +526,13 @@ CREATE INDEX IF NOT EXISTS idx_client_auth_codes_whatsapp ON client_auth_codes (
 CREATE INDEX IF NOT EXISTS idx_client_accounts_whatsapp ON client_accounts (whatsapp);
 CREATE INDEX IF NOT EXISTS idx_client_accounts_tutor ON client_accounts (tutor_id);
 CREATE INDEX IF NOT EXISTS idx_services_active ON services (is_active);
+
+ALTER TABLE promotions ADD COLUMN IF NOT EXISTS pet_size TEXT NOT NULL DEFAULT 'todos';
+ALTER TABLE promotions ADD COLUMN IF NOT EXISTS weekdays SMALLINT[] NOT NULL DEFAULT ARRAY[]::SMALLINT[];
+ALTER TABLE promotions ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions (is_active, status, starts_on, ends_on) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_promotions_service ON promotions (service_id) WHERE deleted_at IS NULL;
+
 
 ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS pet_type_code TEXT REFERENCES pet_types(code) ON DELETE SET NULL;
 ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS pet_size_code TEXT REFERENCES pet_sizes(code) ON DELETE SET NULL;

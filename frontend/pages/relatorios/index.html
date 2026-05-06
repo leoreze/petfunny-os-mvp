@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Relatórios · PetFunny OS</title>
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
   <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
@@ -60,6 +65,9 @@
             <input class="input" type="date" id="report-start-date" value="${new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)}">
             <input class="input" type="date" id="report-end-date" value="${new Date().toISOString().slice(0,10)}">
           </div>
+        </section>
+
+        <section class="admin-big-numbers-strip reports-big-numbers-strip" aria-label="Indicadores dos relatórios">
           <div id="report-metrics" class="big-number-grid"></div>
         </section>
 

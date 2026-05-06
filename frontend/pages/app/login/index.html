@@ -6,7 +6,11 @@
   <title>App do Cliente · PetFunny</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#ff7f95">
-  <link rel="apple-touch-icon" href="/assets/img/icon-192.png">
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
   <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
@@ -178,6 +182,15 @@
 
     const params = new URLSearchParams(window.location.search);
     const next = params.get('next') || '/app/home';
+    const attribution = {
+      utmSource: params.get('utm_source') || params.get('source') || '',
+      utmMedium: params.get('utm_medium') || '',
+      utmCampaign: params.get('utm_campaign') || '',
+      referrer: document.referrer || '',
+      landingPath: window.location.pathname + window.location.search,
+      userAgent: navigator.userAgent || ''
+    };
+    const withAttribution = (payload = {}) => ({ ...payload, ...attribution });
     if (isClientAuthenticated()) window.location.replace(next);
 
     const state = {
@@ -283,7 +296,7 @@
       showLoading('Enviando código para o WhatsApp...');
       try {
         const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-        const response = await clientApi.post('/app/auth/request-code', data);
+        const response = await clientApi.post('/app/auth/request-code', withAttribution(data));
         state.whatsapp = response.whatsapp || data.whatsapp;
         state.tutorExists = Boolean(response.tutorExists);
         state.tutor = response.tutor || null;
@@ -326,7 +339,7 @@
       forgotPasswordCode.addEventListener('click', async () => {
         showLoading('Gerando código de validação...');
         try {
-          const response = await clientApi.post('/app/auth/request-code', { whatsapp: state.whatsapp, forceCode: true });
+          const response = await clientApi.post('/app/auth/request-code', withAttribution({ whatsapp: state.whatsapp, forceCode: true }));
           state.whatsappUrl = response.whatsappUrl || '';
           if (openWhatsappCode && state.whatsappUrl) openWhatsappCode.href = state.whatsappUrl;
           setStep('code');

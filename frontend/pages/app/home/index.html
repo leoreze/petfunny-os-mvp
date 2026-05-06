@@ -6,7 +6,11 @@
   <title>Meu PetFunny · App do Tutor</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#ff7f95">
-  <link rel="apple-touch-icon" href="/assets/img/icon-192.png">
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
   <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
@@ -21,7 +25,10 @@
   const section = currentClientSection();
   initClientInstallPrompt();
   let data = null;
-  let options = { pets: [], services: [], packages: [], paymentMethods: [], petSizes: [], petBreeds: [], collaborators: [], gifts: [] };
+  let options = { pets: [], services: [], packages: [], paymentMethods: [], petSizes: [], petBreeds: [], collaborators: [], gifts: [], promotions: [] };
+  let timelineVisibleCount = 8;
+  const timelineStep = 8;
+  let timelineObserver = null;
 
   const empty = (icon, title, text) => `<article class="client-empty"><span>${icon}</span><h3>${title}</h3><p>${text}</p></article>`;
   const escapeHtml = (value = '') => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
@@ -60,6 +67,39 @@
     window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : ''));
   }
 
+
+  function getPromotionScheduleContext() {
+    const params = new URLSearchParams(window.location.search);
+    const promoId = params.get('promoId') || params.get('promocao') || '';
+    if (!promoId) return null;
+    const promo = (options.promotions || []).find((item) => String(item.id) === String(promoId));
+    return promo ? { promoId, promo } : { promoId, promo: null };
+  }
+
+  function isDateAllowedByPromotion(dateValue, promo) {
+    if (!promo || !Array.isArray(promo.weekdays) || !promo.weekdays.length) return true;
+    const weekday = weekdayFromDate(dateValue);
+    return promo.weekdays.map(Number).includes(Number(weekday));
+  }
+
+  function promotionAllowedDaysText(promo) {
+    if (!promo || !Array.isArray(promo.weekdays) || !promo.weekdays.length) return 'todos os dias disponíveis';
+    const names = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+    return promo.weekdays.map((d) => names[Number(d)]).filter(Boolean).join(', ');
+  }
+
+  function nextPromotionAllowedDate(promo, baseDate = today()) {
+    if (!promo || !Array.isArray(promo.weekdays) || !promo.weekdays.length) return baseDate;
+    const start = new Date(`${baseDate}T12:00:00`);
+    for (let i = 0; i < 21; i += 1) {
+      const candidate = new Date(start);
+      candidate.setDate(start.getDate() + i);
+      const iso = candidate.toISOString().slice(0, 10);
+      if (isDateAllowedByPromotion(iso, promo)) return iso;
+    }
+    return baseDate;
+  }
+
   const heroFor = {
     home: ['Timeline do Meu PetFunny', 'Atualizações, lembretes e avisos inteligentes sobre a rotina do seu pet.'],
     agenda: ['Criar agendamento', ''],
@@ -68,7 +108,8 @@
     pacotes: ['Contratar pacotes', 'Escolha o pet, o pacote, a data inicial e acompanhe as sessões.'],
     mimos: ['Mimos PetFunny', 'Campanhas, benefícios e recompensas para tutores recorrentes.'],
     roleta: ['Roleta de Mimos', 'Gire a roleta, descubra benefícios e acompanhe suas recompensas.'],
-    perfil: ['Meu perfil', 'Atualize seus dados de cadastro. O WhatsApp fica protegido e não pode ser alterado pelo app.']
+    perfil: ['Meu perfil', 'Atualize seus dados de cadastro. O WhatsApp fica protegido e não pode ser alterado pelo app.'],
+    promocoes: ['Promoções PetFunny', 'Descontos ativos entram automaticamente no agendamento quando o serviço, porte e dia combinarem.']
   };
 
   function toast(message, type = 'success') {
@@ -117,12 +158,59 @@
     return options.services.filter((service) => !service.petSize || service.petSize === 'todos' || service.petSize === size);
   }
 
+
+  function weekdayFromDate(dateValue) {
+    if (!dateValue) return new Date().getDay();
+    const parsed = new Date(`${String(dateValue).slice(0, 10)}T12:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date().getDay() : parsed.getDay();
+  }
+
+  function activePromotionForService(service, petId, dateValue) {
+    const pet = options.pets.find((p) => p.id === petId);
+    const size = pet?.size || 'todos';
+    const weekday = weekdayFromDate(dateValue || document.querySelector('[name="appointmentDate"]')?.value || today());
+    return (options.promotions || [])
+      .filter((promo) => {
+        if (promo.status && promo.status !== 'active') return false;
+        if (promo.petSize && promo.petSize !== 'todos' && promo.petSize !== size) return false;
+        if (promo.serviceId && promo.serviceId !== service.id) return false;
+        if (Array.isArray(promo.weekdays) && promo.weekdays.length && !promo.weekdays.map(Number).includes(Number(weekday))) return false;
+        return true;
+      })
+      .sort((a, b) => Number(b.discountPercent || 0) - Number(a.discountPercent || 0))[0] || null;
+  }
+
+  function renderPromotionsList() {
+    const promos = options.promotions || [];
+    if (!promos.length) return empty('🏷️', 'Nenhuma promoção ativa agora', 'Quando o PetFunny liberar descontos por serviço ou dia da semana, eles aparecem aqui.');
+    const weekdayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    return promos.map((promo) => `<article class="client-list-card promotion-card">
+      <div class="client-list-icon">🏷️</div>
+      <div class="client-list-body">
+        <div class="client-list-title-row"><h3>${escapeHtml(promo.title)}</h3><span class="client-badge package">${Number(promo.discountPercent || 0)}% OFF</span></div>
+        <p>${escapeHtml(promo.description || 'Desconto aplicado automaticamente no agendamento pelo app.')}</p>
+        <div class="client-chip-row">
+          <span class="client-badge light">${escapeHtml(promo.serviceName || 'Serviços selecionados')}</span>
+          <span class="client-badge light">${escapeHtml(promo.petSize === 'todos' ? 'Todos os portes' : promo.petSize)}</span>
+          <span class="client-badge light">${promo.weekdays?.length ? promo.weekdays.map((d) => weekdayNames[Number(d)]).join(', ') : 'Todos os dias'}</span>
+        </div>
+        <div class="client-card-actions"><a class="btn btn-sm" href="/app/agenda?promoId=${encodeURIComponent(promo.id)}">Agendar com promoção</a></div>
+      </div>
+    </article>`).join('');
+  }
+
   function renderPushActivationCard() {
-    return `<article class="client-push-card" id="client-push-card">
-      <div class="client-push-icon">🔔</div>
-      <div>
-        <p class="eyebrow">Notificações no celular</p>
-        <h3>Receba lembretes do PetFunny</h3>
+    return `<details class="client-push-card client-push-dropdown" id="client-push-card">
+      <summary class="client-push-summary">
+        <span class="client-push-icon">🔔</span>
+        <span class="client-push-summary-copy">
+          <span class="eyebrow">Notificações no celular</span>
+          <strong>Receba lembretes do PetFunny</strong>
+          <small>Toque para ativar, pausar ou conferir o status neste aparelho.</small>
+        </span>
+        <span class="client-push-chevron" aria-hidden="true">⌄</span>
+      </summary>
+      <div class="client-push-panel">
         <p id="client-push-status">Ative para receber avisos de agenda, pacote, roleta e recibos direto no celular.</p>
         <div class="client-card-actions push-actions">
           <button class="btn btn-sm" id="enable-push" type="button">Ativar notificações</button>
@@ -130,13 +218,51 @@
         </div>
         <small class="client-muted">No iPhone, instale o app na tela inicial para liberar push web.</small>
       </div>
-    </article>`;
+    </details>`;
+  }
+
+  function timelineDateKey(value) {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return today();
+    return date.toISOString().slice(0, 10);
+  }
+
+  function timelineDateLabel(value) {
+    const key = timelineDateKey(value);
+    if (key === today()) return 'Hoje';
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (key === yesterday.toISOString().slice(0, 10)) return 'Ontem';
+    return new Date(`${key}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
+  }
+
+  function aiTimelinePosts() {
+    const petName = data.pets?.[0]?.name || 'seu pet';
+    const templates = [
+      { icon: '🤖', label: 'IA PetFunny', title: `Dica rápida para ${petName}`, text: 'Manter uma rotina de banho ajuda a preservar pele, pelagem e bem-estar. Quando precisar, agende pelo app em poucos toques.', url: '/app/agenda', ctaLabel: 'Agendar cuidado' },
+      { icon: '🧴', label: 'IA de cuidados', title: 'Atenção à pelagem', text: 'Pets com pelagem longa costumam se beneficiar de escovação e hidratação. A equipe PetFunny pode orientar no próximo atendimento.', url: '/app/agenda', ctaLabel: 'Ver horários' },
+      { icon: '🎁', label: 'IA PetFunny', title: 'Olho nos mimos', text: 'Promoções e roleta aparecem no app quando estiverem ativas. Vale conferir antes de agendar.', url: '/app/promocoes', ctaLabel: 'Ver promoções' },
+      { icon: '📦', label: 'Sugestão inteligente', title: 'Recorrência sem esquecer', text: 'Pacotes ajudam a manter o banho e tosa em dia e deixam os próximos horários mais previsíveis.', url: '/app/pacotes', ctaLabel: 'Ver pacotes' },
+      { icon: '🔔', label: 'Lembrete inteligente', title: 'Ative notificações', text: 'Com o app instalado, o PetFunny pode avisar sobre confirmação, pagamento, recibo e lembretes do atendimento.', url: '/app/perfil', ctaLabel: 'Ativar no perfil' },
+      { icon: '🐾', label: 'IA PetFunny', title: 'Cadastro completo melhora o atendimento', text: 'Preferências, restrições e observações do pet ajudam a equipe a personalizar cada cuidado.', url: '/app/pets', ctaLabel: 'Atualizar pets' }
+    ];
+    const now = new Date();
+    return Array.from({ length: 30 }).map((_, index) => {
+      const template = templates[index % templates.length];
+      const date = new Date(now);
+      date.setDate(now.getDate() - Math.floor(index / 2));
+      date.setHours(9 + (index % 7), index % 2 ? 30 : 0, 0, 0);
+      return { ...template, type: 'ai_post', id: `ai-${index}-${timelineDateKey(date)}`, createdAt: date.toISOString(), cta: `<a class="btn btn-sm btn-secondary" href="${template.url}">${template.ctaLabel}</a>` };
+    });
   }
 
   function timelinePosts() {
     const posts = [];
     (data.timelineEvents || []).forEach((event) => {
       posts.push({
+        id: event.id || `event-${posts.length}`,
+        type: event.type || 'system',
+        createdAt: event.createdAt || new Date().toISOString(),
         icon: event.icon || '🔔',
         label: event.label || 'Atualização PetFunny',
         title: event.title || 'Você tem uma novidade',
@@ -145,30 +271,44 @@
       });
     });
     if (data.nextAppointment) {
-      posts.push({ icon: '📅', label: 'Lembrete de agenda', title: `Próximo cuidado de ${data.nextAppointment.petName}`, text: `${dateTime(data.nextAppointment.startsAt)} · ${data.nextAppointment.services || 'Serviços PetFunny'}`, cta: '<a class="btn btn-sm" href="/app/agenda">Ver agenda</a>' });
+      posts.push({ id: 'next-appointment', createdAt: data.nextAppointment.startsAt || new Date().toISOString(), icon: '📅', label: 'Lembrete de agenda', title: `Próximo cuidado de ${data.nextAppointment.petName}`, text: `${dateTime(data.nextAppointment.startsAt)} · ${data.nextAppointment.services || 'Serviços PetFunny'}`, cta: '<a class="btn btn-sm" href="/app/agenda">Ver agenda</a>' });
     } else {
-      posts.push({ icon: '✨', label: 'IA PetFunny', title: 'Seu pet ainda não tem horário futuro', text: 'Agende banho, tosa ou hidratação pelo app e acompanhe tudo pela timeline.', cta: '<a class="btn btn-sm" href="/app/agenda">Agendar agora</a>' });
+      posts.push({ id: 'empty-appointment', createdAt: new Date().toISOString(), icon: '✨', label: 'IA PetFunny', title: 'Seu pet ainda não tem horário futuro', text: 'Agende banho, tosa ou hidratação pelo app e acompanhe tudo pela timeline.', cta: '<a class="btn btn-sm" href="/app/agenda">Agendar agora</a>' });
     }
     if ((data.packages || []).length) {
       const pkg = data.packages[0];
-      posts.push({ icon: '📦', label: 'Pacote ativo', title: `${pkg.name} · ${pkg.usedSessions} de ${pkg.totalSessions}`, text: `Restam ${pkg.remainingSessions} sessão(ões) para ${pkg.petName}. ${pkg.recurring ? 'Recorrência automática ativa.' : 'Recorrência não ativada.'}`, cta: '<a class="btn btn-sm btn-secondary" href="/app/pacotes">Acompanhar</a>' });
+      posts.push({ id: `package-${pkg.id}`, createdAt: pkg.startsOn || new Date().toISOString(), icon: '📦', label: 'Pacote ativo', title: `${pkg.name} · ${pkg.usedSessions} de ${pkg.totalSessions}`, text: `Restam ${pkg.remainingSessions} sessão(ões) para ${pkg.petName}. ${pkg.recurring ? 'Recorrência automática ativa.' : 'Recorrência não ativada.'}`, cta: '<a class="btn btn-sm btn-secondary" href="/app/pacotes">Acompanhar</a>' });
     } else {
-      posts.push({ icon: '📦', label: 'Sugestão inteligente', title: 'Pacotes ajudam a manter recorrência', text: 'Contrate sessões recorrentes para banho e tosa com mais previsibilidade.', cta: '<a class="btn btn-sm btn-secondary" href="/app/pacotes">Ver pacotes</a>' });
+      posts.push({ id: 'package-suggestion', createdAt: new Date().toISOString(), icon: '📦', label: 'Sugestão inteligente', title: 'Pacotes ajudam a manter recorrência', text: 'Contrate sessões recorrentes para banho e tosa com mais previsibilidade.', cta: '<a class="btn btn-sm btn-secondary" href="/app/pacotes">Ver pacotes</a>' });
     }
     if ((data.pets || []).some((pet) => !pet.restrictions && !pet.preferences)) {
-      posts.push({ icon: '🐶', label: 'Cadastro do pet', title: 'Complete os cuidados do pet', text: 'Inclua preferências, restrições e observações para a equipe atender melhor.', cta: '<a class="btn btn-sm btn-secondary" href="/app/pets">Atualizar pets</a>' });
+      posts.push({ id: 'pets-complete-profile', createdAt: new Date().toISOString(), icon: '🐶', label: 'Cadastro do pet', title: 'Complete os cuidados do pet', text: 'Inclua preferências, restrições e observações para a equipe atender melhor.', cta: '<a class="btn btn-sm btn-secondary" href="/app/pets">Atualizar pets</a>' });
     }
-    posts.push({ icon: '🎁', label: 'Mimos', title: 'Roleta de Mimos disponível no app', text: 'Quando houver campanha ativa, você pode girar a roleta e registrar seu benefício.', cta: '<a class="btn btn-sm btn-secondary" href="/app/roleta">Abrir roleta</a>' });
-    posts.push({ icon: '🛠️', label: 'Atualização do sistema', title: 'Meu PetFunny agora tem timeline', text: 'Avisos, lembretes, pacotes, pets e documentos ficam em uma experiência mobile-first.', cta: '' });
-    return posts;
+    posts.push(...aiTimelinePosts());
+    const unique = new Map();
+    posts.forEach((post) => unique.set(post.id || `${post.title}-${post.createdAt}`, post));
+    return [...unique.values()].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+
+  function renderTimelineItems() {
+    const posts = timelinePosts().slice(0, timelineVisibleCount);
+    let lastDate = '';
+    return posts.map((post) => {
+      const key = timelineDateKey(post.createdAt);
+      const separator = key !== lastDate ? `<div class="client-timeline-date-separator"><span>${timelineDateLabel(post.createdAt)}</span></div>` : '';
+      lastDate = key;
+      return `${separator}<article class="client-timeline-post"><div class="client-timeline-icon">${post.icon}</div><div><p class="eyebrow">${post.label}</p><h3>${post.title}</h3><p>${post.text}</p><div class="client-card-actions">${post.cta || ''}</div></div></article>`;
+    }).join('');
   }
 
   function renderHome() {
     return `
       ${renderPushActivationCard()}
-      <section class="client-timeline">
-        ${timelinePosts().map((post) => `<article class="client-timeline-post"><div class="client-timeline-icon">${post.icon}</div><div><p class="eyebrow">${post.label}</p><h3>${post.title}</h3><p>${post.text}</p><div class="client-card-actions">${post.cta}</div></div></article>`).join('')}
+      <section class="client-timeline" id="client-timeline-list">
+        ${renderTimelineItems()}
       </section>
+      <div class="client-timeline-loader" id="client-timeline-loader">Carregando mais atualizações...</div>
+      <div class="client-timeline-sentinel" id="client-timeline-sentinel" aria-hidden="true"></div>
       <div class="client-kpi-grid">
         <article><strong>${data.stats.pets}</strong><span>pets cadastrados</span></article>
         <article><strong>${data.stats.upcomingAppointments}</strong><span>próximos horários</span></article>
@@ -180,16 +320,21 @@
 
   function renderAgenda() {
     const roletaContext = getRoletaScheduleContext();
+    const promotionContext = getPromotionScheduleContext();
+    const promo = promotionContext?.promo || null;
     const petOpts = (data.pets || []).map((pet) => ({ value: pet.id, label: `${pet.name}${pet.size ? ` · ${pet.size}` : ''}` }));
     const collaboratorOpts = options.collaborators.map((c) => ({ value: c.id, label: c.name }));
     const firstPet = roletaContext?.petId || data.pets?.[0]?.id || '';
     const serviceList = serviceOptionsForPet(firstPet);
     const roletaNote = roletaContext ? `🎁 Mimo ganho na Roleta PetFunny: ${roletaContext.giftTitle}${roletaContext.giftDescription ? ` — ${roletaContext.giftDescription}` : ''}` : '';
+    const initialDate = nextPromotionAllowedDate(promo, initialScheduleDate());
+    const promoBanner = promo ? `<article class="client-promo-selected-banner" data-selected-promo-id="${escapeHtml(promo.id)}"><span>🏷️ Promoção selecionada</span><strong>${escapeHtml(promo.title)}</strong><small>${Number(promo.discountPercent || 0)}% OFF · válida em ${escapeHtml(promotionAllowedDaysText(promo))}</small></article>` : '';
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Novo agendamento</h2></div>
-      <form class="client-form-card" id="appointment-form">
+      ${promoBanner}
+      <form class="client-form-card" id="appointment-form" data-promo-id="${escapeHtml(promo?.id || '')}">
         ${selectField('Pet', 'petId', petOpts, firstPet, 'Escolha o pet')}
         ${selectField('Colaborador preferido', 'collaboratorId', collaboratorOpts, '', 'Sem preferência')}
-        ${field('Data do atendimento', 'appointmentDate', initialScheduleDate(), `type="date" min="${today()}"`)}
+        ${field('Data do atendimento', 'appointmentDate', initialDate, `type="date" min="${today()}"`)}
         <label class="client-field"><span>Horário disponível</span><select name="appointmentTime" id="appointment-time"><option value="">Carregando horários...</option></select><small class="client-field-hint" id="appointment-time-hint">Os horários seguem as Configurações do admin.</small></label>
         <div class="client-field"><span>Serviços</span><div class="client-check-list" id="services-list">${renderServiceChecks(serviceList)}</div></div>
         ${textArea('Observações para a equipe', 'notes', roletaNote)}
@@ -210,7 +355,11 @@
     return Object.entries(groups).map(([category, items]) => `<section class="client-service-group">
       <div class="client-service-group-title"><span>${escapeHtml(category)}</span><small>${items.length} serviço(s)</small></div>
       <div class="client-service-group-list">
-        ${items.map((service) => `<label><input type="checkbox" name="serviceIds" value="${service.id}"><span><strong>${escapeHtml(service.name)}</strong><small>${money(service.priceCents)}</small></span></label>`).join('')}
+        ${items.map((service) => {
+          const promo = activePromotionForService(service, document.querySelector('[name="petId"]')?.value || data.pets?.[0]?.id || '', document.querySelector('[name="appointmentDate"]')?.value || today());
+          const promoLabel = promo ? `<em class="client-promo-inline">🏷️ ${Number(promo.discountPercent || 0)}% OFF automático</em>` : '';
+          return `<label><input type="checkbox" name="serviceIds" value="${service.id}"><span><strong>${escapeHtml(service.name)}</strong><small>${money(service.priceCents)} ${promoLabel}</small></span></label>`;
+        }).join('')}
       </div>
     </section>`).join('');
   }
@@ -308,6 +457,11 @@
     </section>`;
   }
 
+
+  function renderPromocoes() {
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Promoções ativas</h2><p>Escolha um serviço em um dia contemplado e o desconto entra sozinho no Pix do agendamento.</p></div>${renderPromotionsList()}</section>`;
+  }
+
   function renderPerfil() {
     const tutor = data.tutor || {};
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Dados do tutor</h2><p>Edite seus dados. O WhatsApp fica protegido.</p></div>
@@ -330,7 +484,7 @@
     <section class="client-mobile-section">${renderPushActivationCard()}</section>`;
   }
 
-  const renderers = { home: renderHome, agenda: renderAgenda, pets: renderPets, historico: renderHistorico, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, perfil: renderPerfil, pagamento: renderPagamento };
+  const renderers = { home: renderHome, agenda: renderAgenda, pets: renderPets, historico: renderHistorico, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, promocoes: renderPromocoes, perfil: renderPerfil, pagamento: renderPagamento };
 
   async function reload(sectionOverride = null) {
     registerClientServiceWorker().catch(() => null);
@@ -510,6 +664,13 @@
     const select = document.getElementById('appointment-time');
     const hint = document.getElementById('appointment-time-hint');
     if (!select || !dateValue) return;
+    const promo = getPromotionScheduleContext()?.promo;
+    if (promo && !isDateAllowedByPromotion(dateValue, promo)) {
+      select.innerHTML = '<option value="">Promoção indisponível neste dia</option>';
+      select.disabled = true;
+      if (hint) hint.textContent = `Esta promoção vale somente em ${promotionAllowedDaysText(promo)}.`;
+      return;
+    }
     select.innerHTML = '<option value="">Carregando horários...</option>';
     if (hint) hint.textContent = 'Consultando vagas disponíveis nas Configurações do PetFunny...';
     try {
@@ -543,13 +704,43 @@
     dateInput.addEventListener('change', () => loadAppAvailableSlots(dateInput.value, ''));
   }
 
+  function bindTimelineInfinite() {
+    timelineObserver?.disconnect?.();
+    const sentinel = document.getElementById('client-timeline-sentinel');
+    const list = document.getElementById('client-timeline-list');
+    const loader = document.getElementById('client-timeline-loader');
+    if (!sentinel || !list) return;
+    const total = timelinePosts().length;
+    if (timelineVisibleCount >= total && loader) loader.hidden = true;
+    timelineObserver = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (timelineVisibleCount >= total) { if (loader) loader.hidden = true; return; }
+      timelineVisibleCount += timelineStep;
+      list.innerHTML = renderTimelineItems();
+      if (timelineVisibleCount >= timelinePosts().length && loader) loader.hidden = true;
+    }, { rootMargin: '260px' });
+    timelineObserver.observe(sentinel);
+  }
+
   function bindEvents() {
     bindPushEvents();
+    bindTimelineInfinite();
     bindPixPaymentPage();
     bindAppointmentAvailability();
     document.getElementById('appointment-form')?.addEventListener('change', (event) => {
       if (event.target.name === 'petId') {
         document.getElementById('services-list').innerHTML = renderServiceChecks(serviceOptionsForPet(event.target.value));
+      }
+      if (event.target.name === 'appointmentDate') {
+        const form = event.currentTarget;
+        const petValue = form.querySelector('[name="petId"]')?.value || '';
+        const promo = getPromotionScheduleContext()?.promo;
+        if (promo && !isDateAllowedByPromotion(event.target.value, promo)) {
+          document.getElementById('appointment-time').innerHTML = '<option value="">Promoção indisponível neste dia</option>';
+          document.getElementById('appointment-time').disabled = true;
+          document.getElementById('appointment-time-hint').textContent = `Esta promoção vale somente em ${promotionAllowedDaysText(promo)}.`;
+        }
+        document.getElementById('services-list').innerHTML = renderServiceChecks(serviceOptionsForPet(petValue));
       }
     });
     document.getElementById('appointment-form')?.addEventListener('submit', async (event) => {
@@ -560,6 +751,11 @@
       delete payload.appointmentDate;
       delete payload.appointmentTime;
       payload.serviceIds = [...form.querySelectorAll('input[name="serviceIds"]:checked')].map((input) => input.value);
+      const promo = getPromotionScheduleContext()?.promo;
+      if (promo && !isDateAllowedByPromotion(String(payload.startsAt).slice(0, 10), promo)) {
+        openModal('Promoção indisponível nesta data', `<p>A promoção <strong>${escapeHtml(promo.title)}</strong> vale somente em ${escapeHtml(promotionAllowedDaysText(promo))}. Escolha uma data válida para continuar.</p>`, '<button class="btn" data-close-modal>OK</button>');
+        return;
+      }
       if (!payload.startsAt || form.querySelector('[name="appointmentTime"]')?.disabled) {
         openModal('Escolha um horário', '<p>Selecione uma data e um horário disponível para continuar.</p>', '<button class="btn" data-close-modal>OK</button>');
         return;

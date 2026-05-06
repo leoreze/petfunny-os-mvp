@@ -6,7 +6,7 @@ const navItems = [
   { key: 'agenda', label: 'Agenda', icon: '📅', href: '/app/agenda' },
   { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets' },
   { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta' },
-  { key: 'perfil', label: 'Perfil', icon: '👤', href: '/app/perfil' }
+  { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes' }
 ];
 
 const sectionHeroMeta = {
@@ -17,6 +17,7 @@ const sectionHeroMeta = {
   pacotes: { icon: '📦', tag: 'Recorrência sem complicação', actionLabel: 'Agendar horário', href: '/app/agenda' },
   mimos: { icon: '🎁', tag: 'Benefícios para tutores', actionLabel: 'Girar roleta', href: '/app/roleta' },
   roleta: { icon: '🎁', tag: 'Mimos e recompensas', actionLabel: 'Ver agenda', href: '/app/agenda' },
+  promocoes: { icon: '🏷️', tag: 'Condições especiais', actionLabel: 'Agendar com desconto', href: '/app/agenda' },
   perfil: { icon: '👤', tag: 'Seus dados protegidos', actionLabel: 'Meus pets', href: '/app/pets' },
   pagamento: { icon: '💠', tag: 'Pagamento seguro via Pix', actionLabel: 'Voltar à agenda', href: '/app/agenda' }
 };
@@ -29,6 +30,7 @@ export function currentClientSection() {
   if (path.includes('/pacotes')) return 'pacotes';
   if (path.includes('/mimos')) return 'mimos';
   if (path.includes('/roleta')) return 'roleta';
+  if (path.includes('/promocoes')) return 'promocoes';
   if (path.includes('/perfil')) return 'perfil';
   if (path.includes('/pagamento-pix')) return 'pagamento';
   return 'home';
@@ -41,6 +43,14 @@ function escapeHtml(value = '') {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function tutorInitials(name = '') {
+  const clean = String(name || '').trim();
+  if (!clean) return 'PF';
+  const parts = clean.split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1 ? `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}` : clean.slice(0, 2);
+  return initials.toUpperCase();
 }
 
 export function money(cents = 0) {
@@ -71,6 +81,7 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
         <a class="client-mobile-brand" href="/app/home" aria-label="PetFunny"><img src="/assets/img/logo-petfunny-full.png" alt="PetFunny"></a>
         <div class="client-top-actions">
           <a class="client-icon-btn" href="https://wa.me/5516981535338" aria-label="WhatsApp">💬</a>
+          <a class="client-avatar-btn ${active === 'perfil' ? 'is-active' : ''}" href="/app/perfil" aria-label="Abrir perfil do tutor"><span>${escapeHtml(tutorInitials(tutor.name))}</span></a>
           <button class="client-icon-btn" id="client-logout" type="button" aria-label="Sair">↪</button>
         </div>
       </header>
@@ -177,6 +188,7 @@ export function clientCards() {
       <a class="client-shortcut" href="/app/historico"><span>📄</span><strong>Histórico</strong><small>Comandas e recibos</small></a>
       <a class="client-shortcut" href="/app/pacotes"><span>📦</span><strong>Pacotes</strong><small>Contratar e acompanhar</small></a>
       <a class="client-shortcut" href="/app/roleta"><span>🎁</span><strong>Roleta</strong><small>Mimos e benefícios</small></a>
+      <a class="client-shortcut" href="/app/promocoes"><span>🏷️</span><strong>Promoções</strong><small>Descontos automáticos</small></a>
     </div>
   `;
 }

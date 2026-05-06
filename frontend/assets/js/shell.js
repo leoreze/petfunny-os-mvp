@@ -13,6 +13,7 @@ const menuItems = [
   { label: 'Financeiro', icon: '💳', href: '/admin/financeiro', aliases: ['/financeiro', '/admin/financeiro'] },
   { label: 'Relatórios', icon: '📈', href: '/admin/relatorios', aliases: ['/relatorios', '/admin/relatorios'] },
   { label: 'CRM & Marketing', icon: '📣', href: '/admin/crm', aliases: ['/crm', '/admin/crm'] },
+  { label: 'Promoções', icon: '🏷️', href: '/admin/promocoes', aliases: ['/promocoes', '/admin/promocoes'] },
   { label: 'Roleta de Mimos', icon: '🎡', href: '/admin/roleta-de-mimos', aliases: ['/roleta-de-mimos', '/admin/roleta-de-mimos'] },
   { label: 'Notificações', icon: '🔔', href: '/admin/notificacoes', aliases: ['/notificacoes', '/admin/notificacoes'] },
   { label: 'WhatsApp', icon: '💬', href: '/admin/whatsapp', aliases: ['/whatsapp', '/admin/whatsapp'] },
