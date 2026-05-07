@@ -83,7 +83,7 @@
           <div><h3>Filtros rápidos</h3><p>Encontre atendimentos por data, status, colaborador, tutor, pet ou serviço.</p></div>
         </div>
         <div class="form-grid form-row-gap agenda-filter-grid">
-          <label class="form-field"><span>Data base</span><input class="input" type="date" id="agenda-date"></label>
+          <label class="form-field agenda-date-field"><span>Data base</span><div class="agenda-date-picker"><input class="input" type="date" id="agenda-date"><button class="agenda-date-picker-btn" id="agenda-date-picker-btn" type="button" aria-label="Abrir calendário">📅</button></div></label>
           <label class="form-field"><span>Status</span><select class="select" id="status-filter"><option value="all">Todos</option></select></label>
           <label class="form-field"><span>Colaborador</span><select class="select" id="collab-filter"><option value="all">Todos</option></select></label>
           <label class="form-field"><span>Busca rápida</span><input class="input" id="quick-search" placeholder="Tutor, pet ou serviço"></label>
@@ -927,6 +927,10 @@
 
   nodes.date.value = state.date;
   nodes.date.addEventListener('change', async e => { state.date = e.target.value; await loadAgenda(); });
+  document.getElementById('agenda-date-picker-btn')?.addEventListener('click', () => {
+    if (typeof nodes.date.showPicker === 'function') nodes.date.showPicker();
+    else { nodes.date.focus(); nodes.date.click(); }
+  });
   nodes.status.addEventListener('change', async e => { state.status = e.target.value; await loadAgenda(); });
   nodes.collab.addEventListener('change', async e => { state.collaboratorId = e.target.value; await loadAgenda(); });
   nodes.search.addEventListener('input', renderAll);

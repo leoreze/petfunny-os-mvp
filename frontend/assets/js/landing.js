@@ -164,6 +164,15 @@ function applySiteData(data = {}) {
   renderSocials(business);
 }
 
+
+function bootHeaderScroll() {
+  const header = document.querySelector('.pf-site-nav');
+  if (!header) return;
+  const update = () => header.classList.toggle('is-scrolled', window.scrollY > 18);
+  update();
+  window.addEventListener('scroll', update, { passive: true });
+}
+
 function bootMenu() {
   const btn = $('[data-menu-toggle]');
   const menu = $('[data-site-menu]');
@@ -175,6 +184,7 @@ function bootMenu() {
 async function boot() {
   $('#site-year').textContent = new Date().getFullYear();
   bootMenu();
+  bootHeaderScroll();
   try {
     const response = await fetch('/api/public/site', { cache: 'no-store' });
     if (response.ok) applySiteData(await response.json());

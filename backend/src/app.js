@@ -8072,6 +8072,7 @@ app.use(express.static(frontendRoot, {
 app.get(['/admin/promocoes', '/promocoes'], (req, res) => sendFrontendFile(res, 'pages/promocoes/index.html'));
 
 app.get(['/', '/site', '/landing'], (req, res) => sendFrontendFile(res, 'index.html'));
+app.get(['/franquias', '/franquias-petfunny', '/franchise'], (req, res) => sendFrontendFile(res, 'pages/franquias/index.html'));
 app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/login/index.html'));
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));

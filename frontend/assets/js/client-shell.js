@@ -76,6 +76,72 @@ export function shortDate(value) {
   return date.toLocaleDateString('pt-BR');
 }
 
+function applyClientInputMasks(scope = document) {
+  const digits = (value) => String(value || '').replace(/\D/g, '');
+  const masks = {
+    whatsapp(value) {
+      const d = digits(value).slice(0, 11);
+      if (d.length <= 2) return d;
+      if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+      return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    },
+    cep(value) {
+      const d = digits(value).slice(0, 8);
+      return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+    },
+    money(value) {
+      const cents = Number(digits(value) || '0') / 100;
+      return cents.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    },
+    percent(value) {
+      const d = digits(value).slice(0, 3);
+      return d ? `${Math.min(Number(d), 100)}%` : '';
+    },
+    time(value) {
+      const d = digits(value).slice(0, 4);
+      return d.length > 2 ? `${d.slice(0,2)}:${d.slice(2)}` : d;
+    },
+    code(value) { return digits(value).slice(0, 6); },
+    uf(value) { return String(value || '').replace(/[^a-zA-Z]/g, '').slice(0,2).toUpperCase(); }
+  };
+  const infer = (el) => {
+    const key = `${el.dataset.mask || ''} ${el.name || ''} ${el.id || ''} ${el.placeholder || ''} ${el.type || ''}`.toLowerCase();
+    if (el.dataset.mask) return el.dataset.mask;
+    if (key.includes('whatsapp') || key.includes('telefone') || key.includes('phone') || el.type === 'tel') return 'whatsapp';
+    if (key.includes('cep')) return 'cep';
+    if (key.includes('state') || key.includes('uf') || key.includes('estado')) return 'uf';
+    if (key.includes('code') || key.includes('codigo') || key.includes('código')) return 'code';
+    if (key.includes('desconto') || key.includes('discount') || key.includes('percent')) return 'percent';
+    if (key.includes('time') || key.includes('horário') || key.includes('horario')) return 'time';
+    if (key.includes('valor') || key.includes('price') || key.includes('money')) return 'money';
+    return '';
+  };
+  scope.querySelectorAll('input, textarea').forEach((el) => {
+    if (el.type === 'password' || el.type === 'email' || el.type === 'date' || el.readOnly) return;
+    const mask = infer(el);
+    if (!mask || !masks[mask]) return;
+    el.dataset.mask = mask;
+    if (['whatsapp', 'cep', 'code', 'percent', 'time', 'money'].includes(mask)) el.setAttribute('inputmode', 'numeric');
+    if (mask === 'code') el.setAttribute('maxlength', '6');
+    if (mask === 'uf') el.setAttribute('maxlength', '2');
+    if (el.dataset.clientMaskBound === '1') return;
+    el.dataset.clientMaskBound = '1';
+    const run = () => { el.value = masks[mask](el.value); };
+    el.addEventListener('input', run);
+    el.addEventListener('blur', run);
+    run();
+  });
+  if (!document.documentElement.dataset.clientMaskDelegated) {
+    document.documentElement.dataset.clientMaskDelegated = '1';
+    document.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+      if (!target.closest('.client-app-shell, .client-login-shell, .client-auth-page, .client-mobile-content')) return;
+      applyClientInputMasks(target.closest('form') || document);
+    }, true);
+  }
+}
+
 
 function setupClientBottomNavOverflow() {
   const nav = document.querySelector('.client-bottom-nav');
@@ -211,6 +277,7 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
   `;
   document.getElementById('client-logout')?.addEventListener('click', clientLogout);
   setupClientBottomNavOverflow();
+  applyClientInputMasks(document);
   window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 180));
 }
 

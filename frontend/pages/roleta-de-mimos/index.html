@@ -113,7 +113,7 @@
 
   function renderGifts(){
     $('gift-list').innerHTML = state.gifts.map(gift=>`
-      <article class="module-card gift-card" style="--gift-accent:${gift.status==='active' ? '#00a9b7' : '#ff9d98'}">
+      <article class="module-card gift-card" style="--gift-accent:${gift.status==='active' ? '#00a9b7' : '#F8A198'}">
         <button class="card-kebab" data-gift-menu="${gift.id}">⋯</button>
         <span class="badge">${statusName(gift.status)}</span>
         <h3>${gift.title}</h3>

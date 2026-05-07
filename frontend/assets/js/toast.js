@@ -4,7 +4,7 @@ function createToast(message, type = 'info') {
     error: 'linear-gradient(135deg,#be123c,#991b1b)',
     success: 'linear-gradient(135deg,#00a9b7,#12a876)',
     warning: 'linear-gradient(135deg,#f59e0b,#f97316)',
-    info: 'linear-gradient(135deg,#126f9a,#ff9d98)'
+    info: 'linear-gradient(135deg,#126f9a,#F8A198)'
   };
   el.className = `pf-toast pf-toast-${type}`;
   el.textContent = message || 'Operação concluída.';

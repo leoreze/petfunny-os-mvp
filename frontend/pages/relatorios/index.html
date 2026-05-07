@@ -301,7 +301,7 @@
     const stops = rows.map((row, index) => {
       const value = Number(row.sold_count || row.total_cents || 0);
       const start = acc; acc += (value / total) * 100;
-      const colors = ['#ff7f95','#26b9c7','#ffb86c','#7dd3fc','#f9a8d4','#99f6e4'];
+      const colors = ['#F8A198','#26b9c7','#ffb86c','#7dd3fc','#F8A198','#99f6e4'];
       return `${colors[index % colors.length]} ${start}% ${acc}%`;
     }).join(', ');
     $('#services-pie-chart').innerHTML = rows.length ? `<div class="report-pie" style="background:conic-gradient(${stops})"></div><div class="report-pie-list">${rows.map((row, index) => `<span><i data-pie-dot="${index}"></i>${esc(row.name || 'Serviço')} · ${numberBR(row.sold_count || 0)}</span>`).join('')}</div>` : '<div class="empty-state compact"><strong>Sem serviços vendidos no período.</strong></div>';

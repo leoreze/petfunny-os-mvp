@@ -217,6 +217,7 @@ export function cardsGrid(items) {
 
 export function applyInputMasks(scope = document) {
   const digits = (value) => String(value || '').replace(/\D/g, '');
+  const onlyLetters = (value) => String(value || '').replace(/[^A-Za-zÀ-ÿ\s]/g, '').replace(/\s{2,}/g, ' ');
   const masks = {
     whatsapp(value) {
       const d = digits(value).slice(0, 11);
@@ -224,9 +225,17 @@ export function applyInputMasks(scope = document) {
       if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
       return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
     },
+    phone(value) { return masks.whatsapp(value); },
     cep(value) {
       const d = digits(value).slice(0, 8);
       return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+    },
+    cpf(value) {
+      const d = digits(value).slice(0, 11);
+      if (d.length <= 3) return d;
+      if (d.length <= 6) return `${d.slice(0,3)}.${d.slice(3)}`;
+      if (d.length <= 9) return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`;
+      return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
     },
     money(value) {
       const d = digits(value);
@@ -241,18 +250,42 @@ export function applyInputMasks(scope = document) {
       const d = digits(value).slice(0, 4);
       if (d.length <= 2) return d;
       return `${d.slice(0, 2)}:${d.slice(2)}`;
-    }
+    },
+    code(value) { return digits(value).slice(0, 6); },
+    uf(value) { return String(value || '').replace(/[^a-zA-Z]/g, '').slice(0,2).toUpperCase(); },
+    name(value) { return onlyLetters(value).slice(0, 90); }
   };
-  scope.querySelectorAll('[data-mask]').forEach((input) => {
-    const mask = input.dataset.mask;
-    input.setAttribute('autocomplete', mask === 'whatsapp' ? 'tel' : 'off');
-    if (['whatsapp', 'cep', 'percent', 'time'].includes(mask)) input.setAttribute('inputmode', 'numeric');
+  const inferMask = (input) => {
+    const key = `${input.dataset.mask || ''} ${input.name || ''} ${input.id || ''} ${input.placeholder || ''} ${input.type || ''}`.toLowerCase();
+    if (input.dataset.mask) return input.dataset.mask;
+    if (key.includes('whatsapp') || key.includes('telefone') || key.includes('phone') || input.type === 'tel') return 'whatsapp';
+    if (key.includes('cep')) return 'cep';
+    if (key.includes('cpf')) return 'cpf';
+    if (key.includes('code') || key.includes('codigo') || key.includes('código')) return 'code';
+    if (key.includes('state') || key.includes('uf') || key.includes('estado')) return 'uf';
+    if (key.includes('discount') || key.includes('percent') || key.includes('desconto')) return 'percent';
+    if (key.includes('time') || key.includes('horario') || key.includes('horário')) return 'time';
+    if (key.includes('price') || key.includes('valor') || key.includes('money')) return 'money';
+    if (key.includes('name') || key.includes('nome')) return 'name';
+    return '';
+  };
+  scope.querySelectorAll('input, textarea').forEach((input) => {
+    if (input.type === 'password' || input.type === 'email' || input.type === 'date' || input.readOnly) return;
+    const mask = inferMask(input);
+    if (!mask || !masks[mask]) return;
+    input.dataset.mask = mask;
+    input.setAttribute('autocomplete', mask === 'whatsapp' ? 'tel' : (input.getAttribute('autocomplete') || 'off'));
+    if (['whatsapp', 'phone', 'cep', 'cpf', 'percent', 'time', 'code', 'money'].includes(mask)) input.setAttribute('inputmode', 'numeric');
+    if (mask === 'code') input.setAttribute('maxlength', '6');
+    if (mask === 'uf') input.setAttribute('maxlength', '2');
+    if (input.dataset.maskBound === '1') return;
+    input.dataset.maskBound = '1';
     const run = () => {
-      if (!masks[mask]) return;
       input.value = masks[mask](input.value);
       input.classList.toggle('valid', Boolean(input.value));
     };
     input.addEventListener('input', run);
+    input.addEventListener('blur', run);
     run();
   });
 }
