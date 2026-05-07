@@ -89,6 +89,7 @@
                 <h3>Consulta financeira</h3>
                 <p>Busque lançamentos, revise status, filtre por tipo e faça a baixa sem perder o contexto do tutor.</p>
               </div>
+              <button class="btn" type="button" id="new-transaction-list">＋ Novo lançamento</button>
             </div>
             <div class="filter-row compact-filter-row filters-below finance-filter-row">
               <input class="input" id="filter-search" placeholder="Buscar tutor, WhatsApp ou descrição" autocomplete="off">
@@ -168,6 +169,17 @@
             <label class="form-field wide"><span>Descrição</span><input class="input" name="description" placeholder="Ex: Banho e tosa, pacote, fornecedor, aluguel..."></label>
           </form></div>
           <footer class="modal-footer"><button class="btn btn-secondary" type="button" data-close-modal>Cancelar</button><button class="btn" type="submit" form="finance-form">Salvar</button></footer>
+        </div>
+      </div>
+
+      <div class="modal-backdrop" id="message-modal" hidden>
+        <div class="premium-modal finance-modal-card small-modal" role="dialog" aria-modal="true">
+          <header class="modal-header"><div><p class="eyebrow">Mensagem financeira</p><h2>Enviar mensagem</h2></div><button class="icon-btn" type="button" data-close-message>×</button></header>
+          <div class="modal-body custom-scroll">
+            <p class="muted-text">Revise o texto antes de abrir o WhatsApp do tutor. O envio continua manual e seguro.</p>
+            <label class="form-field wide"><span>Mensagem pronta</span><textarea class="textarea" id="finance-message-text" rows="7"></textarea></label>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" data-close-message>Cancelar</button><a class="btn" id="finance-message-whatsapp" target="_blank" rel="noopener">Abrir WhatsApp</a></footer>
         </div>
       </div>
 
@@ -319,11 +331,10 @@
         <td>${dateBR(item.dueDate)}</td>
         <td><span class="status-pill status-${statusTone[item.status] || 'neutral'}">${esc(statusLabel[item.status] || item.status)}</span></td>
         <td><strong class="finance-value ${item.type === 'expense' ? 'negative' : 'positive'}">${item.type === 'expense' ? '-' : '+'}${money(item.amountCents)}</strong></td>
-        <td><div class="table-actions">${item.status !== 'paid' && item.status !== 'canceled' ? `<button class="btn btn-small btn-secondary" data-whatsapp-action="cobranca_amigavel" data-transaction-id="${esc(item.id)}" data-phone="${esc(item.tutorWhatsapp || '')}">WhatsApp</button><button class="btn btn-small" data-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Baixar</button>` : '<span class="muted-small">Concluído</span>'}</div></td>
+        <td><div class="table-actions finance-kebab-actions">${item.status !== 'paid' && item.status !== 'canceled' ? `<button class="card-kebab finance-kebab" type="button" data-finance-menu="${esc(item.id)}" aria-label="Ações do lançamento">⋯</button><div class="finance-action-menu" data-finance-menu-panel="${esc(item.id)}"><button type="button" data-finance-message="${esc(item.id)}">Enviar mensagem</button><button type="button" data-finance-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Dar baixa</button></div>` : '<span class="muted-small">Concluído</span>'}</div></td>
       </tr>`).join('') : '<tr><td colspan="8"><div class="empty-state"><strong>Nenhum lançamento encontrado.</strong><p>Revise os filtros ou crie um novo lançamento.</p></div></td></tr>';
-    document.querySelectorAll('[data-pay]').forEach((button) => button.addEventListener('click', () => openPayModal(button.dataset.pay, button.dataset.amount)));
+    setupFinanceActionMenus();
     setupPremiumInteractions(document);
-    bindHybridWhatsAppButtons(document);
     updateSortArrows();
   }
 
@@ -335,10 +346,9 @@
         <td><strong>${esc(item.tutorName || 'Cliente')}</strong><small>${esc(item.tutorWhatsapp || 'WhatsApp não informado')}</small></td>
         <td>${dateBR(item.dueDate)}</td>
         <td><strong class="finance-value positive">${money(item.amountCents)}</strong></td>
-        <td><div class="table-actions"><button class="btn btn-small btn-secondary" data-whatsapp-action="cobranca_amigavel" data-transaction-id="${esc(item.id)}" data-phone="${esc(item.tutorWhatsapp || '')}">WhatsApp</button><button class="btn btn-small" data-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Baixar</button></div></td>
+        <td><div class="table-actions finance-kebab-actions"><button class="card-kebab finance-kebab" type="button" data-finance-menu="${esc(item.id)}" aria-label="Ações da cobrança">⋯</button><div class="finance-action-menu" data-finance-menu-panel="${esc(item.id)}"><button type="button" data-finance-message="${esc(item.id)}">Enviar mensagem</button><button type="button" data-finance-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Dar baixa</button></div></div></td>
       </tr>`).join('') : '<tr><td colspan="5"><div class="empty-state"><strong>Nenhum inadimplente encontrado.</strong><p>Ótimo sinal para o caixa do PetFunny.</p></div></td></tr>';
-    document.querySelectorAll('#defaulters-list [data-pay]').forEach((button) => button.addEventListener('click', () => openPayModal(button.dataset.pay, button.dataset.amount)));
-    bindHybridWhatsAppButtons(document);
+    setupFinanceActionMenus();
     updateSortArrows();
   }
 
@@ -360,13 +370,37 @@
 
   function openTransactionModal() { $('#finance-form').reset(); $('#finance-modal').hidden = false; setupPremiumInteractions($('#finance-modal')); }
   function closeTransactionModal() { $('#finance-modal').hidden = true; }
+  function findFinanceItem(id) { return [...state.transactions, ...state.defaulters].find((item) => String(item.id) === String(id)) || {}; }
+  function buildFinanceMessage(item = {}) {
+    return `Oi, ${item.tutorName || 'tudo bem'}! Aqui é do PetFunny - Banho e Tosa.\n\nPassando para lembrar sobre ${item.description || 'um lançamento financeiro'} no valor de ${money(item.amountCents)}${item.dueDate ? `, com vencimento em ${dateBR(item.dueDate)}` : ''}.\n\nQualquer dúvida, pode me chamar por aqui. 🐾`;
+  }
+  function openMessageModal(id) {
+    const item = findFinanceItem(id);
+    const text = buildFinanceMessage(item);
+    $('#finance-message-text').value = text;
+    const phone = String(item.tutorWhatsapp || '').replace(/\D/g, '');
+    const normalized = phone ? (phone.startsWith('55') ? phone : `55${phone}`) : '';
+    $('#finance-message-whatsapp').href = normalized ? `https://wa.me/${normalized}?text=${encodeURIComponent(text)}` : '#';
+    $('#message-modal').hidden = false; setupPremiumInteractions($('#message-modal'));
+  }
+  function closeMessageModal() { $('#message-modal').hidden = true; }
   function openPayModal(id, amountCents) { $('#pay-form').reset(); $('#pay-form').elements.id.value = id; $('#pay-form').elements.amount.value = money(amountCents); $('#pay-modal').hidden = false; setupPremiumInteractions($('#pay-modal')); }
   function closePayModal() { $('#pay-modal').hidden = true; }
+  function closeFinanceMenus() { document.querySelectorAll('.finance-action-menu.is-open').forEach((menu) => menu.classList.remove('is-open')); }
+  function setupFinanceActionMenus() {
+    document.querySelectorAll('[data-finance-menu]').forEach((button) => button.onclick = (event) => { event.stopPropagation(); const id = button.dataset.financeMenu; const panel = document.querySelector(`[data-finance-menu-panel="${CSS.escape(id)}"]`); const wasOpen = panel?.classList.contains('is-open'); closeFinanceMenus(); if (panel && !wasOpen) panel.classList.add('is-open'); });
+    document.querySelectorAll('[data-finance-pay]').forEach((button) => button.onclick = () => { closeFinanceMenus(); openPayModal(button.dataset.financePay, button.dataset.amount); });
+    document.querySelectorAll('[data-finance-message]').forEach((button) => button.onclick = () => { closeFinanceMenus(); openMessageModal(button.dataset.financeMessage); });
+  }
 
   $('#new-transaction').addEventListener('click', openTransactionModal);
+  $('#new-transaction-list')?.addEventListener('click', openTransactionModal);
   $('#refresh-finance').addEventListener('click', refreshAll);
   document.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', closeTransactionModal));
   document.querySelectorAll('[data-close-pay]').forEach((b) => b.addEventListener('click', closePayModal));
+  document.querySelectorAll('[data-close-message]').forEach((b) => b.addEventListener('click', closeMessageModal));
+  document.addEventListener('click', (event) => { if (!event.target.closest('.finance-kebab-actions')) closeFinanceMenus(); });
+  $('#finance-message-text')?.addEventListener('input', () => { const href = $('#finance-message-whatsapp').href; const phone = href.includes('wa.me/') ? href.split('wa.me/')[1].split('?')[0] : ''; if (phone) $('#finance-message-whatsapp').href = `https://wa.me/${phone}?text=${encodeURIComponent($('#finance-message-text').value)}`; });
   document.querySelectorAll('[data-finance-tab]').forEach((button) => button.addEventListener('click', async () => {
     state.activeTab = button.dataset.financeTab;
     const url = new URL(window.location.href);

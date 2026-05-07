@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PetFunny 360 · Bem-estar IA</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+import { buildShell, bigNumberGrid } from '/assets/js/shell.js';
+import { api } from '/assets/js/api.js';
+import { finishPageLoading } from '/assets/js/loading.js';
+
+const escapeHtml = (value = '') => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+const riskLabel = (risk = '') => ({ baixo: 'Baixo', medio: 'Médio', alto: 'Alto', sem_avaliacao: 'Sem avaliação' }[risk] || risk || 'Sem avaliação');
+const shortDate = (value) => value ? new Date(value).toLocaleDateString('pt-BR') : '—';
+let state = { page: 1, hasMore: true, loading: false, items: [], summary: null, filters: { search: '', risk: '' }, sortKey: 'diagnosticCreatedAt', sortDir: 'desc' };
+
+function riskBadge(risk) { return `<span class="status-pill wellbeing-risk ${escapeHtml(risk || 'sem_avaliacao')}">${escapeHtml(riskLabel(risk))}</span>`; }
+
+function shellContent() {
+  return `
+    <section class="hero-panel wellbeing-admin-hero">
+      <div class="page-heading-row">
+        <div class="module-icon">🧠</div>
+        <div>
+          <p class="eyebrow">PetFunny 360 IA</p>
+          <h1>Bem-estar dos pets</h1>
+          <p>Acompanhe comportamento, rotina, saúde percebida e socialização dos pets com diagnósticos responsáveis. Não substitui veterinário.</p>
+        </div>
+      </div>
+    </section>
+    <div id="wellbeing-big-numbers" class="admin-big-numbers-outside"></div>
+    <section class="module-card table-card admin-wellbeing-table-card">
+      <div class="section-header table-header-actions">
+        <div><p class="eyebrow">Consulta PetFunny 360</p><h2>Pets monitorados</h2><p>Filtre por tutor, pet ou nível de atenção antes do atendimento.</p></div>
+      </div>
+      <div class="filters-row admin-wellbeing-filters">
+        <label class="field"><span>Buscar</span><input id="filter-search" placeholder="Pet, tutor ou WhatsApp"></label>
+        <label class="field"><span>Risco</span><select id="filter-risk"><option value="">Todos</option><option value="alto">Alto</option><option value="medio">Médio</option><option value="baixo">Baixo</option><option value="sem_avaliacao">Sem avaliação</option></select></label>
+      </div>
+      <div class="table-responsive single-scroll-table">
+        <table class="data-table premium-table">
+          <thead><tr>
+            <th data-sort="petName">Pet <span class="sort-arrow">▾</span></th>
+            <th data-sort="tutorName">Tutor <span class="sort-arrow">▾</span></th>
+            <th data-sort="riskLevel">Atenção <span class="sort-arrow">▾</span></th>
+            <th data-sort="diagnosticCreatedAt">Última avaliação <span class="sort-arrow">▾</span></th>
+            <th>Resumo</th><th>Ações</th>
+          </tr></thead>
+          <tbody id="wellbeing-table-body"><tr><td colspan="6">Carregando...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="client-timeline-loader" id="wellbeing-loader">Carregando mais pets...</div>
+      <div id="wellbeing-sentinel" style="height:1px"></div>
+    </section>`;
+}
+
+function renderSummary() {
+  const cards = state.summary?.cards || { total: 0, high: 0, medium: 0, pets: 0 };
+  document.getElementById('wellbeing-big-numbers').innerHTML = bigNumberGrid([
+    ['Avaliações 90 dias', cards.total || 0, 'Respostas recentes'],
+    ['Pets avaliados', cards.pets || 0, 'Com PetFunny 360'],
+    ['Atenção alta', cards.high || 0, 'Priorizar abordagem'],
+    ['Atenção moderada', cards.medium || 0, 'Acompanhar rotina']
+  ]);
+}
+
+function sortItems(items) {
+  return [...items].sort((a, b) => {
+    const av = a[state.sortKey] || '';
+    const bv = b[state.sortKey] || '';
+    const result = String(av).localeCompare(String(bv), 'pt-BR', { numeric: true });
+    return state.sortDir === 'asc' ? result : -result;
+  });
+}
+
+function renderRows() {
+  const body = document.getElementById('wellbeing-table-body');
+  const items = sortItems(state.items);
+  body.innerHTML = items.length ? items.map((item) => `<tr>
+    <td><strong>${escapeHtml(item.petName)}</strong><br><small>${escapeHtml([item.breed, item.size].filter(Boolean).join(' · ') || 'Pet cadastrado')}</small></td>
+    <td>${escapeHtml(item.tutorName || '—')}<br><small>${escapeHtml(item.tutorWhatsapp || '')}</small></td>
+    <td>${riskBadge(item.riskLevel)}</td>
+    <td>${shortDate(item.diagnosticCreatedAt)}</td>
+    <td>${escapeHtml(item.summary || 'Ainda sem diagnóstico PetFunny 360.')}</td>
+    <td>
+      <div class="admin-wellbeing-actions">
+        <button class="icon-btn" type="button" data-wellbeing-actions="${escapeHtml(item.petId)}" aria-label="Ações do PetFunny 360">⋯</button>
+        <div class="admin-wellbeing-actions-menu" data-wellbeing-menu="${escapeHtml(item.petId)}" hidden>
+          <button type="button" data-view-pet="${escapeHtml(item.petId)}">Visualizar diagnóstico</button>
+          <button type="button" data-view-caregivers="${escapeHtml(item.petId)}">Responsáveis cadastrados</button>
+        </div>
+      </div>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="6">Nenhum pet encontrado.</td></tr>';
+}
+
+async function loadSummary() {
+  state.summary = await api.get('/admin/wellbeing/summary');
+  renderSummary();
+}
+
+async function loadItems(reset = false) {
+  if (state.loading) return;
+  if (reset) { state.page = 1; state.items = []; state.hasMore = true; }
+  if (!state.hasMore) return;
+  state.loading = true;
+  const qs = new URLSearchParams({ page: String(state.page), limit: '30', search: state.filters.search, risk: state.filters.risk });
+  const response = await api.get(`/admin/wellbeing/pets?${qs}`);
+  state.items.push(...(response.items || []));
+  state.hasMore = Boolean(response.hasMore);
+  state.page += 1;
+  state.loading = false;
+  renderRows();
+  document.getElementById('wellbeing-loader').hidden = !state.hasMore;
+}
+
+function closeActionMenus() {
+  document.querySelectorAll('[data-wellbeing-menu]').forEach((menu) => { menu.hidden = true; });
+}
+
+function openModal(title, body) {
+  closeActionMenus();
+  document.querySelector('.modal-backdrop')?.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-backdrop';
+  wrap.innerHTML = `<section class="modal-card large" role="dialog" aria-modal="true"><header><div><p class="eyebrow">PetFunny 360</p><h2>${escapeHtml(title)}</h2></div><button class="icon-btn" data-close-modal>×</button></header><div class="modal-body custom-scroll">${body}</div><footer><button class="btn" data-close-modal>OK</button></footer></section>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', (event) => { if (event.target === wrap || event.target.closest('[data-close-modal]')) wrap.remove(); });
+}
+
+async function viewPet(petId) {
+  const data = await api.get(`/admin/wellbeing/pets/${petId}`);
+  const pet = data.pet || {};
+  const diagnostics = data.diagnostics || [];
+  const caregivers = data.caregivers || [];
+  openModal(pet.name || 'PetFunny 360', `
+    <div class="wellbeing-detail-grid">
+      <article class="module-card"><h3>${escapeHtml(pet.name || 'Pet')}</h3><p>${escapeHtml(pet.tutorName || '')} · ${escapeHtml(pet.tutorWhatsapp || '')}</p><p>${escapeHtml([pet.breed, pet.size].filter(Boolean).join(' · '))}</p></article>
+      <article class="module-card"><h3>Responsáveis</h3>${caregivers.length ? caregivers.map((c) => `<p>• ${escapeHtml(c.name)} · ${escapeHtml(c.role)} · ${escapeHtml(c.status)}</p>`).join('') : '<p>Somente tutor principal.</p>'}</article>
+    </div>
+    <div class="wellbeing-history-admin">${diagnostics.length ? diagnostics.map((d) => `<article class="module-card"><div class="table-header-actions"><h3>${shortDate(d.createdAt)} · ${riskLabel(d.riskLevel)}</h3>${riskBadge(d.riskLevel)}</div><p>${escapeHtml(d.summary || '')}</p><h4>Insights</h4>${(d.insights || []).map((i) => `<p>• ${escapeHtml(i)}</p>`).join('')}<h4>Recomendações</h4>${(d.recommendations || []).map((i) => `<p>• ${escapeHtml(i)}</p>`).join('')}<small>${escapeHtml(d.disclaimer)}</small></article>`).join('') : '<article class="module-card"><p>Sem avaliações ainda.</p></article>'}</div>`);
+}
+
+
+async function viewCaregivers(petId) {
+  const data = await api.get(`/admin/wellbeing/pets/${petId}`);
+  const pet = data.pet || {};
+  const caregivers = data.caregivers || [];
+  openModal(`Responsáveis de ${pet.name || 'pet'}`, `
+    <article class="module-card"><h3>Tutor principal</h3><p>${escapeHtml(pet.tutorName || '—')} · ${escapeHtml(pet.tutorWhatsapp || '')}</p></article>
+    <div class="wellbeing-history-admin">
+      ${caregivers.length ? caregivers.map((c) => `<article class="module-card"><div class="table-header-actions"><h3>${escapeHtml(c.name || 'Responsável')}</h3><span class="status-pill">${escapeHtml(c.status || 'invited')}</span></div><p>${escapeHtml(c.role || '')}</p><p>${escapeHtml(c.whatsapp || c.email || 'Contato não informado')}</p><small>Cadastrado em ${shortDate(c.createdAt)}</small></article>`).join('') : '<article class="module-card"><p>Nenhum responsável adicional cadastrado.</p></article>'}
+    </div>`);
+}
+
+buildShell({ active: 'PetFunny 360', title: 'PetFunny 360 IA', eyebrow: 'Bem-estar e comportamento', subtitle: 'Diagnósticos de apoio para atendimento mais humano e seguro.', content: shellContent() });
+await loadSummary();
+await loadItems(true);
+
+document.getElementById('filter-search')?.addEventListener('input', (event) => { state.filters.search = event.target.value; window.clearTimeout(window.__wellbeingSearch); window.__wellbeingSearch = window.setTimeout(() => loadItems(true), 350); });
+document.getElementById('filter-risk')?.addEventListener('change', (event) => { state.filters.risk = event.target.value; loadItems(true); });
+document.querySelectorAll('[data-sort]').forEach((th) => th.addEventListener('click', () => { const key = th.dataset.sort; state.sortDir = state.sortKey === key && state.sortDir === 'asc' ? 'desc' : 'asc'; state.sortKey = key; renderRows(); }));
+document.body.addEventListener('click', (event) => {
+  const actions = event.target.closest('[data-wellbeing-actions]');
+  if (actions) {
+    const id = actions.dataset.wellbeingActions;
+    const menu = document.querySelector(`[data-wellbeing-menu="${CSS.escape(id)}"]`);
+    const willOpen = menu?.hidden;
+    closeActionMenus();
+    if (menu) menu.hidden = !willOpen;
+    return;
+  }
+  const view = event.target.closest('[data-view-pet]');
+  if (view) { viewPet(view.dataset.viewPet).catch((error) => openModal('Erro', `<p>${escapeHtml(error.message)}</p>`)); return; }
+  const caregivers = event.target.closest('[data-view-caregivers]');
+  if (caregivers) { viewCaregivers(caregivers.dataset.viewCaregivers).catch((error) => openModal('Erro', `<p>${escapeHtml(error.message)}</p>`)); return; }
+  if (!event.target.closest('.admin-wellbeing-actions')) closeActionMenus();
+});
+new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) loadItems(false); }, { rootMargin: '260px' }).observe(document.getElementById('wellbeing-sentinel'));
+finishPageLoading();
+</script>
+</body>
+</html>

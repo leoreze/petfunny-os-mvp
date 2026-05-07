@@ -171,6 +171,104 @@ CREATE TABLE IF NOT EXISTS client_accounts (
   deleted_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS pet_caregivers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  caregiver_tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  whatsapp TEXT,
+  email TEXT,
+  role TEXT NOT NULL DEFAULT 'familiar_autorizado',
+  status TEXT NOT NULL DEFAULT 'invited',
+  invited_by_tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  accepted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pet_caregivers_pet ON pet_caregivers (pet_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_pet_caregivers_caregiver ON pet_caregivers (caregiver_tutor_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pet_caregivers_unique_whatsapp ON pet_caregivers (pet_id, whatsapp) WHERE deleted_at IS NULL AND whatsapp IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pet_wellbeing_forms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL DEFAULT 'PetFunny 360',
+  description TEXT,
+  version TEXT NOT NULL DEFAULT '1.0',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS pet_wellbeing_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id UUID REFERENCES pet_wellbeing_forms(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  dimension TEXT NOT NULL,
+  question TEXT NOT NULL,
+  answer_type TEXT NOT NULL DEFAULT 'scale',
+  options JSONB NOT NULL DEFAULT '[]'::jsonb,
+  weight NUMERIC(6,2) NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_critical BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ,
+  UNIQUE (code)
+);
+
+CREATE TABLE IF NOT EXISTS pet_wellbeing_diagnostics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  caregiver_id UUID REFERENCES pet_caregivers(id) ON DELETE SET NULL,
+  form_id UUID REFERENCES pet_wellbeing_forms(id) ON DELETE SET NULL,
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  scores JSONB NOT NULL DEFAULT '{}'::jsonb,
+  risk_level TEXT NOT NULL DEFAULT 'baixo',
+  summary TEXT,
+  insights JSONB NOT NULL DEFAULT '[]'::jsonb,
+  recommendations JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ai_used BOOLEAN NOT NULL DEFAULT FALSE,
+  disclaimer TEXT NOT NULL DEFAULT 'Este diagnóstico é uma análise de bem-estar e comportamento baseada nas respostas dos tutores. Ele não substitui avaliação veterinária.',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pet_wellbeing_pet ON pet_wellbeing_diagnostics (pet_id, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_pet_wellbeing_risk ON pet_wellbeing_diagnostics (risk_level, created_at DESC) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS pet_wellbeing_answers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  diagnostic_id UUID NOT NULL REFERENCES pet_wellbeing_diagnostics(id) ON DELETE CASCADE,
+  question_id UUID REFERENCES pet_wellbeing_questions(id) ON DELETE SET NULL,
+  answer_value TEXT,
+  answer_score NUMERIC(6,2),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pet_wellbeing_answers_diag ON pet_wellbeing_answers (diagnostic_id);
+
+CREATE TABLE IF NOT EXISTS pet_wellbeing_insights (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  diagnostic_id UUID REFERENCES pet_wellbeing_diagnostics(id) ON DELETE CASCADE,
+  type TEXT NOT NULL DEFAULT 'care_insight',
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'info',
+  visible_to_tutor BOOLEAN NOT NULL DEFAULT TRUE,
+  visible_to_admin BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pet_wellbeing_insights_pet ON pet_wellbeing_insights (pet_id, created_at DESC) WHERE deleted_at IS NULL;
+
+
 CREATE TABLE IF NOT EXISTS business_hours (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   weekday SMALLINT NOT NULL CHECK (weekday BETWEEN 0 AND 6),
@@ -680,7 +778,8 @@ BEGIN
     'users','business_settings','collaborators','service_categories','services','tutors','pets','client_auth_codes','client_accounts',
     'business_hours','time_slot_capacities','appointment_statuses','appointments','appointment_items','packages','package_items',
     'customer_packages','subscriptions','payment_methods','payment_statuses','financial_transactions','payments','receipts','crm_leads',
-    'crm_interactions','gifts','settings','pet_types','pet_sizes','pet_breeds','system_notifications','push_subscriptions'
+    'crm_interactions','gifts','settings','pet_types','pet_sizes','pet_breeds','system_notifications','push_subscriptions',
+    'pet_caregivers','pet_wellbeing_forms','pet_wellbeing_questions','pet_wellbeing_diagnostics','pet_wellbeing_insights'
   ]
   LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_%I_updated_at ON %I', table_name_text, table_name_text);
@@ -738,6 +837,39 @@ async function main() {
           blocks_slot = EXCLUDED.blocks_slot,
           deleted_at = NULL,
           updated_at = NOW()
+    `);
+
+
+
+    await query(`
+      INSERT INTO pet_wellbeing_forms (title, description, version, is_active)
+      SELECT 'PetFunny 360', 'Avaliação periódica de comportamento, rotina, saúde percebida, socialização e bem-estar emocional do pet.', '1.0', TRUE
+      WHERE NOT EXISTS (SELECT 1 FROM pet_wellbeing_forms WHERE deleted_at IS NULL)
+    `);
+
+    await query(`
+      WITH active_form AS (
+        SELECT id FROM pet_wellbeing_forms WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY created_at ASC LIMIT 1
+      )
+      INSERT INTO pet_wellbeing_questions (form_id, code, dimension, question, answer_type, options, weight, sort_order, is_critical, is_active)
+      SELECT active_form.id, q.code, q.dimension, q.question, q.answer_type, q.options::jsonb, q.weight, q.sort_order, q.is_critical, TRUE
+      FROM active_form,
+      (VALUES
+        ('apetite', 'saude_percebida', 'O pet está comendo normalmente?', 'scale', '[{"value":"normal","label":"Sim, normalmente","score":0},{"value":"menos","label":"Comeu menos que o normal","score":2},{"value":"nao","label":"Não quis comer","score":4}]', 1.5, 10, TRUE),
+        ('mudanca_apetite', 'saude_percebida', 'Houve mudança de apetite nos últimos dias?', 'scale', '[{"value":"nao","label":"Não","score":0},{"value":"leve","label":"Mudança leve","score":1},{"value":"forte","label":"Mudança forte","score":3}]', 1.2, 20, FALSE),
+        ('sono', 'rotina', 'Como está o sono?', 'scale', '[{"value":"normal","label":"Normal","score":0},{"value":"irregular","label":"Irregular","score":1},{"value":"muito_alterado","label":"Muito alterado","score":3}]', 1.0, 30, FALSE),
+        ('humor', 'emocional', 'Está mais agitado, medroso ou quieto?', 'scale', '[{"value":"normal","label":"Comportamento normal","score":0},{"value":"leve","label":"Um pouco diferente","score":1},{"value":"forte","label":"Muito diferente","score":3}]', 1.2, 40, FALSE),
+        ('coceira', 'saude_percebida', 'Está se coçando mais que o normal?', 'scale', '[{"value":"nao","label":"Não","score":0},{"value":"as_vezes","label":"Às vezes","score":1},{"value":"muito","label":"Muito","score":3}]', 1.2, 50, FALSE),
+        ('vocalizacao', 'emocional', 'Tem chorado, latido ou se escondido?', 'scale', '[{"value":"nao","label":"Não","score":0},{"value":"as_vezes","label":"Às vezes","score":1},{"value":"frequente","label":"Com frequência","score":3}]', 1.0, 60, FALSE),
+        ('banho_tosa', 'socializacao', 'Como reage ao banho e tosa?', 'scale', '[{"value":"tranquilo","label":"Tranquilo","score":0},{"value":"ansioso","label":"Ansioso","score":1},{"value":"muito_estressado","label":"Muito estressado","score":3}]', 1.2, 70, FALSE),
+        ('outros_pets', 'socializacao', 'Como reage a outros pets?', 'scale', '[{"value":"bem","label":"Bem","score":0},{"value":"evita","label":"Evita ou estranha","score":1},{"value":"reativo","label":"Fica reativo/agressivo","score":3}]', 1.0, 80, FALSE),
+        ('necessidades', 'saude_percebida', 'Está fazendo necessidades normalmente?', 'scale', '[{"value":"normal","label":"Normalmente","score":0},{"value":"alterado","label":"Alterou um pouco","score":2},{"value":"muito_alterado","label":"Muito alterado","score":4}]', 1.5, 90, TRUE),
+        ('mudanca_casa', 'rotina', 'Teve alguma mudança recente na casa ou rotina?', 'scale', '[{"value":"nao","label":"Não","score":0},{"value":"sim_leve","label":"Sim, leve","score":1},{"value":"sim_forte","label":"Sim, importante","score":2}]', 0.8, 100, FALSE),
+        ('condicao_saude', 'saude_percebida', 'Tem restrição, medicação ou condição de saúde?', 'text', '[]', 1.0, 110, FALSE),
+        ('ultimo_atendimento', 'rotina', 'Como foi o último atendimento no PetFunny?', 'text', '[]', 0.8, 120, FALSE),
+        ('sinais_graves', 'alerta', 'Há sinais graves como vômitos recorrentes, dificuldade para respirar, sangramento, dor intensa, apatia forte, convulsão ou alteração urinária importante?', 'scale', '[{"value":"nao","label":"Não","score":0},{"value":"sim","label":"Sim, há sinal grave","score":10}]', 2.0, 130, TRUE)
+      ) AS q(code, dimension, question, answer_type, options, weight, sort_order, is_critical)
+      ON CONFLICT (code) DO UPDATE SET question=EXCLUDED.question, dimension=EXCLUDED.dimension, options=EXCLUDED.options, weight=EXCLUDED.weight, sort_order=EXCLUDED.sort_order, is_critical=EXCLUDED.is_critical, is_active=TRUE, updated_at=NOW()
     `);
 
     await query('COMMIT');

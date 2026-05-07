@@ -2,11 +2,14 @@ import { getClientUser, clientLogout, requireClientFrontendAuth } from './client
 import { finishPageLoading } from './loading.js';
 
 const navItems = [
-  { key: 'home', label: 'Timeline', icon: '✨', href: '/app/home' },
-  { key: 'agenda', label: 'Agenda', icon: '📅', href: '/app/agenda' },
-  { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets' },
-  { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta' },
-  { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes' }
+  { key: 'home', label: 'Timeline', icon: '✨', href: '/app/home', priority: 1 },
+  { key: 'agenda', label: 'Agenda', icon: '📅', href: '/app/agenda', priority: 2 },
+  { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets', priority: 3 },
+  { key: 'historico', label: 'Histórico', icon: '📄', href: '/app/historico', priority: 4 },
+  { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 5 },
+  { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta', priority: 6 },
+  { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes', priority: 7 },
+  { key: 'bemestar', label: '360 IA', icon: '🧠', href: '/app/bem-estar', priority: 8 }
 ];
 
 const sectionHeroMeta = {
@@ -18,6 +21,7 @@ const sectionHeroMeta = {
   mimos: { icon: '🎁', tag: 'Benefícios para tutores', actionLabel: 'Girar roleta', href: '/app/roleta' },
   roleta: { icon: '🎁', tag: 'Mimos e recompensas', actionLabel: 'Ver agenda', href: '/app/agenda' },
   promocoes: { icon: '🏷️', tag: 'Condições especiais', actionLabel: 'Agendar com desconto', href: '/app/agenda' },
+  bemestar: { icon: '🧠', tag: 'PetFunny 360 IA', actionLabel: 'Avaliar pet', href: '/app/bem-estar' },
   perfil: { icon: '👤', tag: 'Seus dados protegidos', actionLabel: 'Meus pets', href: '/app/pets' },
   pagamento: { icon: '💠', tag: 'Pagamento seguro via Pix', actionLabel: 'Voltar à agenda', href: '/app/agenda' }
 };
@@ -31,6 +35,7 @@ export function currentClientSection() {
   if (path.includes('/mimos')) return 'mimos';
   if (path.includes('/roleta')) return 'roleta';
   if (path.includes('/promocoes')) return 'promocoes';
+  if (path.includes('/bem-estar')) return 'bemestar';
   if (path.includes('/perfil')) return 'perfil';
   if (path.includes('/pagamento-pix')) return 'pagamento';
   return 'home';
@@ -71,6 +76,100 @@ export function shortDate(value) {
   return date.toLocaleDateString('pt-BR');
 }
 
+
+function setupClientBottomNavOverflow() {
+  const nav = document.querySelector('.client-bottom-nav');
+  if (!nav) return;
+  const items = [...nav.querySelectorAll('[data-client-nav-item]')];
+  const moreButton = nav.querySelector('.client-bottom-more');
+  const moreMenu = nav.querySelector('.client-bottom-more-menu');
+  if (!items.length || !moreButton || !moreMenu) return;
+
+  // Mantém o rodapé sempre limpo: os 3 últimos itens ficam no menu "Mais".
+  const fixedOverflowKeys = new Set(['roleta', 'promocoes', 'bemestar']);
+
+  const itemKey = (item) => item.dataset.navKey || item.getAttribute('href')?.split('/').pop() || '';
+
+  const closeMoreMenu = () => {
+    moreMenu.hidden = true;
+    moreButton.setAttribute('aria-expanded', 'false');
+    moreButton.classList.remove('is-open');
+  };
+
+  const moveToOverflow = (item) => {
+    item.hidden = true;
+    item.classList.add('is-overflowed');
+  };
+
+  const rebuild = () => {
+    closeMoreMenu();
+    moreMenu.innerHTML = '';
+    items.forEach((item) => {
+      item.hidden = false;
+      item.classList.remove('is-overflowed');
+    });
+
+    moreButton.hidden = false;
+    fixedOverflowKeys.forEach((key) => {
+      const item = items.find((entry) => itemKey(entry) === key);
+      if (item) moveToOverflow(item);
+    });
+
+    const navStyles = window.getComputedStyle(nav);
+    const gap = Number.parseFloat(navStyles.columnGap || navStyles.gap || '4') || 4;
+    const available = nav.clientWidth - 10;
+    const moreWidth = Math.max(moreButton.offsetWidth, 58);
+    const protectedKeys = new Set(['home', 'agenda', 'pets']);
+    const sorted = [...items]
+      .filter((item) => !item.hidden)
+      .sort((a, b) => Number(b.dataset.priority || 0) - Number(a.dataset.priority || 0));
+
+    const visibleWidth = () => {
+      const visible = items.filter((item) => !item.hidden);
+      return visible.reduce((sum, item) => sum + item.offsetWidth, 0) + moreWidth + gap * Math.max(0, visible.length);
+    };
+
+    let current = visibleWidth();
+    sorted.forEach((item) => {
+      if (current <= available || protectedKeys.has(itemKey(item))) return;
+      current -= item.offsetWidth + gap;
+      moveToOverflow(item);
+    });
+
+    // Se ainda não couber em telas muito estreitas, preserva Timeline, Agenda, Pets e Mais.
+    if (current > available) {
+      [...items].reverse().forEach((item) => {
+        if (current <= available || item.hidden || protectedKeys.has(itemKey(item))) return;
+        current -= item.offsetWidth + gap;
+        moveToOverflow(item);
+      });
+    }
+
+    const overflowed = items.filter((item) => item.hidden);
+    moreButton.hidden = overflowed.length === 0;
+    overflowed.forEach((item) => {
+      const link = document.createElement('a');
+      link.href = item.getAttribute('href') || '#';
+      link.className = item.classList.contains('is-active') ? 'is-active' : '';
+      link.innerHTML = item.innerHTML;
+      moreMenu.appendChild(link);
+    });
+  };
+
+  moreButton.onclick = (event) => {
+    event.preventDefault();
+    const willOpen = moreMenu.hidden;
+    moreMenu.hidden = !willOpen;
+    moreButton.setAttribute('aria-expanded', String(willOpen));
+    moreButton.classList.toggle('is-open', willOpen);
+  };
+  document.addEventListener('click', (event) => {
+    if (!nav.contains(event.target)) closeMoreMenu();
+  }, { passive: true });
+  window.addEventListener('resize', () => window.requestAnimationFrame(rebuild), { passive: true });
+  window.requestAnimationFrame(rebuild);
+}
+
 export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do seu pet dentro do PetFunny.', content = '', active = currentClientSection() } = {}) {
   if (!requireClientFrontendAuth()) return;
   const payload = getClientUser();
@@ -104,11 +203,14 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
       </section>
       <section class="client-mobile-content">${content}</section>
       <nav class="client-bottom-nav" aria-label="Navegação do app do tutor">
-        ${navItems.map((item) => `<a class="${item.key === active ? 'is-active' : ''}" href="${item.href}"><span>${item.icon}</span><small>${item.label}</small></a>`).join('')}
+        ${navItems.map((item) => `<a class="${item.key === active ? 'is-active' : ''}" href="${item.href}" data-client-nav-item data-nav-key="${item.key}" data-priority="${item.priority}"><span>${item.icon}</span><small>${item.label}</small></a>`).join('')}
+        <button class="client-bottom-more" type="button" aria-label="Mais opções do menu" aria-expanded="false" hidden><span>•••</span><small>Mais</small></button>
+        <div class="client-bottom-more-menu" hidden></div>
       </nav>
     </main>
   `;
   document.getElementById('client-logout')?.addEventListener('click', clientLogout);
+  setupClientBottomNavOverflow();
   window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 180));
 }
 
@@ -189,6 +291,7 @@ export function clientCards() {
       <a class="client-shortcut" href="/app/pacotes"><span>📦</span><strong>Pacotes</strong><small>Contratar e acompanhar</small></a>
       <a class="client-shortcut" href="/app/roleta"><span>🎁</span><strong>Roleta</strong><small>Mimos e benefícios</small></a>
       <a class="client-shortcut" href="/app/promocoes"><span>🏷️</span><strong>Promoções</strong><small>Descontos automáticos</small></a>
+      <a class="client-shortcut" href="/app/bem-estar"><span>🧠</span><strong>PetFunny 360</strong><small>Bem-estar com IA</small></a>
     </div>
   `;
 }

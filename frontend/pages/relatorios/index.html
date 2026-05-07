@@ -76,6 +76,28 @@
           <div id="growth-comparison-chart" class="report-chart-list growth-chart-list"></div>
         </section>
 
+        <section class="module-grid reports-chart-grid reports-decision-grid">
+          <article class="module-card report-chart-card stack-sm" data-report-modal="monthly">
+            <div class="table-header"><div><h3>Evolução mensal da operação</h3><p>Agendamentos, novos tutores, novos pets e mimos comparados mês a mês.</p></div></div>
+            <div id="monthly-evolution-chart" class="report-column-chart"></div>
+          </article>
+          <article class="module-card report-chart-card stack-sm" data-report-modal="services-pie">
+            <div class="table-header"><div><h3>Mix de serviços vendidos</h3><p>Distribuição dos serviços para entender o que mais movimenta a operação.</p></div></div>
+            <div id="services-pie-chart" class="report-pie-chart"></div>
+          </article>
+        </section>
+
+        <section class="module-grid reports-chart-grid reports-decision-grid">
+          <article class="module-card report-chart-card stack-sm" data-report-modal="line">
+            <div class="table-header"><div><h3>Linha de crescimento</h3><p>Tendência mensal para enxergar aceleração, queda ou estabilidade.</p></div></div>
+            <div id="monthly-line-chart" class="report-line-chart"></div>
+          </article>
+          <article class="module-card report-chart-card stack-sm" data-report-modal="decision">
+            <div class="table-header"><div><h3>Leitura para decisão</h3><p>Alertas rápidos para o operador agir sem precisar interpretar planilhas.</p></div></div>
+            <div id="decision-insights" class="report-decision-list"></div>
+          </article>
+        </section>
+
         <section class="module-grid reports-chart-grid">
           <article class="module-card report-chart-card stack-sm" data-report-modal="finance">
             <div class="table-header"><div><h3>Comparativo financeiro</h3><p>Entrada, saída e saldo do período comparados com o período anterior.</p></div></div>
@@ -237,8 +259,85 @@
       </div>`).join('');
   }
 
+  function fallbackMonthlyRows() {
+    const flow = state.data?.comparisons?.periodFlow || [];
+    const current = state.data?.comparisons?.growth?.current || {};
+    const months = ['Mês -5','Mês -4','Mês -3','Mês -2','Mês -1','Atual'];
+    return months.map((label, index) => {
+      const ratio = (index + 1) / months.length;
+      return {
+        label,
+        appointments_count: Math.round(Number(current.appointments_count || flow.length || 0) * ratio),
+        new_tutors_count: Math.round(Number(current.appointments_count || 0) * ratio / 3),
+        new_pets_count: Math.round(Number(current.services_count || 0) * ratio / 4),
+        gifts_count: Math.round(Number(current.packages_count || 0) * ratio)
+      };
+    });
+  }
+
+  function monthlyRows() {
+    return state.data?.comparisons?.monthlyEvolution?.length ? state.data.comparisons.monthlyEvolution : fallbackMonthlyRows();
+  }
+
+  function renderMonthlyEvolutionChart() {
+    const rows = monthlyRows();
+    const max = Math.max(1, ...rows.flatMap(row => [row.appointments_count, row.new_tutors_count, row.new_pets_count, row.gifts_count].map(Number)));
+    $('#monthly-evolution-chart').innerHTML = `<div class="report-chart-legend"><span>Agendamentos</span><span>Tutores</span><span>Pets</span><span>Mimos</span></div>` + rows.map(row => `
+      <div class="report-month-column">
+        <small>${esc(row.label)}</small>
+        <div class="report-column-bars">
+          <i style="height:${Math.max(8, Number(row.appointments_count || 0)/max*100)}%" title="Agendamentos"></i>
+          <b style="height:${Math.max(8, Number(row.new_tutors_count || 0)/max*100)}%" title="Novos tutores"></b>
+          <em style="height:${Math.max(8, Number(row.new_pets_count || 0)/max*100)}%" title="Novos pets"></em>
+          <strong style="height:${Math.max(8, Number(row.gifts_count || 0)/max*100)}%" title="Mimos"></strong>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderServicesPieChart() {
+    const rows = (state.data?.comparisons?.periodServices || state.data?.topServices || []).slice(0, 6);
+    const total = rows.reduce((sum, row) => sum + Number(row.sold_count || row.total_cents || 0), 0) || 1;
+    let acc = 0;
+    const stops = rows.map((row, index) => {
+      const value = Number(row.sold_count || row.total_cents || 0);
+      const start = acc; acc += (value / total) * 100;
+      const colors = ['#ff7f95','#26b9c7','#ffb86c','#7dd3fc','#f9a8d4','#99f6e4'];
+      return `${colors[index % colors.length]} ${start}% ${acc}%`;
+    }).join(', ');
+    $('#services-pie-chart').innerHTML = rows.length ? `<div class="report-pie" style="background:conic-gradient(${stops})"></div><div class="report-pie-list">${rows.map((row, index) => `<span><i data-pie-dot="${index}"></i>${esc(row.name || 'Serviço')} · ${numberBR(row.sold_count || 0)}</span>`).join('')}</div>` : '<div class="empty-state compact"><strong>Sem serviços vendidos no período.</strong></div>';
+  }
+
+  function renderMonthlyLineChart() {
+    const rows = monthlyRows();
+    const max = Math.max(1, ...rows.map(row => Number(row.appointments_count || 0)));
+    $('#monthly-line-chart').innerHTML = `<svg viewBox="0 0 360 160" role="img" aria-label="Linha de crescimento de agendamentos">${rows.map((row, index) => {
+      const x = 20 + index * (320 / Math.max(1, rows.length - 1));
+      const y = 138 - (Number(row.appointments_count || 0) / max) * 110;
+      return `<circle cx="${x}" cy="${y}" r="5"></circle><text x="${x}" y="154" text-anchor="middle">${esc(row.label).slice(0,5)}</text>`;
+    }).join('')}<polyline points="${rows.map((row, index) => `${20 + index * (320 / Math.max(1, rows.length - 1))},${138 - (Number(row.appointments_count || 0) / max) * 110}`).join(' ')}"></polyline></svg>`;
+  }
+
+  function renderDecisionInsights() {
+    const rows = monthlyRows();
+    const last = rows[rows.length - 1] || {};
+    const prev = rows[rows.length - 2] || {};
+    const services = state.data?.comparisons?.periodServices || [];
+    const topService = services[0]?.name || 'serviço principal';
+    $('#decision-insights').innerHTML = [
+      ['Agenda', `${percentDelta(last.appointments_count, prev.appointments_count)} vs mês anterior`, 'Use para dimensionar equipe e horários de maior procura.'],
+      ['Serviço destaque', topService, 'Base ideal para combos, promoções e campanhas de WhatsApp.'],
+      ['Novos tutores', numberBR(last.new_tutors_count || 0), 'Indica força da aquisição via landing, app e indicações.'],
+      ['Mimos/roleta', numberBR(last.gifts_count || 0), 'Ajuda a controlar custo de encantamento e recorrência.']
+    ].map(([title,value,hint]) => `<article><strong>${esc(title)}</strong><b>${esc(value)}</b><small>${esc(hint)}</small></article>`).join('');
+  }
+
+
   function renderCharts() {
     renderGrowthChart();
+    renderMonthlyEvolutionChart();
+    renderServicesPieChart();
+    renderMonthlyLineChart();
+    renderDecisionInsights();
     const c = state.data?.comparisons || {};
     const finance = c.finance || {}; const prev = c.previousFinance || {};
     renderBarList('#finance-comparison-chart', [

@@ -109,7 +109,8 @@
     mimos: ['Mimos PetFunny', 'Campanhas, benefícios e recompensas para tutores recorrentes.'],
     roleta: ['Roleta de Mimos', 'Gire a roleta, descubra benefícios e acompanhe suas recompensas.'],
     perfil: ['Meu perfil', 'Atualize seus dados de cadastro. O WhatsApp fica protegido e não pode ser alterado pelo app.'],
-    promocoes: ['Promoções PetFunny', 'Descontos ativos entram automaticamente no agendamento quando o serviço, porte e dia combinarem.']
+    promocoes: ['Promoções PetFunny', 'Descontos ativos entram automaticamente no agendamento quando o serviço, porte e dia combinarem.'],
+    bemestar: ['PetFunny 360 IA', 'Avaliação de bem-estar, comportamento, rotina e cuidado do pet com linguagem responsável.']
   };
 
   function toast(message, type = 'success') {
@@ -138,6 +139,44 @@
     wrap.addEventListener('click', (event) => {
       if (event.target === wrap || event.target.closest('[data-close-modal]')) closeModal();
     });
+  }
+
+
+  function openAnalysisModal(seconds = 18) {
+    closeModal();
+    const total = Math.max(8, Number(seconds || 18));
+    const wrap = document.createElement('div');
+    wrap.className = 'client-modal-backdrop client-analysis-backdrop';
+    wrap.innerHTML = `
+      <section class="client-modal-card client-analysis-modal" role="dialog" aria-modal="true">
+        <div class="client-analysis-icon">🧠</div>
+        <p class="eyebrow">PetFunny 360 IA</p>
+        <h2>Analisando bem-estar do pet...</h2>
+        <p>Estamos cruzando comportamento, rotina, saúde percebida e socialização para gerar um diagnóstico responsável.</p>
+        <div class="client-analysis-progress"><span style="width:4%"></span></div>
+        <strong id="analysis-countdown">${total}s</strong>
+        <small>Tempo estimado para concluir a avaliação.</small>
+      </section>`;
+    document.body.appendChild(wrap);
+    const bar = wrap.querySelector('.client-analysis-progress span');
+    const counter = wrap.querySelector('#analysis-countdown');
+    let remaining = total;
+    const timer = window.setInterval(() => {
+      remaining = Math.max(0, remaining - 1);
+      const progress = Math.min(96, Math.round(((total - remaining) / total) * 96));
+      if (bar) bar.style.width = `${progress}%`;
+      if (counter) counter.textContent = `${remaining}s`;
+      if (remaining <= 0) window.clearInterval(timer);
+    }, 1000);
+    return {
+      finish() {
+        window.clearInterval(timer);
+        if (bar) bar.style.width = '100%';
+        if (counter) counter.textContent = 'Concluído';
+        window.setTimeout(() => wrap.remove(), 450);
+      },
+      close() { window.clearInterval(timer); wrap.remove(); }
+    };
   }
 
   function field(label, name, value = '', extra = '') {
@@ -199,6 +238,111 @@
     </article>`).join('');
   }
 
+
+
+  const wellbeingRoles = [
+    { value: 'familiar_autorizado', label: 'Familiar autorizado' },
+    { value: 'responsavel_temporario', label: 'Responsável temporário' },
+    { value: 'cuidador', label: 'Cuidador' },
+    { value: 'parceiro_tutor', label: 'Parceiro(a) do tutor' }
+  ];
+
+  function riskBadge(level = '') {
+    const map = { baixo: 'Baixo', medio: 'Médio', alto: 'Alto', sem_avaliacao: 'Sem avaliação' };
+    return `<span class="client-badge wellbeing-risk ${escapeHtml(level || 'sem_avaliacao')}">${escapeHtml(map[level] || level || 'Sem avaliação')}</span>`;
+  }
+
+  function renderWellbeingDiagnostic(diag) {
+    if (!diag) return empty('🧠', 'Nenhum diagnóstico ainda', 'Responda a avaliação PetFunny 360 para gerar a primeira leitura de bem-estar do pet.');
+    const scores = diag.scores || {};
+    const blocks = [
+      ['Bem-estar geral', scores.overall || '—'],
+      ['Atenção emocional', scores.emotionalAttention || '—'],
+      ['Sinais de estresse', scores.stressSigns || '—'],
+      ['Rotina de cuidados', scores.careRoutine || '—'],
+      ['Socialização', scores.socialization || '—'],
+      ['Saúde percebida', scores.perceivedHealth || '—']
+    ];
+    return `<article class="client-wellbeing-result ${escapeHtml(diag.riskLevel || 'baixo')}">
+      <div class="client-list-title-row"><h3>Diagnóstico PetFunny 360</h3>${riskBadge(diag.riskLevel)}</div>
+      <p>${escapeHtml(diag.summary || 'Diagnóstico gerado com base nas respostas do tutor.')}</p>
+      <div class="client-wellbeing-grid">${blocks.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div>
+      <div class="client-wellbeing-insights">
+        <h4>Insights</h4>
+        ${(diag.insights || []).map((item) => `<p>• ${escapeHtml(item)}</p>`).join('') || '<p>• Continue acompanhando a rotina do pet.</p>'}
+        <h4>Recomendações</h4>
+        ${(diag.recommendations || []).map((item) => `<p>• ${escapeHtml(item)}</p>`).join('') || '<p>• Atualize o diagnóstico periodicamente.</p>'}
+      </div>
+      <small class="client-disclaimer">${escapeHtml(diag.disclaimer || 'Este diagnóstico não substitui avaliação veterinária.')}</small>
+    </article>`;
+  }
+
+  function renderQuestionInput(question) {
+    if (question.answerType === 'text') {
+      return `<label class="client-field client-wellbeing-question"><span>${escapeHtml(question.question)}</span><textarea name="${escapeHtml(question.code)}" rows="3" placeholder="Conte em poucas palavras"></textarea></label>`;
+    }
+    return `<fieldset class="client-wellbeing-question"><legend>${escapeHtml(question.question)}</legend><div class="client-radio-grid">${(question.options || []).map((option, index) => `<label><input type="radio" name="${escapeHtml(question.code)}" value="${escapeHtml(option.value)}" ${index === 0 ? 'required' : ''}><span>${escapeHtml(option.label)}</span></label>`).join('')}</div></fieldset>`;
+  }
+
+  async function loadWellbeingPanel(petId = '') {
+    const root = document.getElementById('wellbeing-dynamic');
+    if (!root) return;
+    const selectedPetId = petId || root.dataset.petId || data.pets?.[0]?.id || '';
+    if (!selectedPetId) {
+      root.innerHTML = empty('🐶', 'Cadastre um pet primeiro', 'O PetFunny 360 precisa de um pet cadastrado para iniciar a avaliação.');
+      return;
+    }
+    root.dataset.petId = selectedPetId;
+    root.innerHTML = '<article class="client-empty"><span>🧠</span><h3>Carregando PetFunny 360...</h3><p>Buscando perguntas, histórico e responsáveis autorizados.</p></article>';
+    try {
+      const [questionsPayload, latestPayload, historyPayload, caregiversPayload] = await Promise.all([
+        clientApi.get('/app/wellbeing/questions'),
+        clientApi.get(`/app/pets/${selectedPetId}/wellbeing/latest`),
+        clientApi.get(`/app/pets/${selectedPetId}/wellbeing/history`),
+        clientApi.get(`/app/pets/${selectedPetId}/caregivers`)
+      ]);
+      const questions = questionsPayload.questions || [];
+      const latest = latestPayload.diagnostic;
+      const history = historyPayload.diagnostics || [];
+      const caregivers = caregiversPayload.caregivers || [];
+      root.innerHTML = `
+        <section class="client-mobile-section">
+          <div class="client-section-title"><h2>Avaliação rápida</h2><p>Responda com sinceridade. A IA gera uma leitura de apoio, sem substituir veterinário.</p></div>
+          <form class="client-form-card client-wellbeing-form" id="wellbeing-form" data-pet-id="${escapeHtml(selectedPetId)}">
+            ${questions.map(renderQuestionInput).join('')}
+            <button class="btn" type="submit">Gerar diagnóstico PetFunny 360</button>
+          </form>
+        </section>
+        <section class="client-mobile-section"><div class="client-section-title"><h2>Último diagnóstico</h2><p>Resumo de bem-estar e recomendações para o próximo cuidado.</p></div>${renderWellbeingDiagnostic(latest)}</section>
+        <section class="client-mobile-section"><div class="client-section-title"><h2>Responsáveis do mesmo pet</h2><p>Autorize outras pessoas a contribuir com a percepção 360.</p></div>
+          <form class="client-form-card client-form-grid compact" id="caregiver-form" data-pet-id="${escapeHtml(selectedPetId)}">
+            ${field('Nome do responsável', 'name', '')}
+            ${field('WhatsApp', 'whatsapp', '', 'inputmode="tel"')}
+            ${field('E-mail', 'email', '', 'type="email"')}
+            ${selectField('Papel', 'role', wellbeingRoles, 'familiar_autorizado', 'Escolha')}
+            <button class="btn btn-secondary" type="submit">Autorizar responsável</button>
+          </form>
+          <div class="client-list-stack">${caregivers.length ? caregivers.map((c) => `<article class="client-list-card"><div class="client-list-icon">👥</div><div class="client-list-body"><div class="client-list-title-row"><h3>${escapeHtml(c.name)}</h3><span class="client-badge light">${escapeHtml(c.role)}</span></div><p>${escapeHtml(c.whatsapp || c.email || 'Contato não informado')} · ${escapeHtml(c.status || 'autorizado')}</p></div></article>`).join('') : empty('👥', 'Nenhum responsável adicional', 'Convide familiares, cuidadores ou responsáveis temporários para colaborar.')}</div>
+        </section>
+        <section class="client-mobile-section"><div class="client-section-title"><h2>Histórico PetFunny 360</h2><p>Evolução das últimas avaliações.</p></div>
+          <div class="client-list-stack">${history.length ? history.map((diag) => `<article class="client-list-card"><div class="client-list-icon">🧠</div><div class="client-list-body"><div class="client-list-title-row"><h3>${shortDate(diag.createdAt)}</h3>${riskBadge(diag.riskLevel)}</div><p>${escapeHtml(diag.summary || '')}</p><small>${escapeHtml(diag.aiUsed ? 'Gerado com IA' : 'Gerado com análise local segura')}</small></div></article>`).join('') : empty('📊', 'Sem histórico ainda', 'Cada nova avaliação aparecerá aqui.')}</div>
+        </section>`;
+    } catch (error) {
+      root.innerHTML = `<article class="client-empty"><span>⚠️</span><h3>Não foi possível carregar</h3><p>${escapeHtml(error.message)}</p></article>`;
+    }
+  }
+
+  function renderBemEstar() {
+    const petOpts = (data.pets || []).map((pet) => ({ value: pet.id, label: `${pet.name}${pet.size ? ` · ${pet.size}` : ''}` }));
+    const selected = new URLSearchParams(window.location.search).get('petId') || petOpts[0]?.value || '';
+    return `<section class="client-mobile-section client-wellbeing-hero-card">
+      <div class="client-section-title"><h2>PetFunny 360</h2><p>Avaliação socioemocional e comportamental com IA responsável para apoiar a rotina do seu pet.</p></div>
+      <article class="client-alert-soft"><strong>Importante:</strong> este diagnóstico é uma análise de bem-estar e comportamento baseada nas respostas dos tutores. Ele não substitui avaliação veterinária.</article>
+      ${selectField('Escolha o pet', 'wellbeingPetId', petOpts, selected, 'Selecione um pet')}
+    </section>
+    <div id="wellbeing-dynamic" data-pet-id="${escapeHtml(selected)}"></div>`;
+  }
+
   function renderPushActivationCard() {
     return `<details class="client-push-card client-push-dropdown" id="client-push-card">
       <summary class="client-push-summary">
@@ -244,7 +388,8 @@
       { icon: '🎁', label: 'IA PetFunny', title: 'Olho nos mimos', text: 'Promoções e roleta aparecem no app quando estiverem ativas. Vale conferir antes de agendar.', url: '/app/promocoes', ctaLabel: 'Ver promoções' },
       { icon: '📦', label: 'Sugestão inteligente', title: 'Recorrência sem esquecer', text: 'Pacotes ajudam a manter o banho e tosa em dia e deixam os próximos horários mais previsíveis.', url: '/app/pacotes', ctaLabel: 'Ver pacotes' },
       { icon: '🔔', label: 'Lembrete inteligente', title: 'Ative notificações', text: 'Com o app instalado, o PetFunny pode avisar sobre confirmação, pagamento, recibo e lembretes do atendimento.', url: '/app/perfil', ctaLabel: 'Ativar no perfil' },
-      { icon: '🐾', label: 'IA PetFunny', title: 'Cadastro completo melhora o atendimento', text: 'Preferências, restrições e observações do pet ajudam a equipe a personalizar cada cuidado.', url: '/app/pets', ctaLabel: 'Atualizar pets' }
+      { icon: '🐾', label: 'IA PetFunny', title: 'Cadastro completo melhora o atendimento', text: 'Preferências, restrições e observações do pet ajudam a equipe a personalizar cada cuidado.', url: '/app/pets', ctaLabel: 'Atualizar pets' },
+      { icon: '🧠', label: 'PetFunny 360 IA', title: 'Como seu pet está se sentindo?', text: 'Responda uma avaliação rápida de comportamento, rotina e bem-estar para gerar insights responsáveis.', url: '/app/bem-estar', ctaLabel: 'Avaliar pet' }
     ];
     const now = new Date();
     return Array.from({ length: 30 }).map((_, index) => {
@@ -484,7 +629,7 @@
     <section class="client-mobile-section">${renderPushActivationCard()}</section>`;
   }
 
-  const renderers = { home: renderHome, agenda: renderAgenda, pets: renderPets, historico: renderHistorico, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, promocoes: renderPromocoes, perfil: renderPerfil, pagamento: renderPagamento };
+  const renderers = { home: renderHome, agenda: renderAgenda, pets: renderPets, historico: renderHistorico, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, promocoes: renderPromocoes, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
 
   async function reload(sectionOverride = null) {
     registerClientServiceWorker().catch(() => null);
@@ -726,6 +871,8 @@
     bindPushEvents();
     bindTimelineInfinite();
     bindPixPaymentPage();
+    if (currentClientSection() === 'bemestar') { loadWellbeingPanel(new URLSearchParams(window.location.search).get('petId') || ''); }
+    document.querySelector('[name="wellbeingPetId"]')?.addEventListener('change', (event) => loadWellbeingPanel(event.target.value));
     bindAppointmentAvailability();
     document.getElementById('appointment-form')?.addEventListener('change', (event) => {
       if (event.target.name === 'petId') {
@@ -743,6 +890,45 @@
         document.getElementById('services-list').innerHTML = renderServiceChecks(serviceOptionsForPet(petValue));
       }
     });
+
+    document.body.addEventListener('submit', async (event) => {
+      if (event.target.id !== 'wellbeing-form') return;
+      event.preventDefault();
+      const form = event.target;
+      const petId = form.dataset.petId || document.querySelector('[name="wellbeingPetId"]')?.value || '';
+      const answers = {};
+      [...form.elements].forEach((element) => {
+        if (!element.name || element.tagName === 'BUTTON') return;
+        if ((element.type === 'radio' || element.type === 'checkbox') && !element.checked) return;
+        answers[element.name] = element.value;
+      });
+      const analysis = openAnalysisModal(18);
+      try {
+        const response = await clientApi.post(`/app/pets/${petId}/wellbeing/assessment`, { answers });
+        analysis.finish();
+        await loadWellbeingPanel(petId);
+        openModal('Diagnóstico PetFunny 360 gerado', renderWellbeingDiagnostic(response.diagnostic), '<button class="btn" data-close-modal>OK</button>');
+        toast(response.message || 'Diagnóstico gerado.');
+      } catch (error) {
+        analysis.close();
+        openModal('Não foi possível gerar o diagnóstico', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
+      }
+    });
+
+    document.body.addEventListener('submit', async (event) => {
+      if (event.target.id !== 'caregiver-form') return;
+      event.preventDefault();
+      const form = event.target;
+      const petId = form.dataset.petId || document.querySelector('[name="wellbeingPetId"]')?.value || '';
+      try {
+        const response = await clientApi.post(`/app/pets/${petId}/caregivers/invite`, formPayload(form));
+        toast(response.message || 'Responsável autorizado.');
+        await loadWellbeingPanel(petId);
+      } catch (error) {
+        openModal('Não foi possível autorizar responsável', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
+      }
+    });
+
     document.getElementById('appointment-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = event.currentTarget;

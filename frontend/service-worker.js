@@ -1,4 +1,4 @@
-const CACHE_NAME = 'petfunny-app-v1.5.110';
+const CACHE_NAME = 'petfunny-app-v1.5.115';
 const APP_SHELL = [
   '/app/login',
   '/app/home',

@@ -7957,3 +7957,638 @@ dialog.tutor-premium-document-modal::backdrop {
     font-size: .68rem !important;
   }
 }
+
+/* PetFunny 360 IA */
+.client-wellbeing-hero-card .client-alert-soft,
+.client-wellbeing-result,
+.client-wellbeing-form,
+.wellbeing-admin-hero {
+  border-color: rgba(255, 127, 149, 0.26);
+}
+.client-wellbeing-result {
+  background: linear-gradient(145deg, rgba(255,255,255,.96), rgba(255,246,247,.96));
+  border: 1px solid rgba(255, 127, 149, .20);
+  border-radius: 28px;
+  box-shadow: 0 24px 70px rgba(23, 34, 51, .10);
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+}
+.client-wellbeing-result.alto { border-color: rgba(239,68,68,.35); }
+.client-wellbeing-result.medio { border-color: rgba(245,158,11,.38); }
+.client-wellbeing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+.client-wellbeing-grid > div {
+  background: rgba(38,185,199,.10);
+  border: 1px solid rgba(38,185,199,.18);
+  border-radius: 18px;
+  padding: 12px;
+}
+.client-wellbeing-grid span { display:block; font-size: .76rem; color: #64748b; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.client-wellbeing-grid strong { color: #17324a; font-size: 1.02rem; }
+.client-wellbeing-insights {
+  background: rgba(255,127,149,.08);
+  border-radius: 20px;
+  padding: 14px;
+}
+.client-wellbeing-insights h4 { margin: 8px 0 6px; color: #17324a; }
+.client-wellbeing-insights p { margin: 6px 0; }
+.client-disclaimer, .client-muted { color: #64748b; font-size: .82rem; }
+.client-wellbeing-question {
+  border: 1px solid rgba(38,185,199,.16);
+  background: rgba(255,255,255,.84);
+  border-radius: 20px;
+  padding: 14px;
+  margin: 0;
+}
+.client-wellbeing-question legend,
+.client-wellbeing-question > span {
+  font-weight: 900;
+  color: #17324a;
+  margin-bottom: 10px;
+}
+.client-radio-grid {
+  display: grid;
+  gap: 8px;
+}
+.client-radio-grid label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,127,149,.06);
+  border: 1px solid rgba(255,127,149,.14);
+  border-radius: 16px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.client-radio-grid input { accent-color: #ff7f95; }
+.wellbeing-risk.baixo { background: rgba(38,185,199,.12); color: #087987; border-color: rgba(38,185,199,.25); }
+.wellbeing-risk.medio { background: rgba(255,184,108,.16); color: #a35600; border-color: rgba(255,184,108,.35); }
+.wellbeing-risk.alto { background: rgba(239,68,68,.12); color: #b91c1c; border-color: rgba(239,68,68,.25); }
+.wellbeing-risk.sem_avaliacao { background: rgba(100,116,139,.10); color: #475569; border-color: rgba(100,116,139,.22); }
+.wellbeing-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.wellbeing-history-admin {
+  display: grid;
+  gap: 14px;
+}
+.admin-big-numbers-outside { margin: 0 0 20px; }
+.client-bottom-nav a[href="/app/bem-estar"] span { filter: drop-shadow(0 8px 15px rgba(255,127,149,.25)); }
+@media (max-width: 680px) {
+  .client-wellbeing-grid { grid-template-columns: 1fr 1fr; }
+  .client-radio-grid label { align-items: flex-start; }
+}
+
+/* v1.5.112 — Bem-estar, financeiro, relatórios, promoções, CRM e roleta: refinamento UX */
+.client-mobile-section,
+.client-form-card,
+.client-wellbeing-result,
+.client-wellbeing-form,
+.client-wellbeing-hero-card,
+#wellbeing-dynamic > section,
+#wellbeing-dynamic > article {
+  margin-bottom: 20px;
+}
+.client-wellbeing-question { margin-bottom: 14px; }
+.wellbeing-admin-hero,
+#wellbeing-big-numbers,
+.wellbeing-history-admin .module-card,
+.bem-estar-page .module-card { margin-bottom: 20px; }
+
+/* filtros padrão nos módulos novos */
+.promocoes-page .filter-row,
+.crm-marketing-page .filter-row,
+.roleta-page .filter-row,
+body:has(.wellbeing-admin-hero) .filters-row,
+.whatsapp-page .filter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(38,185,199,.14);
+  background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(255,127,149,.06), rgba(38,185,199,.07));
+  box-shadow: 0 14px 35px rgba(15,23,42,.05);
+}
+body:has(.wellbeing-admin-hero) .filters-row .field,
+.promocoes-page .filter-row .form-field,
+.crm-marketing-page .filter-row .form-field,
+.roleta-page .filter-row .form-field { margin: 0; }
+body:has(.wellbeing-admin-hero) .filters-row input,
+body:has(.wellbeing-admin-hero) .filters-row select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid rgba(38,185,199,.2);
+  border-radius: 16px;
+  background: #fff;
+  padding: 10px 12px;
+  font-weight: 800;
+  color: #17324a;
+}
+body:has(.wellbeing-admin-hero) .filters-row span,
+body:has(.wellbeing-admin-hero) .filters-row label > span {
+  display:block;
+  margin-bottom: 6px;
+  color:#56707f;
+  font-size:.76rem;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  font-weight:900;
+}
+
+/* remover seta azul global em tabelas destes módulos e deixar só a seta preta clicável */
+.promocoes-page .premium-table th::after,
+.promocoes-page .premium-table thead th::after,
+.crm-marketing-page .premium-table th::after,
+.crm-marketing-page .premium-table thead th::after,
+.roleta-page .premium-table th::after,
+.roleta-page .premium-table thead th::after,
+body:has(.wellbeing-admin-hero) .premium-table th::after,
+body:has(.wellbeing-admin-hero) .premium-table thead th::after {
+  content: none !important;
+  display: none !important;
+}
+.promocoes-page .th-arrow-only,
+.crm-marketing-page .th-arrow-only,
+.roleta-page .th-arrow-only,
+body:has(.wellbeing-admin-hero) .th-arrow-only,
+body:has(.wellbeing-admin-hero) [data-sort] .sort-arrow {
+  color:#111827 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  border:0 !important;
+}
+.promocoes-page .sort-arrow,
+.crm-marketing-page .sort-arrow,
+.roleta-page .sort-arrow,
+body:has(.wellbeing-admin-hero) .sort-arrow {
+  color:#111827 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+}
+body:has(.wellbeing-admin-hero) .premium-table th[data-sort] { cursor:pointer; }
+body:has(.wellbeing-admin-hero) .premium-table th[data-sort] .sort-arrow {
+  display:inline-flex;
+  margin-left:6px;
+  font-size:.88rem;
+  font-weight:1000;
+}
+
+/* CRM e WhatsApp com respiro entre cards */
+.crm-marketing-page article.module-card,
+.crm-marketing-page .cards-list > *,
+.whatsapp-page article.module-card,
+.whatsapp-page .cards-list > *,
+body:has(#template-list) article.module-card,
+body:has(#inactive-list) article.module-card {
+  margin-bottom: 20px;
+}
+.crm-marketing-page .module-card.stack-md + .module-card.stack-md { margin-top: 20px; }
+
+/* Financeiro: menu de 3 pontinhos e modais padronizados */
+.finance-consulta-copy { align-items: center; gap: 16px; }
+.finance-consulta-copy > .btn { margin-left: auto; white-space: nowrap; }
+.finance-kebab-actions { position: relative; justify-content: flex-end; overflow: visible; }
+.finance-kebab {
+  width: 36px;
+  height: 36px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(38,185,199,.18);
+  color: #17324a;
+  box-shadow: 0 10px 22px rgba(15,23,42,.08);
+}
+.finance-action-menu {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  min-width: 190px;
+  z-index: 80;
+  display: none;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.98);
+  border: 1px solid rgba(38,185,199,.18);
+  box-shadow: 0 22px 55px rgba(15,23,42,.18);
+}
+.finance-action-menu.is-open { display: grid; gap: 6px; }
+.finance-action-menu button {
+  border: 0;
+  background: transparent;
+  border-radius: 13px;
+  padding: 10px 12px;
+  text-align: left;
+  color: #17324a;
+  font-weight: 900;
+  cursor: pointer;
+}
+.finance-action-menu button:hover { background: linear-gradient(135deg, rgba(255,127,149,.10), rgba(38,185,199,.10)); }
+.finance-modal-card.small-modal { max-width: 560px; }
+
+/* Relatórios: gráficos criativos */
+.reports-decision-grid { margin-bottom: 20px; }
+.report-column-chart {
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(58px, 1fr));
+  gap: 16px;
+  align-items: end;
+  padding: 18px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255,127,149,.06), rgba(38,185,199,.07));
+}
+.report-chart-legend {
+  grid-column: 1 / -1;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-self:start;
+}
+.report-chart-legend span,
+.report-pie-list span {
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:7px 10px;
+  border-radius:999px;
+  background:#fff;
+  border:1px solid rgba(38,185,199,.14);
+  color:#17324a;
+  font-size:.78rem;
+  font-weight:900;
+}
+.report-month-column { display:grid; gap:8px; align-items:end; text-align:center; min-height:210px; }
+.report-month-column small { color:#64748b; font-weight:900; }
+.report-column-bars { height:150px; display:flex; align-items:end; justify-content:center; gap:6px; padding:8px; border-radius:18px; background:rgba(255,255,255,.72); border:1px solid rgba(38,185,199,.10); }
+.report-column-bars i,
+.report-column-bars b,
+.report-column-bars em,
+.report-column-bars strong { width:12px; min-height:8px; border-radius:999px 999px 4px 4px; display:block; }
+.report-column-bars i { background:#ff7f95; }
+.report-column-bars b { background:#26b9c7; }
+.report-column-bars em { background:#ffb86c; }
+.report-column-bars strong { background:#0f766e; }
+.report-pie-chart { display:grid; grid-template-columns: 180px 1fr; gap:20px; align-items:center; padding:18px; }
+.report-pie { width: 176px; height: 176px; border-radius: 50%; box-shadow: inset 0 0 0 18px rgba(255,255,255,.72), 0 22px 45px rgba(15,23,42,.12); }
+.report-pie-list { display:flex; flex-direction:column; gap:8px; }
+.report-pie-list i { width:10px; height:10px; border-radius:50%; background:#ff7f95; }
+.report-pie-list [data-pie-dot="1"] { background:#26b9c7; }
+.report-pie-list [data-pie-dot="2"] { background:#ffb86c; }
+.report-pie-list [data-pie-dot="3"] { background:#7dd3fc; }
+.report-pie-list [data-pie-dot="4"] { background:#f9a8d4; }
+.report-pie-list [data-pie-dot="5"] { background:#99f6e4; }
+.report-line-chart { padding:18px; border-radius:24px; background:linear-gradient(135deg, rgba(38,185,199,.07), rgba(255,127,149,.06)); }
+.report-line-chart svg { width:100%; height:auto; overflow:visible; }
+.report-line-chart polyline { fill:none; stroke:#ff7f95; stroke-width:5; stroke-linecap:round; stroke-linejoin:round; filter: drop-shadow(0 8px 12px rgba(255,127,149,.25)); }
+.report-line-chart circle { fill:#26b9c7; stroke:#fff; stroke-width:3; }
+.report-line-chart text { fill:#64748b; font-size:10px; font-weight:800; }
+.report-decision-list { display:grid; gap:10px; }
+.report-decision-list article { padding:14px; border-radius:20px; background:#fff; border:1px solid rgba(38,185,199,.14); box-shadow:0 12px 28px rgba(15,23,42,.06); }
+.report-decision-list strong { display:block; color:#17324a; }
+.report-decision-list b { display:block; color:#ff6f87; font-size:1.3rem; margin:4px 0; }
+.report-decision-list small { color:#64748b; font-weight:800; }
+
+/* Roleta de Mimos no padrão premium */
+.roleta-page .roleta-hero-panel {
+  margin-bottom: 20px;
+  background: radial-gradient(circle at top right, rgba(38,185,199,.18), transparent 34%), linear-gradient(135deg,#fff,rgba(255,127,149,.10));
+  border: 1px solid rgba(255,127,149,.20);
+}
+.roleta-page .roleta-big-numbers-strip,
+.roleta-page .roleta-layout,
+.roleta-page .roleta-list-card,
+.roleta-page .panel,
+.roleta-page .module-card { margin-bottom: 20px; }
+.roleta-page .panel,
+.roleta-page .roleta-list-card {
+  border-radius: 28px;
+  border: 1px solid rgba(38,185,199,.14);
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 24px 60px rgba(15,23,42,.08);
+}
+.roleta-page .metric-card {
+  border: 1px solid rgba(38,185,199,.14);
+  background: linear-gradient(135deg,#fff,rgba(255,127,149,.07));
+}
+.roleta-page .gift-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:16px; }
+.roleta-page .gift-card { position:relative; overflow:hidden; }
+.roleta-page .gift-card::before { content:''; position:absolute; inset:0 auto 0 0; width:6px; background:var(--gift-accent,#26b9c7); }
+
+@media (max-width: 820px) {
+  .report-column-chart { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-pie-chart { grid-template-columns: 1fr; justify-items:center; }
+  .finance-consulta-copy { align-items: stretch; }
+  .finance-consulta-copy > .btn { width:100%; margin-left:0; }
+}
+
+/* v1.5.113 — App tutor: footer compacto em uma linha com menu Mais */
+.client-app-shell.mobile-first .client-bottom-nav {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  overflow: visible !important;
+  padding: 8px max(8px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right)) !important;
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  width: min(680px, calc(100vw - 18px));
+  z-index: 95;
+  border-radius: 26px;
+}
+.client-app-shell.mobile-first .client-bottom-nav a,
+.client-app-shell.mobile-first .client-bottom-more {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 86px;
+  height: 58px;
+  border: 0;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  text-decoration: none;
+  color: rgba(22, 49, 63, .72);
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform .18s var(--pf-ease), background .18s var(--pf-ease), color .18s var(--pf-ease);
+}
+.client-app-shell.mobile-first .client-bottom-nav a span,
+.client-app-shell.mobile-first .client-bottom-more span {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.client-app-shell.mobile-first .client-bottom-nav a small,
+.client-app-shell.mobile-first .client-bottom-more small {
+  width: 100%;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px !important;
+  font-weight: 950;
+  letter-spacing: -.02em;
+  text-align: center;
+}
+.client-app-shell.mobile-first .client-bottom-more span {
+  font-weight: 1000;
+  letter-spacing: 1px;
+  color: var(--client-salmon, #ff7f95);
+}
+.client-app-shell.mobile-first .client-bottom-nav a:hover,
+.client-app-shell.mobile-first .client-bottom-more:hover,
+.client-app-shell.mobile-first .client-bottom-more.is-open,
+.client-app-shell.mobile-first .client-bottom-nav a.is-active {
+  color: var(--client-ink, #14313f);
+  background: linear-gradient(135deg, rgba(255,231,236,.96), rgba(230,251,253,.96));
+  transform: translateY(-2px);
+}
+.client-bottom-more-menu {
+  position: absolute;
+  right: 10px;
+  bottom: calc(100% + 10px);
+  width: min(260px, calc(100vw - 28px));
+  padding: 10px;
+  border-radius: 24px;
+  background: rgba(255,255,255,.96);
+  border: 1px solid rgba(243,111,139,.18);
+  box-shadow: 0 22px 60px rgba(39,49,65,.18);
+  backdrop-filter: blur(18px);
+  display: grid;
+  gap: 8px;
+  animation: pf-fade-up .2s var(--pf-ease) both;
+}
+.client-bottom-more-menu[hidden] { display: none !important; }
+.client-bottom-more-menu a {
+  width: 100%;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 48px;
+  display: grid !important;
+  grid-template-columns: 34px 1fr;
+  align-items: center;
+  justify-items: start;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255,247,249,.95), rgba(240,253,255,.88)) !important;
+  border: 1px solid rgba(0,169,183,.10);
+}
+.client-bottom-more-menu a span { font-size: 1.2rem; }
+.client-bottom-more-menu a small {
+  text-align: left !important;
+  font-size: .82rem !important;
+  white-space: normal !important;
+}
+.client-bottom-more-menu a.is-active {
+  border-color: rgba(243,111,139,.28);
+  box-shadow: inset 0 0 0 1px rgba(243,111,139,.10);
+}
+@media (max-width: 430px) {
+  .client-app-shell.mobile-first .client-bottom-nav a,
+  .client-app-shell.mobile-first .client-bottom-more {
+    height: 54px;
+    max-width: 66px;
+    border-radius: 16px;
+  }
+  .client-app-shell.mobile-first .client-bottom-nav a span,
+  .client-app-shell.mobile-first .client-bottom-more span { font-size: 1rem; }
+  .client-app-shell.mobile-first .client-bottom-nav a small,
+  .client-app-shell.mobile-first .client-bottom-more small { font-size: 8.7px !important; }
+}
+
+/* v1.5.114 — App Tutor: footer na mesma largura do topo/cards e últimos itens no menu Mais */
+.client-app-shell.mobile-first .client-bottom-nav {
+  width: min(540px, calc(100vw - 28px)) !important;
+  max-width: 540px !important;
+  box-sizing: border-box !important;
+  left: 50% !important;
+  right: auto !important;
+  margin: 0 auto !important;
+}
+.client-app-shell.mobile-first .client-bottom-more:not([hidden]) {
+  display: grid !important;
+}
+.client-app-shell.mobile-first .client-bottom-more-menu {
+  right: 8px !important;
+}
+@media (min-width: 760px) {
+  .client-app-shell.mobile-first .client-bottom-nav {
+    width: min(620px, calc(100vw - 32px)) !important;
+    max-width: 620px !important;
+  }
+}
+@media (max-width: 430px) {
+  .client-app-shell.mobile-first .client-bottom-nav {
+    width: calc(100vw - 24px) !important;
+  }
+}
+
+/* v1.5.115 · App do Tutor: títulos e subtítulos em linhas separadas */
+.client-app-shell.mobile-first .client-section-title,
+.client-app-shell.mobile-first .client-list-title-row,
+.client-app-shell.mobile-first .client-card-title-row,
+.client-app-shell.mobile-first .client-area-hero-copy,
+.client-app-shell.mobile-first .client-push-summary-copy,
+.client-app-shell.mobile-first .client-shortcut,
+.client-app-shell.mobile-first .client-pet-card .client-list-body,
+.client-app-shell.mobile-first .client-mobile-section .table-header-actions {
+  align-items: flex-start !important;
+  text-align: left !important;
+}
+.client-app-shell.mobile-first .client-section-title,
+.client-app-shell.mobile-first .client-list-title-row,
+.client-app-shell.mobile-first .client-card-title-row,
+.client-app-shell.mobile-first .client-mobile-section .table-header-actions {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+}
+.client-app-shell.mobile-first .client-section-title h2,
+.client-app-shell.mobile-first .client-list-title-row h3,
+.client-app-shell.mobile-first .client-card-title-row h3,
+.client-app-shell.mobile-first .client-shortcut strong {
+  display: block !important;
+  width: 100% !important;
+  line-height: 1.15 !important;
+}
+.client-app-shell.mobile-first .client-section-title p,
+.client-app-shell.mobile-first .client-list-card p,
+.client-app-shell.mobile-first .client-shortcut small,
+.client-app-shell.mobile-first .client-area-hero-copy > p:not(.eyebrow) {
+  display: block !important;
+  width: 100% !important;
+  line-height: 1.35 !important;
+}
+.client-app-shell.mobile-first .client-list-title-row .client-badge,
+.client-app-shell.mobile-first .client-list-title-row .status-pill {
+  align-self: flex-start !important;
+}
+.client-app-shell.mobile-first .client-mobile-section,
+.client-app-shell.mobile-first .client-form-card,
+.client-app-shell.mobile-first .client-wellbeing-result,
+.client-app-shell.mobile-first .client-alert-soft,
+.client-app-shell.mobile-first .client-list-card {
+  margin-bottom: 20px;
+}
+.client-app-shell.mobile-first .client-mobile-section .client-list-card:last-child,
+.client-app-shell.mobile-first .client-list-stack .client-list-card:last-child {
+  margin-bottom: 0;
+}
+.client-analysis-modal {
+  text-align: center;
+  align-items: center;
+  max-width: 420px !important;
+}
+.client-analysis-modal header,
+.client-analysis-modal footer { display: none !important; }
+.client-analysis-icon {
+  width: 74px;
+  height: 74px;
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 10px;
+  font-size: 2.2rem;
+  background: linear-gradient(135deg, var(--client-salmon, #f36f8b), var(--client-aqua, #26bfcb));
+  color: #fff;
+  box-shadow: 0 22px 44px rgba(38,191,203,.22);
+  animation: clientFloatSoft 2.2s ease-in-out infinite;
+}
+.client-analysis-modal h2 { margin: 6px 0 8px; color: var(--pf-blue-900); }
+.client-analysis-modal p { color: var(--pf-muted); font-weight: 850; margin: 0 0 14px; }
+.client-analysis-progress {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(18,52,67,.08);
+  border: 1px solid rgba(38,191,203,.15);
+  margin: 8px 0 12px;
+}
+.client-analysis-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--client-salmon, #f36f8b), var(--client-aqua, #26bfcb));
+  transition: width .8s ease;
+}
+.client-analysis-modal strong#analysis-countdown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: rgba(243,111,139,.12);
+  color: var(--client-salmon, #f36f8b);
+  font-weight: 950;
+}
+.client-analysis-modal small { color: var(--pf-muted); font-weight: 850; margin-top: 8px; display: block; }
+
+/* v1.5.115 · Admin Bem-estar */
+.wellbeing-admin-hero,
+#wellbeing-big-numbers,
+.admin-wellbeing-filters,
+.admin-wellbeing-table-card { margin-bottom: 20px !important; }
+.admin-wellbeing-filters,
+.module-card .filters-row.admin-wellbeing-filters {
+  display: grid !important;
+  grid-template-columns: minmax(240px, 1.4fr) minmax(180px, .6fr);
+  gap: 14px;
+  align-items: end;
+  padding: 14px;
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(255,255,255,.95), rgba(255,247,250,.82));
+  border: 1px solid rgba(243,111,139,.12);
+  box-shadow: 0 16px 34px rgba(39,49,65,.06);
+}
+.admin-wellbeing-actions { position: relative; display: inline-flex; justify-content: flex-end; width: 100%; }
+.admin-wellbeing-actions-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  min-width: 206px;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.98);
+  border: 1px solid rgba(16,82,97,.12);
+  box-shadow: 0 22px 48px rgba(39,49,65,.16);
+  display: grid;
+  gap: 6px;
+}
+.admin-wellbeing-actions-menu[hidden] { display: none !important; }
+.admin-wellbeing-actions-menu button {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(38,191,203,.08);
+  color: var(--pf-blue-900);
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+.admin-wellbeing-actions-menu button:hover { background: rgba(243,111,139,.13); }
+.admin-wellbeing-table-card .sort-arrow,
+.admin-wellbeing-table-card .sort-indicator,
+.admin-wellbeing-table-card .sort-blue,
+.admin-wellbeing-table-card .blue-arrow { color: #0f172a !important; }
+@media (max-width: 720px) {
+  .admin-wellbeing-filters,
+  .module-card .filters-row.admin-wellbeing-filters { grid-template-columns: 1fr; }
+}

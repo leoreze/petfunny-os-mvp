@@ -2954,6 +2954,29 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       LIMIT 12
     `, [tutorId]);
 
+    const wellbeingTimelineResult = await safeClientSummaryQuery('petfunny360 timeline', `
+      SELECT wi.id, wi.title, wi.message, wi.severity, wi.created_at, p.name AS pet_name, wi.pet_id
+      FROM pet_wellbeing_insights wi
+      INNER JOIN pets p ON p.id = wi.pet_id
+      WHERE p.tutor_id = $1::uuid
+        AND wi.deleted_at IS NULL
+        AND wi.visible_to_tutor = TRUE
+        AND wi.created_at >= NOW() - INTERVAL '90 days'
+      ORDER BY wi.created_at DESC
+      LIMIT 20
+    `, [tutorId]);
+    const wellbeingEvents = wellbeingTimelineResult.rows.map((row) => ({
+      id: `wellbeing-${row.id}`,
+      type: 'petfunny360',
+      icon: row.severity === 'warning' ? '🧠⚠️' : '🧠',
+      label: 'PetFunny 360',
+      title: row.title || `Bem-estar de ${row.pet_name || 'pet'}`,
+      text: row.message || 'Novo diagnóstico de bem-estar disponível.',
+      createdAt: row.created_at,
+      url: `/app/bem-estar?petId=${row.pet_id}`,
+      ctaLabel: 'Ver diagnóstico'
+    }));
+
     const nextAppointment = appointmentsResult.rows[0] ? sanitizeClientAppointment(appointmentsResult.rows[0]) : null;
     const activePackages = packagesResult.rows.filter((row) => row.status === 'active');
     res.json({
@@ -2972,7 +2995,7 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       upcomingAppointments: appointmentsResult.rows.map(sanitizeClientAppointment),
       history: historyResult.rows.map(sanitizeClientAppointment),
       packages: packagesResult.rows.map(sanitizeClientPackage),
-      timelineEvents: timelineResult.rows.map(makeClientAppointmentTimelineEvent)
+      timelineEvents: [...timelineResult.rows.map(makeClientAppointmentTimelineEvent), ...wellbeingEvents]
     });
   } catch (error) {
     next(error);
@@ -3053,6 +3076,410 @@ app.delete('/api/promocoes/:id', requireAuth, async (req, res, next) => {
     const result = await query(`UPDATE promotions SET deleted_at=NOW(), is_active=FALSE, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING id`, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Promoção não encontrada.' });
     res.json({ ok: true, message: 'Promoção removida.' });
+  } catch (error) { next(error); }
+});
+
+
+
+const PETFUNNY_360_DISCLAIMER = 'Este diagnóstico é uma análise de bem-estar e comportamento baseada nas respostas dos tutores. Ele não substitui avaliação veterinária.';
+
+function sanitizeCaregiver(row = {}) {
+  return {
+    id: row.id,
+    petId: row.pet_id,
+    tutorId: row.tutor_id,
+    caregiverTutorId: row.caregiver_tutor_id,
+    name: row.name,
+    whatsapp: row.whatsapp || '',
+    email: row.email || '',
+    role: row.role || 'familiar_autorizado',
+    status: row.status || 'invited',
+    acceptedAt: row.accepted_at || null,
+    createdAt: row.created_at || null
+  };
+}
+
+function sanitizeWellbeingQuestion(row = {}) {
+  return {
+    id: row.id,
+    code: row.code,
+    dimension: row.dimension,
+    question: row.question,
+    answerType: row.answer_type || 'scale',
+    options: Array.isArray(row.options) ? row.options : [],
+    weight: Number(row.weight || 1),
+    sortOrder: Number(row.sort_order || 0),
+    isCritical: Boolean(row.is_critical)
+  };
+}
+
+function sanitizeWellbeingDiagnostic(row = {}) {
+  return {
+    id: row.id,
+    petId: row.pet_id,
+    petName: row.pet_name || row.petName || '',
+    tutorId: row.tutor_id,
+    tutorName: row.tutor_name || '',
+    caregiverId: row.caregiver_id || null,
+    caregiverName: row.caregiver_name || '',
+    answers: row.answers || {},
+    scores: row.scores || {},
+    riskLevel: row.risk_level || 'baixo',
+    summary: row.summary || '',
+    insights: Array.isArray(row.insights) ? row.insights : [],
+    recommendations: Array.isArray(row.recommendations) ? row.recommendations : [],
+    aiUsed: Boolean(row.ai_used),
+    disclaimer: row.disclaimer || PETFUNNY_360_DISCLAIMER,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function getActiveWellbeingFormWithQuestions() {
+  const form = await query(`SELECT * FROM pet_wellbeing_forms WHERE deleted_at IS NULL AND is_active = TRUE ORDER BY created_at ASC LIMIT 1`);
+  const formRow = form.rows[0] || null;
+  const questions = await query(`
+    SELECT * FROM pet_wellbeing_questions
+    WHERE deleted_at IS NULL AND is_active = TRUE
+      AND ($1::uuid IS NULL OR form_id = $1::uuid)
+    ORDER BY sort_order ASC, question ASC
+  `, [formRow?.id || null]);
+  return { form: formRow, questions: questions.rows.map(sanitizeWellbeingQuestion) };
+}
+
+async function getPetAccessForClient(petId, tutorId) {
+  const result = await query(`
+    SELECT p.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp,
+           pc.id AS caregiver_id, pc.role AS caregiver_role
+    FROM pets p
+    INNER JOIN tutors t ON t.id = p.tutor_id AND t.deleted_at IS NULL
+    LEFT JOIN pet_caregivers pc ON pc.pet_id = p.id AND pc.deleted_at IS NULL AND pc.status IN ('invited','accepted','active') AND pc.caregiver_tutor_id=$2::uuid
+    WHERE p.id=$1::uuid
+      AND p.deleted_at IS NULL
+      AND p.status='active'
+      AND (p.tutor_id=$2::uuid OR pc.id IS NOT NULL)
+    LIMIT 1
+  `, [petId, tutorId]);
+  return result.rows[0] || null;
+}
+
+function normalizeWellbeingAnswers(rawAnswers = {}) {
+  if (!rawAnswers || typeof rawAnswers !== 'object') return {};
+  return Object.fromEntries(Object.entries(rawAnswers).map(([key, value]) => [String(key), typeof value === 'string' ? cleanText(value) || '' : value]));
+}
+
+function computeWellbeingDiagnostic({ questions = [], answers = {}, pet = {}, caregiverName = '' }) {
+  const dimensionMap = new Map();
+  let totalWeighted = 0;
+  let totalWeight = 0;
+  let criticalAlert = false;
+  const answerRows = [];
+
+  for (const question of questions) {
+    const raw = answers[question.code];
+    let score = 0;
+    let label = '';
+    if (question.answerType === 'scale') {
+      const option = (question.options || []).find((item) => String(item.value) === String(raw));
+      score = Number(option?.score || 0);
+      label = option?.label || String(raw || 'Não respondido');
+      if (question.isCritical && score >= 6) criticalAlert = true;
+      const current = dimensionMap.get(question.dimension) || { total: 0, weight: 0 };
+      current.total += score * Number(question.weight || 1);
+      current.weight += Number(question.weight || 1);
+      dimensionMap.set(question.dimension, current);
+      totalWeighted += score * Number(question.weight || 1);
+      totalWeight += Number(question.weight || 1);
+    } else {
+      label = String(raw || '').slice(0, 700);
+    }
+    answerRows.push({ code: question.code, question: question.question, answer: raw || '', label, score, dimension: question.dimension, isCritical: question.isCritical });
+  }
+
+  const dimensionScores = {};
+  for (const [dimension, values] of dimensionMap.entries()) {
+    const avg = values.weight ? values.total / values.weight : 0;
+    dimensionScores[dimension] = Number(avg.toFixed(2));
+  }
+  const avgScore = totalWeight ? totalWeighted / totalWeight : 0;
+  let riskLevel = 'baixo';
+  if (criticalAlert || avgScore >= 3.2) riskLevel = 'alto';
+  else if (avgScore >= 1.6) riskLevel = 'medio';
+
+  const petName = pet.name || 'O pet';
+  const emotional = dimensionScores.emocional || 0;
+  const health = dimensionScores.saude_percebida || 0;
+  const social = dimensionScores.socializacao || 0;
+  const routine = dimensionScores.rotina || 0;
+
+  const metrics = {
+    overall: avgScore < 1.2 ? 'Bom' : avgScore < 2.4 ? 'Atenção leve' : 'Atenção alta',
+    emotionalAttention: emotional < 1.2 ? 'Baixa' : emotional < 2.4 ? 'Moderada' : 'Alta',
+    stressSigns: emotional + social < 2.4 ? 'Baixos' : emotional + social < 4.8 ? 'Moderados' : 'Altos',
+    careRoutine: routine < 1.2 ? 'Boa' : routine < 2.4 ? 'Regular' : 'Atenção',
+    socialization: social < 1.2 ? 'Boa' : social < 2.4 ? 'Sensível' : 'Atenção',
+    perceivedHealth: health < 1.2 ? 'Boa' : health < 2.4 ? 'Atenção leve' : 'Atenção alta',
+    dimensions: dimensionScores,
+    averageScore: Number(avgScore.toFixed(2)),
+    criticalAlert
+  };
+
+  const recommendations = [];
+  if (criticalAlert) recommendations.push('Procure atendimento veterinário se houver sinal grave, piora rápida ou persistência dos sintomas.');
+  if (health >= 2) recommendations.push('Observe alimentação, necessidades, coceiras e sinais físicos nas próximas 24–48 horas.');
+  if (emotional >= 2 || social >= 2) recommendations.push('Para o próximo banho e tosa, prefira horários mais tranquilos e avise a equipe sobre sensibilidade, medo ou reatividade.');
+  if (routine >= 1.5) recommendations.push('Mantenha uma rotina previsível de alimentação, descanso e cuidados para reduzir estresse.');
+  recommendations.push('Atualize preferências e restrições do pet no app antes do próximo atendimento.');
+
+  const insights = [
+    `${petName} apresenta bem-estar geral ${String(metrics.overall).toLowerCase()} e atenção emocional ${String(metrics.emotionalAttention).toLowerCase()}.`,
+    criticalAlert
+      ? 'Há sinal de alerta informado. A recomendação responsável é procurar orientação veterinária e usar o PetFunny 360 apenas como apoio de observação.'
+      : 'Não há sinal crítico informado nesta avaliação, mas o acompanhamento periódico ajuda a perceber mudanças de comportamento e rotina.',
+    caregiverName ? `Esta leitura considera a percepção enviada por ${caregiverName}.` : 'Esta leitura considera a percepção do tutor pelo app.'
+  ];
+
+  return {
+    scores: metrics,
+    riskLevel,
+    summary: `${petName} está com bem-estar geral ${String(metrics.overall).toLowerCase()}. Saúde percebida: ${metrics.perceivedHealth}. Socialização: ${metrics.socialization}. Rotina de cuidados: ${metrics.careRoutine}.`,
+    insights,
+    recommendations,
+    answerRows
+  };
+}
+
+async function buildAiWellbeingDiagnostic({ pet, tutor, caregiverName, localDiagnostic, answers }) {
+  if (!env.openaiApiKey || typeof fetch !== 'function') return null;
+  const system = `Você é a IA do PetFunny 360, uma avaliação de bem-estar, comportamento, rotina, socialização e saúde percebida de pets. Responda em português do Brasil. Nunca diagnostique doenças. Sempre deixe claro que não substitui veterinário. Se houver sinais graves, recomende procurar atendimento veterinário. Retorne APENAS JSON válido com: summary, insights (array), recommendations (array), riskLevel (baixo|medio|alto).`;
+  const payload = { pet, tutor, caregiverName, localDiagnostic, answers, disclaimer: PETFUNNY_360_DISCLAIMER };
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.openaiApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: env.openaiModel, temperature: 0.25, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(payload).slice(0, 16000) }] })
+  });
+  if (!response.ok) throw new Error(`OpenAI PetFunny 360 retornou ${response.status}`);
+  const data = await response.json();
+  return JSON.parse(data?.choices?.[0]?.message?.content || '{}');
+}
+
+async function insertWellbeingTimelineInsight({ petId, diagnosticId, title, message, severity = 'info' }) {
+  return query(`
+    INSERT INTO pet_wellbeing_insights (pet_id, diagnostic_id, type, title, message, severity, visible_to_tutor, visible_to_admin)
+    VALUES ($1::uuid, $2::uuid, 'diagnostic', $3::text, $4::text, $5::text, TRUE, TRUE)
+    RETURNING *
+  `, [petId, diagnosticId, title, message, severity]).catch((error) => {
+    console.warn('[petfunny360] insight não salvo:', error.message);
+    return { rows: [], rowCount: 0 };
+  });
+}
+
+app.get('/api/app/pets/:petId/caregivers', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado para este app.' });
+    const caregivers = await query(`
+      SELECT * FROM pet_caregivers
+      WHERE pet_id=$1::uuid AND deleted_at IS NULL
+      ORDER BY created_at DESC
+    `, [req.params.petId]);
+    res.json({ pet: sanitizeClientPet(pet), owner: { name: pet.tutor_name, whatsapp: pet.tutor_whatsapp, role: 'tutor_principal' }, caregivers: caregivers.rows.map(sanitizeCaregiver) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/pets/:petId/caregivers/invite', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet || String(pet.tutor_id) !== String(tutorId)) return res.status(403).json({ error: 'Somente o tutor principal pode autorizar responsáveis deste pet.' });
+    const name = cleanText(req.body?.name);
+    const whatsapp = normalizeWhatsapp(req.body?.whatsapp);
+    const email = cleanText(req.body?.email);
+    const role = cleanText(req.body?.role) || 'familiar_autorizado';
+    if (!name) return res.status(400).json({ error: 'Informe o nome do responsável.' });
+    const matchedTutor = whatsapp ? await query(`SELECT id FROM tutors WHERE whatsapp=$1::text AND deleted_at IS NULL LIMIT 1`, [whatsapp]).catch(() => ({ rows: [] })) : { rows: [] };
+    const result = await query(`
+      INSERT INTO pet_caregivers (pet_id, tutor_id, caregiver_tutor_id, name, whatsapp, email, role, status, invited_by_tutor_id)
+      VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::text, NULLIF($5::text,''), NULLIF($6::text,''), $7::text, 'invited', $2::uuid)
+      ON CONFLICT (pet_id, whatsapp) WHERE deleted_at IS NULL AND whatsapp IS NOT NULL
+      DO UPDATE SET name=EXCLUDED.name, email=EXCLUDED.email, role=EXCLUDED.role, caregiver_tutor_id=EXCLUDED.caregiver_tutor_id, status='invited', updated_at=NOW()
+      RETURNING *
+    `, [req.params.petId, tutorId, matchedTutor.rows[0]?.id || '', name, whatsapp, email, role]);
+    res.status(201).json({ caregiver: sanitizeCaregiver(result.rows[0]), message: 'Responsável autorizado para contribuir com o PetFunny 360.' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/pets/:petId/wellbeing/latest', requireClientAuth, async (req, res, next) => {
+  try {
+    const pet = await getPetAccessForClient(req.params.petId, req.clientApp.tutor.id);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado para este app.' });
+    const latest = await query(`
+      SELECT d.*, p.name AS pet_name, t.name AS tutor_name, pc.name AS caregiver_name
+      FROM pet_wellbeing_diagnostics d
+      LEFT JOIN pets p ON p.id=d.pet_id
+      LEFT JOIN tutors t ON t.id=d.tutor_id
+      LEFT JOIN pet_caregivers pc ON pc.id=d.caregiver_id
+      WHERE d.pet_id=$1::uuid AND d.deleted_at IS NULL
+      ORDER BY d.created_at DESC
+      LIMIT 1
+    `, [req.params.petId]);
+    res.json({ diagnostic: latest.rows[0] ? sanitizeWellbeingDiagnostic(latest.rows[0]) : null });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/pets/:petId/wellbeing/history', requireClientAuth, async (req, res, next) => {
+  try {
+    const pet = await getPetAccessForClient(req.params.petId, req.clientApp.tutor.id);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado para este app.' });
+    const result = await query(`
+      SELECT d.*, p.name AS pet_name, t.name AS tutor_name, pc.name AS caregiver_name
+      FROM pet_wellbeing_diagnostics d
+      LEFT JOIN pets p ON p.id=d.pet_id
+      LEFT JOIN tutors t ON t.id=d.tutor_id
+      LEFT JOIN pet_caregivers pc ON pc.id=d.caregiver_id
+      WHERE d.pet_id=$1::uuid AND d.deleted_at IS NULL
+      ORDER BY d.created_at DESC
+      LIMIT 30
+    `, [req.params.petId]);
+    res.json({ diagnostics: result.rows.map(sanitizeWellbeingDiagnostic) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/pets/:petId/wellbeing/assessment', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado para este app.' });
+    const { form, questions } = await getActiveWellbeingFormWithQuestions();
+    if (!questions.length) return res.status(500).json({ error: 'Perguntas do PetFunny 360 não configuradas. Rode npm run db:migrate.' });
+    const answers = normalizeWellbeingAnswers(req.body?.answers || {});
+    const missing = questions.filter((q) => q.answerType === 'scale' && !answers[q.code]);
+    if (missing.length) return res.status(400).json({ error: `Responda: ${missing[0].question}` });
+    const caregiver = await query(`SELECT * FROM pet_caregivers WHERE pet_id=$1::uuid AND caregiver_tutor_id=$2::uuid AND deleted_at IS NULL LIMIT 1`, [req.params.petId, tutorId]).catch(() => ({ rows: [] }));
+    const local = computeWellbeingDiagnostic({ questions, answers, pet, caregiverName: caregiver.rows[0]?.name || req.clientApp.tutor.name });
+    let finalDiagnostic = local;
+    let aiUsed = false;
+    try {
+      const ai = await buildAiWellbeingDiagnostic({ pet: sanitizeClientPet(pet), tutor: req.clientApp.tutor, caregiverName: caregiver.rows[0]?.name || req.clientApp.tutor.name, localDiagnostic: local, answers });
+      if (ai?.summary) {
+        finalDiagnostic = {
+          ...local,
+          summary: cleanText(ai.summary) || local.summary,
+          insights: Array.isArray(ai.insights) && ai.insights.length ? ai.insights.map(String).slice(0, 6) : local.insights,
+          recommendations: Array.isArray(ai.recommendations) && ai.recommendations.length ? ai.recommendations.map(String).slice(0, 6) : local.recommendations,
+          riskLevel: ['baixo','medio','alto'].includes(String(ai.riskLevel)) ? String(ai.riskLevel) : local.riskLevel
+        };
+        aiUsed = true;
+      }
+    } catch (aiError) {
+      console.warn('[petfunny360] IA indisponível, usando fallback local:', aiError.message);
+    }
+
+    const result = await query(`
+      INSERT INTO pet_wellbeing_diagnostics (pet_id, tutor_id, caregiver_id, form_id, answers, scores, risk_level, summary, insights, recommendations, ai_used, disclaimer)
+      VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::uuid, $5::jsonb, $6::jsonb, $7::text, $8::text, $9::jsonb, $10::jsonb, $11::boolean, $12::text)
+      RETURNING *
+    `, [req.params.petId, tutorId, caregiver.rows[0]?.id || '', form?.id || null, JSON.stringify(answers), JSON.stringify(finalDiagnostic.scores), finalDiagnostic.riskLevel, finalDiagnostic.summary, JSON.stringify(finalDiagnostic.insights), JSON.stringify(finalDiagnostic.recommendations), aiUsed, PETFUNNY_360_DISCLAIMER]);
+    const diagnosticId = result.rows[0].id;
+    for (const answer of finalDiagnostic.answerRows) {
+      const question = questions.find((q) => q.code === answer.code);
+      await query(`INSERT INTO pet_wellbeing_answers (diagnostic_id, question_id, answer_value, answer_score, notes) VALUES ($1::uuid, $2::uuid, $3::text, $4::numeric, NULLIF($5::text,''))`, [diagnosticId, question?.id || null, String(answer.answer || ''), Number(answer.score || 0), answer.label || '']).catch(() => null);
+    }
+    await insertWellbeingTimelineInsight({ petId: req.params.petId, diagnosticId, title: `PetFunny 360 de ${pet.name || 'pet'}`, message: finalDiagnostic.summary, severity: finalDiagnostic.riskLevel === 'alto' ? 'warning' : 'info' });
+    const full = { ...result.rows[0], pet_name: pet.name, tutor_name: req.clientApp.tutor.name, caregiver_name: caregiver.rows[0]?.name || '' };
+    res.status(201).json({ diagnostic: sanitizeWellbeingDiagnostic(full), questions, message: 'Diagnóstico PetFunny 360 gerado com segurança.' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/wellbeing/questions', requireClientAuth, async (req, res, next) => {
+  try {
+    const payload = await getActiveWellbeingFormWithQuestions();
+    res.json({ form: payload.form ? { id: payload.form.id, title: payload.form.title, description: payload.form.description, version: payload.form.version } : null, questions: payload.questions });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/wellbeing/summary', requireAuth, async (req, res, next) => {
+  try {
+    const [summary, latest] = await Promise.all([
+      query(`
+        SELECT COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE risk_level='alto')::int AS high,
+               COUNT(*) FILTER (WHERE risk_level='medio')::int AS medium,
+               COUNT(DISTINCT pet_id)::int AS pets
+        FROM pet_wellbeing_diagnostics
+        WHERE deleted_at IS NULL AND created_at >= NOW() - INTERVAL '90 days'
+      `),
+      query(`
+        SELECT d.*, p.name AS pet_name, t.name AS tutor_name
+        FROM pet_wellbeing_diagnostics d
+        LEFT JOIN pets p ON p.id=d.pet_id
+        LEFT JOIN tutors t ON t.id=d.tutor_id
+        WHERE d.deleted_at IS NULL
+        ORDER BY d.created_at DESC
+        LIMIT 8
+      `)
+    ]);
+    res.json({ cards: summary.rows[0] || { total: 0, high: 0, medium: 0, pets: 0 }, latest: latest.rows.map(sanitizeWellbeingDiagnostic) });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/wellbeing/pets', requireAuth, async (req, res, next) => {
+  try {
+    const search = cleanText(req.query.search) || '';
+    const risk = cleanText(req.query.risk) || '';
+    const limit = parseLimit(req.query.limit, 30, 100);
+    const page = Number.parseInt(req.query.page || '1', 10) || 1;
+    const offset = parseOffset(page, limit);
+    const params = [];
+    let where = 'WHERE p.deleted_at IS NULL';
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (unaccent(lower(p.name)) LIKE unaccent(lower($${params.length})) OR unaccent(lower(t.name)) LIKE unaccent(lower($${params.length})) OR t.whatsapp LIKE regexp_replace($${params.length}, '\\D', '', 'g'))`;
+    }
+    if (risk) {
+      params.push(risk);
+      where += ` AND latest.risk_level = $${params.length}`;
+    }
+    params.push(limit, offset);
+    const result = await query(`
+      SELECT p.id, p.name AS pet_name, p.size, p.breed, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp,
+             latest.id AS diagnostic_id, latest.risk_level, latest.summary, latest.created_at AS diagnostic_created_at,
+             COALESCE(caregivers.count,0)::int AS caregivers_count
+      FROM pets p
+      LEFT JOIN tutors t ON t.id=p.tutor_id
+      LEFT JOIN LATERAL (
+        SELECT * FROM pet_wellbeing_diagnostics d WHERE d.pet_id=p.id AND d.deleted_at IS NULL ORDER BY d.created_at DESC LIMIT 1
+      ) latest ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS count FROM pet_caregivers pc WHERE pc.pet_id=p.id AND pc.deleted_at IS NULL
+      ) caregivers ON TRUE
+      ${where}
+      ORDER BY latest.created_at DESC NULLS LAST, p.name ASC
+      LIMIT $${params.length-1} OFFSET $${params.length}
+    `, params);
+    res.json({ items: result.rows.map((row) => ({ petId: row.id, petName: row.pet_name, size: row.size, breed: row.breed, tutorName: row.tutor_name, tutorWhatsapp: row.tutor_whatsapp, diagnosticId: row.diagnostic_id, riskLevel: row.risk_level || 'sem_avaliacao', summary: row.summary || '', diagnosticCreatedAt: row.diagnostic_created_at || null, caregiversCount: Number(row.caregivers_count || 0) })), page, limit, hasMore: result.rows.length === limit });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/wellbeing/pets/:petId', requireAuth, async (req, res, next) => {
+  try {
+    const pet = await query(`SELECT p.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp FROM pets p LEFT JOIN tutors t ON t.id=p.tutor_id WHERE p.id=$1::uuid AND p.deleted_at IS NULL LIMIT 1`, [req.params.petId]);
+    if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const [diagnostics, caregivers] = await Promise.all([
+      query(`
+        SELECT d.*, p.name AS pet_name, t.name AS tutor_name, pc.name AS caregiver_name
+        FROM pet_wellbeing_diagnostics d
+        LEFT JOIN pets p ON p.id=d.pet_id
+        LEFT JOIN tutors t ON t.id=d.tutor_id
+        LEFT JOIN pet_caregivers pc ON pc.id=d.caregiver_id
+        WHERE d.pet_id=$1::uuid AND d.deleted_at IS NULL
+        ORDER BY d.created_at DESC
+        LIMIT 20
+      `, [req.params.petId]),
+      query(`SELECT * FROM pet_caregivers WHERE pet_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at DESC`, [req.params.petId])
+    ]);
+    res.json({ pet: { ...sanitizePet(pet.rows[0]), tutorName: pet.rows[0].tutor_name, tutorWhatsapp: pet.rows[0].tutor_whatsapp }, diagnostics: diagnostics.rows.map(sanitizeWellbeingDiagnostic), caregivers: caregivers.rows.map(sanitizeCaregiver) });
   } catch (error) { next(error); }
 });
 
@@ -7133,6 +7560,29 @@ app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
       previous: previousGrowth.rows?.[0] || {}
     };
 
+    const monthlyEvolution = await safeInsightTask('evolucao_mensal_operacao', () => query(`
+      WITH months AS (
+        SELECT generate_series(
+          date_trunc('month', $1::date) - INTERVAL '5 months',
+          date_trunc('month', $1::date),
+          INTERVAL '1 month'
+        )::date AS month_start
+      )
+      SELECT
+        to_char(m.month_start, 'MM/YYYY') AS label,
+        COUNT(DISTINCT a.id)::int AS appointments_count,
+        COUNT(DISTINCT t.id)::int AS new_tutors_count,
+        COUNT(DISTINCT p.id)::int AS new_pets_count,
+        COUNT(DISTINCT gs.id)::int AS gifts_count
+      FROM months m
+      LEFT JOIN appointments a ON a.deleted_at IS NULL AND date_trunc('month', a.starts_at)::date = m.month_start
+      LEFT JOIN tutors t ON t.deleted_at IS NULL AND date_trunc('month', t.created_at)::date = m.month_start
+      LEFT JOIN pets p ON p.deleted_at IS NULL AND date_trunc('month', p.created_at)::date = m.month_start
+      LEFT JOIN gift_spins gs ON date_trunc('month', gs.spun_at)::date = m.month_start
+      GROUP BY m.month_start
+      ORDER BY m.month_start ASC
+    `, [periodWindow.end]), { rows: [] });
+
     res.json({
       generatedAt: new Date().toISOString(),
       period: periodWindow,
@@ -7146,6 +7596,7 @@ app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
         packagesProgress: packagesProgress.rows || [],
         periodServices: periodServices.rows || [],
         periodFlow: periodFlow.rows || [],
+        monthlyEvolution: monthlyEvolution.rows || [],
         growth
       }
     });
@@ -7625,7 +8076,7 @@ app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/l
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
-app.get(['/app', '/app/home', '/app/agenda', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
+app.get(['/app', '/app/home', '/app/agenda', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
 
 const modulePages = {
@@ -7639,6 +8090,7 @@ const modulePages = {
   'comandas-recibos': 'comandas-recibos',
   crm: 'crm',
   promocoes: 'promocoes',
+  'bem-estar': 'bem-estar',
   'roleta-de-mimos': 'roleta-de-mimos',
   relatorios: 'relatorios',
   notificacoes: 'notificacoes',

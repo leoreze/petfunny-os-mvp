@@ -18,26 +18,28 @@
   const statusName = (s)=>({ active:'Ativo', inactive:'Inativo', expired:'Encerrado' }[s] || s || '—');
   let state = { gifts: [], summary: {}, spins: [], options: {}, editing: null, report: null };
 
+  document.body.classList.add('roleta-page');
+
   const content = `
-    <section class="finance-toolbar outside-toolbar">
+    <section class="hero-panel stack-md roleta-hero-panel">
       <div>
         <p class="eyebrow">Experiência e fidelização</p>
         <h1>Roleta de Mimos</h1>
-        <p>Cadastro de mimos, probabilidade controlada, simulação de sorteio e impacto estimado de custo.</p>
+        <p>Crie benefícios que encantam tutores, estimulam novos agendamentos e ajudam a controlar o custo das campanhas de relacionamento.</p>
       </div>
       <div class="actions no-card-actions">
-        <button class="btn secondary" type="button" id="refresh-roleta">↻ Atualizar</button>
-        <button class="btn secondary" type="button" id="ai-suggest">✨ Gerar mimos com IA</button>
+        <button class="btn btn-secondary" type="button" id="refresh-roleta">↻ Atualizar</button>
+        <button class="btn btn-secondary" type="button" id="ai-suggest">✨ Gerar mimos com IA</button>
         <button class="btn" type="button" id="new-gift">+ Novo mimo</button>
       </div>
     </section>
 
-    <section class="kpi-grid spacious-grid">
+    <section class="admin-big-numbers-strip roleta-big-numbers-strip"><div class="big-number-grid">
       <article class="metric-card"><span>Mimos cadastrados</span><strong id="gift-total">—</strong><small>Ativos e inativos</small></article>
       <article class="metric-card"><span>Mimos ativos</span><strong id="gift-active">—</strong><small>Elegíveis hoje</small></article>
       <article class="metric-card"><span>Sorteios hoje</span><strong id="spins-today">—</strong><small>Giros registrados</small></article>
       <article class="metric-card"><span>Custo estimado/mês</span><strong id="cost-month">—</strong><small>Com base nos sorteios</small></article>
-    </section>
+    </div></section>
 
     <section class="grid-two page-section roleta-layout">
       <article class="panel roleta-wheel-panel">
@@ -57,12 +59,12 @@
       </article>
     </section>
 
-    <section class="panel page-section">
-      <div class="panel-head compact-head"><div><p class="eyebrow">Cadastro</p><h2>Mimos configurados</h2><p>Controle títulos, datas, custo e probabilidade para evitar impacto excessivo no caixa.</p></div></div>
+    <section class="module-card page-section roleta-list-card">
+      <div class="section-toolbar stacked-toolbar"><div class="toolbar-copy-line"><div><p class="eyebrow">Cadastro</p><h2>Mimos configurados</h2><p>Controle títulos, datas, custo e probabilidade para evitar impacto excessivo no caixa e manter as campanhas sustentáveis.</p></div><button class="btn" type="button" id="new-gift-inline">+ Novo mimo</button></div></div>
       <div class="filter-row">
         <input class="input" id="gift-search" placeholder="Buscar mimo ou descrição">
         <select class="select" id="gift-status"><option value="all">Todos os status</option><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="expired">Encerrados</option></select>
-        <button class="btn secondary" id="gift-filter">Filtrar</button>
+        <button class="btn btn-secondary" id="gift-filter">Filtrar</button>
       </div>
       <div class="gift-grid" id="gift-list"></div>
     </section>
@@ -81,7 +83,7 @@
             <label class="form-field full"><span>Descrição</span><textarea class="textarea" id="gift-description" rows="4"></textarea></label>
           </div>
         </div>
-        <footer class="modal-footer"><button class="btn secondary" value="cancel">Cancelar</button><button class="btn" id="save-gift" value="default">Salvar mimo</button></footer>
+        <footer class="modal-footer"><button class="btn btn-secondary" value="cancel">Cancelar</button><button class="btn" id="save-gift" value="default">Salvar mimo</button></footer>
       </form>
     </dialog>
 
@@ -89,7 +91,7 @@
       <article class="modal-card">
         <header class="modal-header"><div><p class="eyebrow">Assistente IA</p><h2>Sugestões de mimos</h2></div><button class="icon-button" id="close-report">✕</button></header>
         <div class="modal-body custom-scroll" id="report-body"></div>
-        <footer class="modal-footer"><button class="btn secondary" id="close-report-footer">Fechar</button></footer>
+        <footer class="modal-footer"><button class="btn btn-secondary" id="close-report-footer">Fechar</button></footer>
       </article>
     </dialog>
   `;
@@ -189,6 +191,7 @@
   }
 
   $('new-gift').addEventListener('click',()=>openGift());
+  $('new-gift-inline')?.addEventListener('click',()=>openGift());
   $('refresh-roleta').addEventListener('click',load);
   $('gift-filter').addEventListener('click',load);
   $('gift-form').addEventListener('submit',(e)=>{ e.preventDefault(); saveGift(); });
