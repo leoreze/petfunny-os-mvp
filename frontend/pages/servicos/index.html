@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Serviços · PetFunny OS</title>
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  const state = {
+    page: 1,
+    limit: 20,
+    search: '',
+    status: 'active',
+    categoryId: 'all',
+    petSize: 'all',
+    sortBy: 'name',
+    sortDir: 'asc',
+    loading: false,
+    done: false,
+    items: [],
+    serviceTypes: [],
+    petSizes: [],
+    summary: {}
+  };
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const debounce = (fn, wait = 360) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; };
+
+  document.body.classList.add('services-page');
+
+  buildShell({
+    active: 'Serviços',
+    eyebrow: 'Catálogo de serviços',
+    title: 'Serviços do PetFunny',
+    subtitle: 'Organize os serviços de banho e tosa com preços, duração e porte corretos para agilizar a agenda e evitar erro no atendimento.',
+    content: `
+      <section class="hero-panel stack-lg">
+        <div class="page-heading-row between">
+          <div>
+            <p class="eyebrow">Tabela de atendimento</p>
+            <h1>Catálogo pronto para a operação</h1>
+            <p>Mantenha os serviços atualizados para que a equipe encontre rapidamente o valor, a duração e o porte correto no momento do agendamento.</p>
+          </div>
+          <div class="actions"><button class="btn" id="new-service-btn" type="button">＋ Novo serviço</button><a class="btn btn-secondary" href="/admin/configuracoes">⚙️ Configurar tipos e portes</a></div>
+        </div>
+        <div id="service-metrics">${bigNumberGrid([['Serviços','--','ativos'],['Tipos','--','vindos de Configurações'],['Portes','--','vindos de Configurações']])}</div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Consulta rápida</h3><p>Busque e filtre os serviços cadastrados.</p></div>
+          <div class="filter-row compact-filter-row">
+            <input class="input" id="search-services" placeholder="Buscar serviço" autocomplete="off">
+            <select class="select" id="category-filter"><option value="all">Todos os tipos</option></select>
+            <select class="select" id="size-filter"><option value="all">Todos os portes</option></select>
+            <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
+            <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
+          </div>
+        </div>
+        <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="services-scroll">
+          <table class="premium-table">
+            <thead><tr><th><button class="th-sort" data-sort="name" type="button">Serviço <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="categoryName" type="button">Tipo <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="petSizeName" type="button">Porte <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="priceCents" type="button">Preço <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="durationMinutes" type="button">Duração <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="isActive" type="button">Status <span class="sort-arrow">↕</span></button></th><th>Ações</th></tr></thead>
+            <tbody id="services-body"><tr><td colspan="7">Preparando tudo...</td></tr></tbody>
+          </table>
+          <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais serviços...</div>
+        </div>
+      </section>
+
+
+      <dialog class="premium-modal" id="service-modal">
+        <form method="dialog" class="modal-card" id="service-form">
+          <header class="modal-header"><div><p class="eyebrow">Cadastro de serviço</p><h3 id="modal-title">Novo serviço</h3></div><button class="icon-btn" value="cancel" type="button" id="close-modal">×</button></header>
+          <div class="modal-body custom-scroll">
+            <input type="hidden" id="service-id">
+            <div class="form-grid form-row-gap">
+              <label class="form-field"><span>Nome do serviço</span><input class="input" id="name" required placeholder="Ex.: Banho pequeno"></label>
+              <label class="form-field"><span>Tipo de serviço <small class="field-hint">Configurações</small></span><select class="select" id="categoryId" required></select></label>
+              <label class="form-field"><span>Porte <small class="field-hint">Configurações</small></span><select class="select" id="petSize" required></select></label>
+              <label class="form-field"><span>Preço</span><input class="input" id="price" data-mask="money" required placeholder="R$ 0,00"></label>
+              <label class="form-field"><span>Duração em minutos</span><input class="input" id="durationMinutes" inputmode="numeric" required placeholder="60"></label>
+              <label class="form-field"><span>Status</span><select class="select" id="isActive"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>
+              <label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="description" rows="5" placeholder="Detalhe o que está incluso, observações de pelagem ou regras do serviço."></textarea></label>
+            </div>
+            <div class="notice-card soft-warning" id="config-warning" hidden>
+              <strong>Configuração necessária</strong>
+              <p>Para cadastrar serviços, primeiro cadastre tipos de serviço e portes em Configurações.</p>
+              <a class="btn btn-secondary" href="/admin/configuracoes">Abrir Configurações</a>
+            </div>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-modal">Cancelar</button><button class="btn" type="submit">Salvar serviço</button></footer>
+        </form>
+      </dialog>
+    `
+  });
+
+  const body = document.getElementById('services-body');
+  const scrollBox = document.getElementById('services-scroll');
+  const loader = document.getElementById('infinite-loader');
+  const modal = document.getElementById('service-modal');
+  const form = document.getElementById('service-form');
+  const categoryFilter = document.getElementById('category-filter');
+  const sizeFilter = document.getElementById('size-filter');
+  const fields = ['service-id','name','categoryId','petSize','price','durationMinutes','isActive','description'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
+
+  function updateMetrics() {
+    const active = Number(state.summary.active || state.items.filter(item => item.isActive).length || 0);
+    const total = Number(state.summary.total || state.items.length || 0);
+    const categories = state.serviceTypes.length;
+    const sizes = state.petSizes.length;
+    document.getElementById('service-metrics').innerHTML = bigNumberGrid([
+      ['Serviços ativos', String(active), `${total} serviço(s) no catálogo`],
+      ['Tipos cadastrados', String(categories), 'organização da rotina'],
+      ['Preço médio', money(state.summary.average_price_cents || 0), 'referência do catálogo']
+    ]);
+  }
+
+  function optionHtml(value, label, selected = false) {
+    return `<option value="${esc(value)}" ${selected ? 'selected' : ''}>${esc(label)}</option>`;
+  }
+
+  function fillOptions() {
+    categoryFilter.innerHTML = optionHtml('all', 'Todos os tipos') + state.serviceTypes.map(item => optionHtml(item.id, item.name)).join('');
+    sizeFilter.innerHTML = optionHtml('all', 'Todos os portes') + state.petSizes.map(item => optionHtml(item.code, item.name)).join('');
+    fields.categoryId.innerHTML = state.serviceTypes.map(item => optionHtml(item.id, item.name)).join('');
+    fields.petSize.innerHTML = state.petSizes.map(item => optionHtml(item.code, item.name)).join('');
+    document.getElementById('config-warning').hidden = Boolean(state.serviceTypes.length && state.petSizes.length);
+  }
+
+  function rowTemplate(item) {
+    return `<tr data-id="${item.id}">
+      <td><strong>${esc(item.name)}</strong><small>${esc(item.description || 'sem descrição')}</small></td>
+      <td><span class="mini-badge">${esc(item.categoryName || 'Sem tipo')}</span></td>
+      <td><span class="status-pill info-pill">${esc(item.petSizeName || item.petSize || 'Todos')}</span></td>
+      <td><strong>${money(item.priceCents)}</strong><small>valor base</small></td>
+      <td><strong>${Number(item.durationMinutes || 0)} min</strong><small>agenda</small></td>
+      <td><span class="status-pill ${item.isActive ? 'ok' : 'muted-pill'}">${item.isActive ? 'Ativo' : 'Inativo'}</span></td>
+      <td><div class="row-actions"><button class="icon-btn edit-btn" data-id="${item.id}" type="button">✎</button><button class="icon-btn delete-btn" data-id="${item.id}" type="button">🗑</button></div></td>
+    </tr>`;
+  }
+
+  function getSortValue(item, key) {
+    if (key === 'categoryName') return item.categoryName || '';
+    if (key === 'petSizeName') return item.petSizeName || item.petSize || '';
+    if (key === 'priceCents') return Number(item.priceCents || 0);
+    if (key === 'durationMinutes') return Number(item.durationMinutes || 0);
+    if (key === 'isActive') return item.isActive ? 1 : 0;
+    return String(item[key] || '').toLowerCase();
+  }
+
+  function getSortedItems() {
+    return [...state.items].sort((a, b) => {
+      const av = getSortValue(a, state.sortBy);
+      const bv = getSortValue(b, state.sortBy);
+      if (typeof av === 'number' || typeof bv === 'number') return state.sortDir === 'asc' ? av - bv : bv - av;
+      return state.sortDir === 'asc' ? String(av).localeCompare(String(bv), 'pt-BR') : String(bv).localeCompare(String(av), 'pt-BR');
+    });
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll('.th-sort').forEach((button) => {
+      const active = button.dataset.sort === state.sortBy;
+      button.classList.toggle('active', active);
+      const arrow = button.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = active ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function renderRows() {
+    const sorted = getSortedItems();
+    body.innerHTML = sorted.length ? sorted.map(rowTemplate).join('') : '<tr><td colspan="7">Nenhum serviço encontrado.</td></tr>';
+    updateSortHeaders();
+  }
+
+
+  async function loadOptions() {
+    const data = await api.get('/servicos/options');
+    state.serviceTypes = data.serviceTypes || [];
+    state.petSizes = data.petSizes || [];
+    fillOptions();
+  }
+
+  async function loadServices(reset = false) {
+    if (state.loading || (state.done && !reset)) return;
+    state.loading = true;
+    loader.hidden = false;
+    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="7">Preparando tudo...</td></tr>'; }
+    try {
+      const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status, categoryId: state.categoryId, petSize: state.petSize });
+      if (state.search) params.set('search', state.search);
+      const data = await api.get(`/servicos?${params.toString()}`);
+      if (reset) state.items = [];
+      state.items.push(...(data.items || []));
+      state.summary = data.summary || {};
+      state.done = state.items.length >= data.total || (data.items || []).length === 0;
+      state.page += 1;
+      renderRows();
+      updateMetrics();
+      setupPremiumInteractions(document);
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="7">${esc(error.message)}</td></tr>`;
+      toast(error.message, 'error');
+    } finally {
+      loader.hidden = true;
+      state.loading = false;
+    }
+  }
+
+  function findService(id) { return state.items.find(item => item.id === id); }
+
+  function openForm(item = null) {
+    document.getElementById('modal-title').textContent = item ? 'Editar serviço' : 'Novo serviço';
+    fields['service-id'].value = item?.id || '';
+    fields.name.value = item?.name || '';
+    fields.categoryId.value = item?.categoryId || state.serviceTypes[0]?.id || '';
+    fields.petSize.value = item?.petSize || state.petSizes[0]?.code || '';
+    fields.price.value = item ? money(item.priceCents) : '';
+    fields.durationMinutes.value = item?.durationMinutes || 60;
+    fields.isActive.value = String(item?.isActive ?? true);
+    fields.description.value = item?.description || '';
+    setupPremiumInteractions(modal);
+    modal.showModal();
+  }
+
+  async function saveService(event) {
+    event.preventDefault();
+    const id = fields['service-id'].value;
+    const payload = {
+      name: fields.name.value,
+      categoryId: fields.categoryId.value,
+      petSize: fields.petSize.value,
+      price: fields.price.value,
+      durationMinutes: fields.durationMinutes.value,
+      isActive: fields.isActive.value === 'true',
+      description: fields.description.value
+    };
+    try {
+      showLoading('Salvando serviço...', 'Atualizando cadastro e recalculando a listagem.');
+      if (id) await api.put(`/servicos/${id}`, payload); else await api.post('/servicos', payload);
+      modal.close();
+      toast('Serviço salvo com sucesso.', 'success');
+      await loadServices(true);
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  async function deleteService(id) {
+    if (!confirm('Inativar este serviço? Ele não será removido do histórico.')) return;
+    try {
+      showLoading('Inativando serviço...', 'Preservando histórico e vínculos existentes.');
+      await api.delete(`/servicos/${id}`);
+      toast('Serviço inativado.', 'success');
+      await loadServices(true);
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  async function boot() {
+    try {
+      showLoading('Carregando Serviços...', 'Buscando tipos de serviço, portes e tabela de preços.');
+      await loadOptions();
+      await loadServices(true);
+    } finally {
+      hideLoading();
+      finishPageLoading();
+    }
+  }
+
+  document.getElementById('new-service-btn').addEventListener('click', () => openForm());
+  document.getElementById('close-modal').addEventListener('click', () => modal.close());
+  document.getElementById('cancel-modal').addEventListener('click', () => modal.close());
+  form.addEventListener('submit', saveService);
+  document.getElementById('refresh-btn').addEventListener('click', () => loadServices(true));
+  document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadServices(true); });
+  categoryFilter.addEventListener('change', (event) => { state.categoryId = event.target.value; loadServices(true); });
+  sizeFilter.addEventListener('change', (event) => { state.petSize = event.target.value; loadServices(true); });
+  document.getElementById('search-services').addEventListener('input', debounce((event) => { state.search = event.target.value.trim(); loadServices(true); }));
+  window.addEventListener('scroll', () => {
+    const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 220;
+    if (nearBottom) loadServices(false);
+  }, { passive: true });
+  document.addEventListener('click', (event) => {
+    const sort = event.target.closest('.th-sort');
+    if (sort) {
+      const key = sort.dataset.sort;
+      if (state.sortBy === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      else { state.sortBy = key; state.sortDir = 'asc'; }
+      renderRows();
+      return;
+    }
+    const edit = event.target.closest('.edit-btn');
+    const del = event.target.closest('.delete-btn');
+    if (edit) openForm(findService(edit.dataset.id));
+    if (del) deleteService(del.dataset.id);
+  });
+
+  boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Roleta de Mimos · PetFunny OS</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
+  <link rel="stylesheet" href="/assets/css/app.css"></head>
+<body>
+<script type="module">
+  import { buildShell } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { withLoading } from '/assets/js/loading.js';
+  import { showToast } from '/assets/js/toast.js';
+
+  const money = (cents)=>Number(cents||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const fmtDate = (v)=>v ? new Date(v).toLocaleDateString('pt-BR') : '—';
+  const statusName = (s)=>({ active:'Ativo', inactive:'Inativo', expired:'Encerrado' }[s] || s || '—');
+  let state = { gifts: [], summary: {}, spins: [], options: {}, editing: null, report: null };
+
+  document.body.classList.add('roleta-page');
+
+  const content = `
+    <section class="hero-panel stack-md roleta-hero-panel">
+      <div>
+        <p class="eyebrow">Experiência e fidelização</p>
+        <h1>Roleta de Mimos</h1>
+        <p>Crie benefícios que encantam tutores, estimulam novos agendamentos e ajudam a controlar o custo das campanhas de relacionamento.</p>
+      </div>
+      <div class="actions no-card-actions">
+        <button class="btn btn-secondary" type="button" id="refresh-roleta">↻ Atualizar</button>
+        <button class="btn btn-secondary" type="button" id="ai-suggest">✨ Gerar mimos com IA</button>
+        <button class="btn" type="button" id="new-gift">+ Novo mimo</button>
+      </div>
+    </section>
+
+    <section class="admin-big-numbers-strip roleta-big-numbers-strip" aria-label="Indicadores da roleta"><div class="big-number-grid roleta-metrics-grid">
+      <article class="big-number-card"><span>Mimos cadastrados</span><strong id="gift-total">—</strong><small>Ativos e inativos</small></article>
+      <article class="big-number-card"><span>Mimos ativos</span><strong id="gift-active">—</strong><small>Elegíveis hoje</small></article>
+      <article class="big-number-card"><span>Sorteios hoje</span><strong id="spins-today">—</strong><small>Giros registrados</small></article>
+      <article class="big-number-card"><span>Custo estimado/mês</span><strong id="cost-month">—</strong><small>Com base nos sorteios</small></article>
+    </div></section>
+
+    <section class="module-card page-section roleta-list-card">
+      <div class="section-toolbar stacked-toolbar"><div class="toolbar-copy-line"><div><p class="eyebrow">Cadastro</p><h2>Mimos configurados</h2><p>Controle títulos, datas, custo e probabilidade para evitar impacto excessivo no caixa e manter as campanhas sustentáveis.</p></div><button class="btn" type="button" id="new-gift-inline">+ Novo mimo</button></div></div>
+      <div class="filter-row">
+        <input class="input" id="gift-search" placeholder="Buscar mimo ou descrição">
+        <select class="select" id="gift-status"><option value="all">Todos os status</option><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="expired">Encerrados</option></select>
+        <button class="btn btn-secondary" id="gift-filter">Filtrar</button>
+      </div>
+      <div class="gift-grid" id="gift-list"></div>
+    </section>
+
+    <section class="grid-two page-section roleta-layout">
+      <article class="panel roleta-wheel-panel">
+        <div class="panel-head compact-head"><div><p class="eyebrow">Simulação</p><h2>Girar roleta</h2><p>O sorteio respeita o peso de probabilidade cadastrado em cada mimo ativo.</p></div></div>
+        <div class="roleta-stage">
+          <div class="roleta-wheel" id="roleta-wheel"><span>🎡</span><strong id="wheel-result">PetFunny</strong></div>
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Tutor</span><select class="select" id="spin-tutor"><option value="">Sem tutor</option></select></label>
+            <label class="form-field"><span>Pet</span><select class="select" id="spin-pet"><option value="">Sem pet</option></select></label>
+          </div>
+          <button class="btn roleta-spin-btn" id="spin-button" type="button">Girar agora</button>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-head compact-head"><div><p class="eyebrow">Histórico</p><h2>Últimos sorteios</h2><p>Registro de resultados para controle de brindes e custos.</p></div></div>
+        <div class="cards-list custom-scroll roleta-history" id="spin-history"></div>
+      </article>
+    </section>
+
+
+    <dialog class="premium-modal" id="gift-modal">
+      <form class="modal-card tutor-modal-card" method="dialog" id="gift-form">
+        <header class="modal-header"><div><p class="eyebrow">Mimo</p><h2 id="gift-modal-title">Novo mimo</h2><p class="modal-subtitle">Cadastre ou edite o mimo mantendo status, vigência, custo e peso da roleta.</p></div><button class="icon-btn" type="button" id="close-gift-modal">×</button></header>
+        <div class="modal-body custom-scroll">
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Título do mimo</span><input class="input" id="gift-title" required></label>
+            <label class="form-field"><span>Status</span><select class="select" id="gift-form-status"><option value="active">Ativo</option><option value="inactive">Inativo</option><option value="expired">Encerrado</option></select></label>
+            <label class="form-field"><span>Data inicial</span><input class="input" id="gift-start" type="date"></label>
+            <label class="form-field"><span>Data final</span><input class="input" id="gift-end" type="date"></label>
+            <label class="form-field"><span>Peso de probabilidade</span><input class="input" id="gift-weight" type="number" min="1" value="1"></label>
+            <label class="form-field"><span>Custo estimado</span><input class="input" id="gift-cost" data-mask="money" placeholder="R$ 0,00"></label>
+            <label class="form-field full"><span>Descrição</span><textarea class="textarea" id="gift-description" rows="4"></textarea></label>
+          </div>
+        </div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-gift-modal">Cancelar</button><button class="btn" id="save-gift" type="submit">Salvar mimo</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="report-modal">
+      <article class="modal-card">
+        <header class="modal-header"><div><p class="eyebrow">Assistente IA</p><h2>Sugestões de mimos</h2></div><button class="icon-button" id="close-report">✕</button></header>
+        <div class="modal-body custom-scroll" id="report-body"></div>
+        <footer class="modal-footer"><button class="btn btn-secondary" id="close-report-footer">Fechar</button></footer>
+      </article>
+    </dialog>
+  `;
+
+  buildShell({ active:'Roleta de Mimos', eyebrow:'Experiência e fidelização', title:'Roleta de Mimos', subtitle:'Crie recompensas inteligentes para encantar tutores, controlar custos e incentivar novos agendamentos.', content });
+  const $ = (id)=>document.getElementById(id);
+
+  function fillSelects(){
+    $('spin-tutor').innerHTML = '<option value="">Sem tutor</option>' + (state.options.tutors||[]).map(t=>`<option value="${t.id}">${t.name} · ${t.whatsapp||''}</option>`).join('');
+    $('spin-pet').innerHTML = '<option value="">Sem pet</option>' + (state.options.pets||[]).map(p=>`<option value="${p.id}">${p.name}${p.tutorName?' · '+p.tutorName:''}</option>`).join('');
+  }
+
+  function renderSummary(){
+    $('gift-total').textContent = state.summary.total_gifts ?? 0;
+    $('gift-active').textContent = state.summary.active_gifts ?? 0;
+    $('spins-today').textContent = state.summary.spins_today ?? 0;
+    $('cost-month').textContent = money(state.summary.estimated_cost_month_cents || 0);
+  }
+
+  function renderGifts(){
+    const rows = state.gifts || [];
+    if (!rows.length) {
+      $('gift-list').innerHTML = '<p class="empty-small">Nenhum mimo cadastrado.</p>';
+      return;
+    }
+    $('gift-list').innerHTML = `
+      <div class="premium-table-wrap roleta-gifts-table-wrap">
+        <table class="premium-table roleta-gifts-table">
+          <thead>
+            <tr>
+              <th>Mimo</th>
+              <th>Status</th>
+              <th>Vigência</th>
+              <th>Peso</th>
+              <th>Custo</th>
+              <th>Sorteios</th>
+              <th class="actions-col">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(gift=>`
+              <tr>
+                <td>
+                  <strong>${escapeHtml(gift.title)}</strong>
+                  <small>${escapeHtml(gift.description || 'Sem descrição cadastrada.')}</small>
+                </td>
+                <td><span class="status-pill gift-status-${escapeHtml(gift.status || 'active')}">${statusName(gift.status)}</span></td>
+                <td><small>${fmtDate(gift.startsOn)} até ${fmtDate(gift.endsOn)}</small></td>
+                <td><strong>${gift.probabilityWeight || 1}</strong></td>
+                <td><strong>${money(gift.estimatedCostCents)}</strong></td>
+                <td><strong>${gift.spinsCount || 0}</strong></td>
+                <td class="actions-cell">
+                  <div class="table-action-menu">
+                    <button class="kebab-btn" type="button" aria-label="Abrir ações" data-gift-menu="${gift.id}">⋯</button>
+                    <div class="kebab-menu" data-gift-menu-panel="${gift.id}">
+                      <button type="button" class="edit-gift" data-id="${gift.id}">Editar</button>
+                      <button type="button" class="toggle-gift" data-id="${gift.id}">${gift.status === 'active' ? 'Inativar' : 'Ativar'}</button>
+                      <button type="button" class="delete-gift danger" data-id="${gift.id}">Excluir</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    document.querySelectorAll('[data-gift-menu]').forEach(btn=>btn.addEventListener('click',(event)=>{
+      event.stopPropagation();
+      const id = btn.dataset.giftMenu;
+      document.querySelectorAll('[data-gift-menu-panel]').forEach(panel=>{
+        panel.classList.toggle('is-open', panel.dataset.giftMenuPanel === id && !panel.classList.contains('is-open'));
+      });
+    }));
+    document.querySelectorAll('.edit-gift').forEach(btn=>btn.addEventListener('click',()=>openGift(btn.dataset.id)));
+    document.querySelectorAll('.toggle-gift').forEach(btn=>btn.addEventListener('click',()=>toggleGift(btn.dataset.id)));
+    document.querySelectorAll('.delete-gift').forEach(btn=>btn.addEventListener('click',()=>removeGift(btn.dataset.id)));
+  }
+
+  function escapeHtml(value=''){
+    return String(value ?? '').replace(/[&<>'"]/g, (char)=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
+  }
+
+  function renderSpins(){
+    const items = state.spins.length ? state.spins : (state.summaryRecent || []);
+    $('spin-history').innerHTML = items.map(spin=>`<article class="module-card compact-card"><strong>${spin.resultTitle}</strong><small>${spin.tutorName || 'Sem tutor'} ${spin.petName ? '· '+spin.petName : ''}</small><p>${new Date(spin.spunAt || spin.createdAt).toLocaleString('pt-BR')}</p></article>`).join('') || '<p class="empty-small">Nenhum sorteio registrado ainda.</p>';
+  }
+
+  function normalizeGift(raw = {}) {
+    return {
+      id: raw.id,
+      title: raw.title || raw.name || 'Mimo PetFunny',
+      description: raw.description || '',
+      startsOn: raw.startsOn || raw.starts_on || raw.startDate || null,
+      endsOn: raw.endsOn || raw.ends_on || raw.endDate || null,
+      probabilityWeight: Number(raw.probabilityWeight ?? raw.probability_weight ?? raw.probability ?? 1),
+      estimatedCostCents: Number(raw.estimatedCostCents ?? raw.estimated_cost_cents ?? raw.costCents ?? 0),
+      status: raw.status || 'active',
+      spinsCount: Number(raw.spinsCount ?? raw.spins_count ?? 0),
+      createdAt: raw.createdAt || raw.created_at || null,
+      updatedAt: raw.updatedAt || raw.updated_at || null
+    };
+  }
+
+  function normalizeSpin(raw = {}) {
+    return {
+      id: raw.id,
+      resultTitle: raw.resultTitle || raw.result_title || raw.title || 'Mimo PetFunny',
+      tutorName: raw.tutorName || raw.tutor_name || '',
+      petName: raw.petName || raw.pet_name || '',
+      spunAt: raw.spunAt || raw.spun_at || raw.createdAt || raw.created_at || new Date().toISOString()
+    };
+  }
+
+  async function safeApiGet(path, fallback, label) {
+    try {
+      return await api.get(path);
+    } catch (error) {
+      console.warn(`[roleta] ${label || path}:`, error);
+      return fallback;
+    }
+  }
+
+  async function load(){
+    await withLoading(async()=>{
+      const search = encodeURIComponent($('gift-search')?.value || '');
+      const status = $('gift-status')?.value || 'all';
+      const [options, summary, gifts, spins] = await Promise.all([
+        safeApiGet('/api/roleta/options', { tutors: [], pets: [], statuses: [] }, 'options'),
+        safeApiGet('/api/roleta/summary', { summary: {}, recentSpins: [] }, 'summary'),
+        safeApiGet(`/api/roleta/gifts?search=${search}&status=${status}`, { items: [] }, 'gifts'),
+        safeApiGet('/api/roleta/spins', { items: [] }, 'spins')
+      ]);
+      state.options = options || { tutors: [], pets: [] };
+      state.summary = summary?.summary || {};
+      state.summaryRecent = (summary?.recentSpins || summary?.recent_spins || []).map(normalizeSpin);
+      const rawGifts = gifts?.items || gifts?.gifts || gifts?.rows || gifts?.data || gifts?.mimos || [];
+      state.gifts = rawGifts.map(normalizeGift);
+      if (!state.gifts.length) {
+        console.warn('[roleta] Nenhum mimo retornado para o admin.', { giftsResponse: gifts, search, status });
+      }
+      state.spins = (spins?.items || spins?.spins || spins?.rows || []).map(normalizeSpin);
+      if (!Number.isFinite(Number(state.summary.total_gifts))) state.summary.total_gifts = state.gifts.length;
+      if (!Number.isFinite(Number(state.summary.active_gifts))) state.summary.active_gifts = state.gifts.filter(g => g.status === 'active').length;
+      fillSelects(); renderSummary(); renderGifts(); renderSpins();
+      if (!state.gifts.length && (gifts?.error || gifts?.message)) {
+        showToast(gifts.error || gifts.message, 'error');
+      }
+    }, 'Carregando Roleta de Mimos...');
+  }
+
+  function openGift(id=null){
+    state.editing = id ? state.gifts.find(g=>g.id===id) : null;
+    $('gift-modal-title').textContent = id ? 'Editar mimo' : 'Novo mimo';
+    $('gift-title').value = state.editing?.title || '';
+    $('gift-description').value = state.editing?.description || '';
+    $('gift-start').value = state.editing?.startsOn ? String(state.editing.startsOn).slice(0,10) : '';
+    $('gift-end').value = state.editing?.endsOn ? String(state.editing.endsOn).slice(0,10) : '';
+    $('gift-weight').value = state.editing?.probabilityWeight || 1;
+    $('gift-cost').value = state.editing?.estimatedCostCents || 0;
+    $('gift-form-status').value = state.editing?.status || 'active';
+    $('gift-modal').showModal();
+  }
+
+  async function saveGift(){
+    const payload = { title:$('gift-title').value, description:$('gift-description').value, startsOn:$('gift-start').value, endsOn:$('gift-end').value, probabilityWeight:Number($('gift-weight').value||1), estimatedCostCents:Number(String($('gift-cost').value||0).replace(/\D/g,'')), status:$('gift-form-status').value };
+    await withLoading(async()=>{ state.editing ? await api.put(`/api/roleta/gifts/${state.editing.id}`, payload) : await api.post('/api/roleta/gifts', payload); }, 'Salvando mimo...');
+    $('gift-modal').close(); showToast('Mimo salvo com sucesso.','success'); await load();
+  }
+
+  async function toggleGift(id){
+    const gift = state.gifts.find(item => item.id === id);
+    if (!gift) return;
+    const nextStatus = gift.status === 'active' ? 'inactive' : 'active';
+    await withLoading(()=>api.patch(`/api/roleta/gifts/${id}/status`, { status: nextStatus }), nextStatus === 'active' ? 'Ativando mimo...' : 'Inativando mimo...');
+    showToast(nextStatus === 'active' ? 'Mimo ativado.' : 'Mimo inativado.','success'); await load();
+  }
+
+  async function removeGift(id){
+    if(!confirm('Excluir este mimo? Esta ação remove o mimo da listagem.')) return;
+    await withLoading(()=>api.delete(`/api/roleta/gifts/${id}`), 'Excluindo mimo...');
+    showToast('Mimo excluído.','success'); await load();
+  }
+
+  async function spin(){
+    $('roleta-wheel').classList.add('spinning');
+    await new Promise(resolve=>setTimeout(resolve, 900));
+    try {
+      const result = await withLoading(()=>api.post('/api/roleta/spin', { tutorId:$('spin-tutor').value, petId:$('spin-pet').value }), 'Girando roleta...');
+      $('wheel-result').textContent = result.gift?.title || result.spin?.resultTitle || 'Mimo!';
+      showToast(result.message || 'Sorteio registrado.','success');
+      await load();
+    } finally {
+      $('roleta-wheel').classList.remove('spinning');
+    }
+  }
+
+  async function generateReport(){
+    const data = await withLoading(()=>api.post('/api/roleta/ai-suggestions', { durationDays:30, monthlySpins:80 }), 'Gerando sugestões de mimos...');
+    state.report = data.report;
+    $('report-body').innerHTML = `<div class="report-card"><h3>${state.report.title}</h3><p>${state.report.strategy}</p><p><strong>Custo estimado:</strong> ${money(state.report.estimatedCostCents)}</p></div><div class="cards-list">${state.report.suggestions.map(item=>`<article class="module-card compact-card"><strong>${item.title}</strong><p>${item.description}</p><small>Peso ${item.probabilityWeight} · Custo ${money(item.estimatedCostCents)} · Qtde sugerida ${item.suggestedQuantity}</small></article>`).join('')}</div>`;
+    $('report-modal').showModal();
+  }
+
+  $('new-gift').addEventListener('click',()=>openGift());
+  $('new-gift-inline')?.addEventListener('click',()=>openGift());
+  $('refresh-roleta').addEventListener('click',load);
+  $('gift-filter').addEventListener('click',load);
+  document.addEventListener('click',()=>document.querySelectorAll('[data-gift-menu-panel].is-open').forEach(panel=>panel.classList.remove('is-open')));
+  $('gift-form').addEventListener('submit',(e)=>{ e.preventDefault(); saveGift(); });
+  $('close-gift-modal')?.addEventListener('click',()=>$('gift-modal').close());
+  $('cancel-gift-modal')?.addEventListener('click',()=>$('gift-modal').close());
+  $('spin-button').addEventListener('click',spin);
+  $('ai-suggest').addEventListener('click',generateReport);
+  $('close-report').addEventListener('click',()=>$('report-modal').close());
+  $('close-report-footer').addEventListener('click',()=>$('report-modal').close());
+  load().catch((error)=>showToast(error.message || 'Erro ao carregar roleta.','error'));
+</script>
+</body>
+</html>

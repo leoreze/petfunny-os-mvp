@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: petfunny-os
+    env: node
+    plan: starter
+    buildCommand: npm run render:build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NPM_CONFIG_AUDIT
+        value: "false"
+      - key: NPM_CONFIG_FUND
+        value: "false"
+      - key: NPM_CONFIG_PROGRESS
+        value: "false"
+      - key: NPM_CONFIG_LEGACY_PEER_DEPS
+        value: "true"
+      - key: NPM_CONFIG_OMIT
+        value: "optional"
+

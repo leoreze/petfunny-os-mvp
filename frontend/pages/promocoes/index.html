@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>Promoções · PetFunny OS</title>
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { toast } from '/assets/js/toast.js';
+  import { finishPageLoading } from '/assets/js/loading.js';
+
+  document.body.classList.add('promocoes-page');
+
+  const week = [
+    { v: 0, l: 'Domingo', s: 'Dom' },
+    { v: 1, l: 'Segunda', s: 'Seg' },
+    { v: 2, l: 'Terça', s: 'Ter' },
+    { v: 3, l: 'Quarta', s: 'Qua' },
+    { v: 4, l: 'Quinta', s: 'Qui' },
+    { v: 5, l: 'Sexta', s: 'Sex' },
+    { v: 6, l: 'Sábado', s: 'Sáb' }
+  ];
+
+  const state = {
+    promotions: [],
+    services: [],
+    petSizes: [],
+    editing: null,
+    pendingDeleteId: null,
+    search: '',
+    status: 'all',
+    serviceId: 'all',
+    petSize: 'all',
+    sortBy: 'createdAt',
+    sortDir: 'desc',
+    limit: 18,
+    visible: 18,
+    loading: false
+  };
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>\"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const pct = (value = 0) => `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+  const debounce = (fn, wait = 260) => { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); }; };
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+
+  const content = `
+    <section class="hero-panel stack-lg promotions-hero-panel">
+      <div class="page-heading-row between">
+        <div>
+          <p class="eyebrow">Marketing operacional</p>
+          <h1>Promoções automáticas</h1>
+          <p>Cadastre descontos inteligentes por serviço, porte, dia da semana e período. O app do tutor aplica a condição certa no agendamento e já calcula o Pix com o valor promocional.</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" id="refresh-promos" type="button">↻ Atualizar</button>
+          <button class="btn" id="new-promo" type="button">＋ Nova promoção</button>
+        </div>
+      </div>
+      <div id="promo-metrics">${bigNumberGrid([
+        ['Promoções ativas', '—', 'aplicadas no app'],
+        ['Serviços com oferta', '—', 'regras por serviço'],
+        ['Maior desconto', '—', 'condição em vigor'],
+        ['Todos os portes', '—', 'campanhas amplas']
+      ])}</div>
+    </section>
+
+    <section class="module-card stack-md promotions-list-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line">
+          <div>
+            <h3>Consulta de promoções</h3>
+            <p>Busque campanhas, revise períodos e confirme quais descontos entram automaticamente no agendamento do app.</p>
+          </div>
+        </div>
+        <div class="filter-row compact-filter-row filters-below promo-filter-row">
+          <input class="input" id="search" placeholder="Buscar promoção, serviço ou descrição" autocomplete="off">
+          <select class="select" id="status-filter">
+            <option value="all">Todos os status</option>
+            <option value="active">Ativas</option>
+            <option value="inactive">Inativas</option>
+          </select>
+          <select class="select" id="service-filter"><option value="all">Todos os serviços</option></select>
+          <select class="select" id="size-filter"><option value="all">Todos os portes</option></select>
+          <button class="btn btn-secondary" id="clear-filters" type="button">Limpar filtros</button>
+        </div>
+      </div>
+
+      <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="promo-scroll">
+        <table class="premium-table promotions-table">
+          <thead>
+            <tr>
+              <th><span class="th-label">Promoção</span><button class="th-arrow-only promo-sort" data-sort="title" type="button" title="Ordenar por promoção"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Serviço</span><button class="th-arrow-only promo-sort" data-sort="serviceName" type="button" title="Ordenar por serviço"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Porte</span><button class="th-arrow-only promo-sort" data-sort="petSize" type="button" title="Ordenar por porte"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Dias</span><button class="th-arrow-only promo-sort" data-sort="weekdays" type="button" title="Ordenar por dias"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Período</span><button class="th-arrow-only promo-sort" data-sort="startsOn" type="button" title="Ordenar por período"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Desconto</span><button class="th-arrow-only promo-sort" data-sort="discountPercent" type="button" title="Ordenar por desconto"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Status</span><button class="th-arrow-only promo-sort" data-sort="isActive" type="button" title="Ordenar por status"><span class="sort-arrow">↕</span></button></th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="promotions-body"><tr><td colspan="8">Preparando promoções...</td></tr></tbody>
+        </table>
+        <div class="infinite-loader" id="promo-loader" hidden>Carregando mais promoções...</div>
+      </div>
+    </section>
+
+    <dialog class="premium-modal" id="promo-modal">
+      <form class="modal-card" method="dialog" id="promo-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Promoção automática</p>
+            <h3 id="promo-title">Nova promoção</h3>
+            <p>Defina quando o desconto será aplicado no app do tutor e no Pix do agendamento.</p>
+          </div>
+          <button class="icon-btn" id="close-promo-modal" type="button">×</button>
+        </header>
+        <div class="modal-body custom-scroll">
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Nome da promoção</span><input class="input" id="p-title" required placeholder="Ex.: Terça do banho simples"></label>
+            <label class="form-field"><span>Desconto %</span><input class="input" id="p-discount" type="number" min="0" max="100" step="0.01" required placeholder="10"></label>
+            <label class="form-field"><span>Serviço</span><select class="select" id="p-service"><option value="">Todos os serviços</option></select></label>
+            <label class="form-field"><span>Porte</span><select class="select" id="p-size"><option value="todos">Todos os portes</option></select></label>
+            <label class="form-field"><span>Data inicial</span><input class="input" id="p-start" type="date"></label>
+            <label class="form-field"><span>Data final</span><input class="input" id="p-end" type="date"></label>
+            <label class="form-field"><span>Status</span><select class="select" id="p-status"><option value="active">Ativa</option><option value="inactive">Inativa</option></select></label>
+            <label class="form-field full"><span>Dias da semana</span><div class="weekday-picker" id="p-weekdays">${week.map((w) => `<label><input type="checkbox" value="${w.v}"><span>${w.l}</span></label>`).join('')}</div><small>Se nenhum dia for marcado, a promoção vale para todos os dias.</small></label>
+            <label class="form-field full"><span>Descrição para a equipe</span><textarea class="textarea" id="p-description" rows="3" placeholder="Explique a condição, objetivo da campanha ou regra comercial."></textarea></label>
+          </div>
+        </div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-promo-modal">Cancelar</button><button class="btn" id="save-promo" type="submit">Salvar promoção</button></footer>
+      </form>
+    </dialog>
+
+    <dialog class="premium-modal" id="feedback-modal">
+      <div class="modal-card modal-card-sm">
+        <header class="modal-header"><div><p class="eyebrow" id="feedback-eyebrow">Aviso</p><h3 id="feedback-title">Mensagem</h3></div><button class="icon-btn" id="feedback-close" type="button">×</button></header>
+        <div class="modal-body"><p id="feedback-message"></p></div>
+        <footer class="modal-footer"><button class="btn" id="feedback-ok" type="button">OK</button></footer>
+      </div>
+    </dialog>
+
+    <dialog class="premium-modal" id="confirm-modal">
+      <div class="modal-card modal-card-sm">
+        <header class="modal-header"><div><p class="eyebrow">Confirmação</p><h3>Remover promoção?</h3></div><button class="icon-btn" id="confirm-close" type="button">×</button></header>
+        <div class="modal-body"><p>Essa promoção deixará de aparecer no app e não será mais aplicada em novos agendamentos.</p></div>
+        <footer class="modal-footer"><button class="btn btn-secondary" id="confirm-cancel" type="button">Cancelar</button><button class="btn danger" id="confirm-delete" type="button">Remover</button></footer>
+      </div>
+    </dialog>
+  `;
+
+  buildShell({ active: 'Promoções', eyebrow: 'Marketing operacional', title: 'Promoções automáticas', subtitle: 'Controle descontos por serviço, porte, período e dia da semana com aplicação automática no App do Tutor.', content });
+  setupPremiumInteractions?.();
+
+  const $ = (id) => document.getElementById(id);
+  const serviceName = (id) => state.services.find((s) => s.id === id)?.name || 'Todos os serviços';
+  const sizeName = (code) => code === 'todos' || !code ? 'Todos os portes' : (state.petSizes.find((s) => s.code === code)?.name || code);
+  const weekdaysText = (items = []) => items?.length ? items.map((d) => week.find((w) => w.v === Number(d))?.s).filter(Boolean).join(', ') : 'Todos os dias';
+  const shortDate = (value) => value ? new Date(`${String(value).slice(0,10)}T12:00:00`).toLocaleDateString('pt-BR') : 'Sem limite';
+  const periodText = (p) => `${p.startsOn ? shortDate(p.startsOn) : 'Hoje'} até ${p.endsOn ? shortDate(p.endsOn) : 'sem fim'}`;
+
+  function filteredPromotions() {
+    const q = state.search.trim().toLowerCase();
+    return state.promotions
+      .filter((p) => {
+        const active = p.isActive && p.status === 'active';
+        if (state.status === 'active' && !active) return false;
+        if (state.status === 'inactive' && active) return false;
+        if (state.serviceId !== 'all' && (p.serviceId || '') !== state.serviceId) return false;
+        if (state.petSize !== 'all' && (p.petSize || 'todos') !== state.petSize) return false;
+        if (!q) return true;
+        return [p.title, p.description, p.serviceName || serviceName(p.serviceId), sizeName(p.petSize), weekdaysText(p.weekdays)].join(' ').toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const dir = state.sortDir === 'asc' ? 1 : -1;
+        const av = state.sortBy === 'weekdays' ? weekdaysText(a.weekdays) : (a[state.sortBy] ?? '');
+        const bv = state.sortBy === 'weekdays' ? weekdaysText(b.weekdays) : (b[state.sortBy] ?? '');
+        if (typeof av === 'number' || typeof bv === 'number') return (Number(av || 0) - Number(bv || 0)) * dir;
+        return String(av || '').localeCompare(String(bv || ''), 'pt-BR', { numeric: true }) * dir;
+      });
+  }
+
+  function renderMetrics() {
+    const active = state.promotions.filter((p) => p.isActive && p.status === 'active');
+    const values = [
+      ['Promoções ativas', String(active.length), 'aplicadas no app'],
+      ['Serviços com oferta', String(new Set(active.filter((p) => p.serviceId).map((p) => p.serviceId)).size), 'regras por serviço'],
+      ['Maior desconto', pct(Math.max(0, ...active.map((p) => Number(p.discountPercent || 0)))), 'condição em vigor'],
+      ['Todos os portes', String(active.filter((p) => (p.petSize || 'todos') === 'todos').length), 'campanhas amplas']
+    ];
+    $('promo-metrics').innerHTML = bigNumberGrid(values);
+  }
+
+  function renderOptions() {
+    $('service-filter').innerHTML = '<option value="all">Todos os serviços</option>' + state.services.map((s) => `<option value="${esc(s.id)}">${esc(s.categoryName || 'Serviços')} · ${esc(s.name)}</option>`).join('');
+    $('size-filter').innerHTML = '<option value="all">Todos os portes</option><option value="todos">Campanhas todos os portes</option>' + state.petSizes.map((s) => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join('');
+    $('p-service').innerHTML = '<option value="">Todos os serviços</option>' + state.services.map((s) => `<option value="${esc(s.id)}">${esc(s.categoryName || 'Serviços')} · ${esc(s.name)}${s.petSize && s.petSize !== 'todos' ? ' · ' + esc(s.petSize) : ''}</option>`).join('');
+    $('p-size').innerHTML = '<option value="todos">Todos os portes</option>' + state.petSizes.map((s) => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join('');
+  }
+
+  function promoRow(p) {
+    const active = p.isActive && p.status === 'active';
+    return `<tr>
+      <td><strong>${esc(p.title)}</strong><small>${esc(p.description || 'Sem descrição operacional.')}</small></td>
+      <td>${esc(p.serviceName || serviceName(p.serviceId))}</td>
+      <td>${esc(sizeName(p.petSize))}</td>
+      <td>${esc(weekdaysText(p.weekdays))}</td>
+      <td>${esc(periodText(p))}</td>
+      <td><span class="promo-discount-pill">${esc(pct(p.discountPercent))} OFF</span></td>
+      <td><span class="status-pill ${active ? 'success' : 'muted'}">${active ? 'Ativa' : 'Inativa'}</span></td>
+      <td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-edit="${esc(p.id)}" type="button">Editar</button><button class="btn danger btn-sm" data-delete="${esc(p.id)}" type="button">Remover</button></div></td>
+    </tr>`;
+  }
+
+  function renderTable() {
+    const rows = filteredPromotions();
+    const visible = rows.slice(0, state.visible);
+    $('promotions-body').innerHTML = visible.length ? visible.map(promoRow).join('') : '<tr><td colspan="8"><div class="empty-state"><strong>Nenhuma promoção encontrada.</strong><p>Ajuste os filtros ou crie uma campanha para o app do tutor.</p></div></td></tr>';
+    $('promo-loader').hidden = rows.length <= state.visible;
+    document.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => openForm(btn.dataset.edit)));
+    document.querySelectorAll('[data-delete]').forEach((btn) => btn.addEventListener('click', () => openConfirm(btn.dataset.delete)));
+    document.querySelectorAll('.promo-sort').forEach((btn) => {
+      btn.classList.toggle('is-active', btn.dataset.sort === state.sortBy);
+      btn.querySelector('.sort-arrow').textContent = btn.dataset.sort === state.sortBy ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function renderAll() {
+    renderMetrics();
+    renderTable();
+  }
+
+  function payload() {
+    return {
+      title: $('p-title').value,
+      description: $('p-description').value,
+      serviceId: $('p-service').value,
+      petSize: $('p-size').value,
+      discountPercent: Number($('p-discount').value || 0),
+      weekdays: [...document.querySelectorAll('#p-weekdays input:checked')].map((input) => Number(input.value)),
+      startsOn: $('p-start').value,
+      endsOn: $('p-end').value,
+      status: $('p-status').value,
+      isActive: $('p-status').value === 'active'
+    };
+  }
+
+  function openForm(id = null) {
+    state.editing = id ? state.promotions.find((p) => p.id === id) : null;
+    const p = state.editing || { title: '', description: '', serviceId: '', petSize: 'todos', discountPercent: '', weekdays: [], startsOn: todayIso(), endsOn: '', status: 'active' };
+    $('promo-title').textContent = id ? 'Editar promoção' : 'Nova promoção';
+    $('p-title').value = p.title || '';
+    $('p-description').value = p.description || '';
+    $('p-service').value = p.serviceId || '';
+    $('p-size').value = p.petSize || 'todos';
+    $('p-discount').value = p.discountPercent || '';
+    $('p-start').value = p.startsOn ? String(p.startsOn).slice(0, 10) : '';
+    $('p-end').value = p.endsOn ? String(p.endsOn).slice(0, 10) : '';
+    $('p-status').value = p.status || 'active';
+    document.querySelectorAll('#p-weekdays input').forEach((input) => { input.checked = (p.weekdays || []).map(Number).includes(Number(input.value)); });
+    $('promo-modal').showModal();
+  }
+
+  function closeForm() { $('promo-modal').close(); }
+  function feedback(title, message, eyebrow = 'Aviso') { $('feedback-eyebrow').textContent = eyebrow; $('feedback-title').textContent = title; $('feedback-message').textContent = message; $('feedback-modal').showModal(); }
+  function closeFeedback() { $('feedback-modal').close(); }
+  function openConfirm(id) { state.pendingDeleteId = id; $('confirm-modal').showModal(); }
+  function closeConfirm() { state.pendingDeleteId = null; $('confirm-modal').close(); }
+
+  async function load() {
+    try {
+      state.loading = true;
+      const [list, opts] = await Promise.all([api.get('/promocoes'), api.get('/promocoes/options')]);
+      state.promotions = list.promotions || [];
+      state.services = opts.services || [];
+      state.petSizes = opts.petSizes || [];
+      renderOptions();
+      state.visible = state.limit;
+      renderAll();
+    } catch (error) {
+      $('promotions-body').innerHTML = `<tr><td colspan="8"><div class="empty-state"><strong>Não foi possível carregar promoções.</strong><p>${esc(error.message || 'Confira se executou npm run db:migrate e tente novamente.')}</p></div></td></tr>`;
+    } finally {
+      state.loading = false;
+      window.setTimeout(() => finishPageLoading(), 180);
+    }
+  }
+
+  async function savePromotion(event) {
+    event.preventDefault();
+    try {
+      const data = payload();
+      if (state.editing) await api.put(`/promocoes/${state.editing.id}`, data);
+      else await api.post('/promocoes', data);
+      closeForm();
+      toast('Promoção salva com sucesso.');
+      await load();
+    } catch (error) {
+      feedback('Não foi possível salvar', error.message || 'Revise os dados da promoção e tente novamente.', 'Erro');
+    }
+  }
+
+  async function confirmDelete() {
+    if (!state.pendingDeleteId) return closeConfirm();
+    try {
+      const id = state.pendingDeleteId;
+      closeConfirm();
+      await api.delete(`/promocoes/${id}`);
+      toast('Promoção removida.');
+      await load();
+    } catch (error) {
+      feedback('Não foi possível remover', error.message || 'Tente novamente.', 'Erro');
+    }
+  }
+
+  function applyFilters() {
+    state.search = $('search').value;
+    state.status = $('status-filter').value;
+    state.serviceId = $('service-filter').value;
+    state.petSize = $('size-filter').value;
+    state.visible = state.limit;
+    renderTable();
+  }
+
+  function onScroll() {
+    const rows = filteredPromotions();
+    if (rows.length <= state.visible || state.loading) return;
+    if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 420) {
+      state.visible += state.limit;
+      renderTable();
+    }
+  }
+
+  $('new-promo').addEventListener('click', () => openForm());
+  $('refresh-promos').addEventListener('click', load);
+  $('clear-filters').addEventListener('click', () => { $('search').value = ''; $('status-filter').value = 'all'; $('service-filter').value = 'all'; $('size-filter').value = 'all'; applyFilters(); });
+  $('search').addEventListener('input', debounce(applyFilters));
+  ['status-filter', 'service-filter', 'size-filter'].forEach((id) => $(id).addEventListener('change', applyFilters));
+  document.querySelectorAll('.promo-sort').forEach((btn) => btn.addEventListener('click', () => { const sort = btn.dataset.sort; if (state.sortBy === sort) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc'; else { state.sortBy = sort; state.sortDir = sort === 'title' ? 'asc' : 'desc'; } renderTable(); }));
+  $('promo-form').addEventListener('submit', savePromotion);
+  $('close-promo-modal').addEventListener('click', closeForm);
+  $('cancel-promo-modal').addEventListener('click', closeForm);
+  $('feedback-ok').addEventListener('click', closeFeedback);
+  $('feedback-close').addEventListener('click', closeFeedback);
+  $('confirm-cancel').addEventListener('click', closeConfirm);
+  $('confirm-close').addEventListener('click', closeConfirm);
+  $('confirm-delete').addEventListener('click', confirmDelete);
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  load();
+</script>
+</body>
+</html>

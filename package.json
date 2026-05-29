@@ -1,0 +1,42 @@
+{
+  "name": "petfunny-os",
+  "version": "1.5.131",
+  "private": true,
+  "description": "Sistema interno de gestão do PetFunny - Banho e Tosa.",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node --watch backend/src/server.js",
+    "db:migrate": "node backend/src/scripts/migrate.js",
+    "db:seed": "node backend/src/scripts/seed.js",
+    "db:reset": "node backend/src/scripts/reset.js",
+    "push:keys": "node backend/src/scripts/generateVapidKeys.js",
+    "install:backend": "node -e \"console.log(\\\"Backend install separado não é necessário no Render. As dependências rodam pela raiz.\\\")\"",
+    "render:build": "npm install --omit=dev --omit=optional --no-audit --no-fund --legacy-peer-deps --progress=false && npm run db:migrate",
+    "setup": "npm install --omit=dev --omit=optional --no-audit --no-fund --legacy-peer-deps --progress=false",
+    "doctor:install": "node backend/src/scripts/doctorInstall.js",
+    "push:repair": "npm --prefix backend run push:repair",
+    "doctor:push": "node backend/src/scripts/doctorPush.js",
+    "install:backend:push": "npm --prefix backend install --omit=dev --no-audit --no-fund --legacy-peer-deps --progress=false"
+  },
+  "engines": {
+    "node": ">=20 <25",
+    "npm": ">=10"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.3"
+  },
+  "optionalDependencies": {
+    "web-push": "^3.6.7",
+    "asn1.js": "^5.4.1",
+    "http_ece": "1.2.0",
+    "https-proxy-agent": "^7.0.6",
+    "jws": "^4.0.0",
+    "minimist": "^1.2.8"
+  }
+}

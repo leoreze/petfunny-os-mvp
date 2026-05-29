@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Configurações · PetFunny OS</title>
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
+  const weekdays = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  function toMinutes(time = '00:00') {
+    const [h = '0', m = '0'] = String(time || '00:00').slice(0,5).split(':');
+    return Number(h) * 60 + Number(m);
+  }
+  function hourRangeForDay(day) {
+    if (!day?.isOpen) return [];
+    const start = Math.ceil(toMinutes(day.opensAt || '08:00') / 60) * 60;
+    const end = Math.floor(toMinutes(day.closesAt || '18:00') / 60) * 60;
+    const hours = [];
+    for (let minutes = start; minutes < end; minutes += 60) {
+      hours.push(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:00`);
+    }
+    return hours;
+  }
+  function currentBusinessHoursFromForm() {
+    return Array.from(document.querySelectorAll('.hour-card')).map(card => ({
+      weekday: Number(card.dataset.weekday),
+      isOpen: card.querySelector('.day-open')?.checked || false,
+      opensAt: card.querySelector('.day-open-at')?.value || '',
+      closesAt: card.querySelector('.day-close-at')?.value || ''
+    }));
+  }
+  function visibleSlotHoursByWeekday() {
+    const source = document.querySelectorAll('.hour-card').length ? currentBusinessHoursFromForm() : (state.operational.businessHours || []);
+    return weekdays.map((_, weekday) => hourRangeForDay(source.find(day => Number(day.weekday) === weekday) || { weekday, isOpen: false }));
+  }
+  const formatWhatsapp = (value = '') => {
+    const d = onlyDigits(value).replace(/^55/, '');
+    if (d.length <= 2) return d;
+    if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+    return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
+  };
+
+  const state = {
+    business: null,
+    petOptions: { types: [], sizes: [], breeds: [] },
+    operational: { serviceTypes: [], appointmentStatuses: [], paymentStatuses: [], paymentMethods: [], businessHours: [], timeSlotCapacities: [] },
+    editing: null
+  };
+
+  document.body.classList.add('configuracoes-page');
+
+  buildShell({
+    active: 'Configurações',
+    eyebrow: 'Configurações inteligentes',
+    title: 'Configurações',
+    subtitle: 'Centralize as regras do PetFunny: dados da loja, presença digital, pets, serviços, pagamentos, horários e capacidade da agenda.',
+    content: `
+      <section class="hero-panel stack-lg">
+        <div class="page-heading-row between">
+          <div>
+            <p class="eyebrow">Central de controle</p>
+            <h1>Configurações do PetFunny</h1>
+            <p>Esses dados alimentam admin, landing page, app do cliente, cadastro de pets, serviços e futura agenda com capacidade por hora.</p>
+          </div>
+          <div class="actions">
+            <button class="btn" id="save-business" type="button">💾 Salvar comércio e SEO</button>
+            <a class="btn btn-secondary" href="/" target="_blank">🌐 Ver landing</a>
+          </div>
+        </div>
+        <div id="config-metrics">${bigNumberGrid([['Tipos','--','pets'],['Serviços','--','categorias'],['Agenda','--','slots/hora']])}</div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Dados do comércio</h3><p>Informações oficiais usadas em documentos, app do cliente, WhatsApp e landing pública.</p></div>
+        </div>
+        <div class="form-grid form-row-gap">
+          <label class="form-field"><span>Nome fantasia</span><input class="input" id="businessName" required></label>
+          <label class="form-field"><span>Razão social / nome legal</span><input class="input" id="legalName"></label>
+          <label class="form-field"><span>CNPJ / documento</span><input class="input" id="documentNumber" data-mask="document" placeholder="00.000.000/0000-00"></label>
+          <label class="form-field"><span>WhatsApp principal</span><input class="input" id="whatsapp" data-mask="whatsapp" placeholder="(16) 98153-5338"></label>
+          <label class="form-field"><span>Telefone</span><input class="input" id="phone" data-mask="whatsapp"></label>
+          <label class="form-field"><span>E-mail</span><input class="input" id="email" type="email"></label>
+          <label class="form-field"><span>Rua</span><input class="input" id="addressStreet"></label>
+          <label class="form-field"><span>Número</span><input class="input" id="addressNumber"></label>
+          <label class="form-field"><span>Bairro</span><input class="input" id="addressNeighborhood"></label>
+          <label class="form-field"><span>CEP</span><input class="input" id="addressZipcode" data-mask="cep" placeholder="00000-000"></label>
+          <label class="form-field"><span>Cidade</span><input class="input" id="addressCity"></label>
+          <label class="form-field"><span>Estado</span><input class="input" id="addressState" maxlength="2"></label>
+        </div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar"><div><h3>Redes sociais e presença digital</h3><p>Links utilizados em CTA, rodapé, perfil da loja e compartilhamentos.</p></div></div>
+        <div class="form-grid form-row-gap">
+          <label class="form-field"><span>Site / URL pública</span><input class="input" id="websiteUrl" placeholder="https://..."></label>
+          <label class="form-field"><span>Instagram</span><input class="input" id="instagramUrl" placeholder="https://instagram.com/..."></label>
+          <label class="form-field"><span>Facebook</span><input class="input" id="facebookUrl" placeholder="https://facebook.com/..."></label>
+          <label class="form-field"><span>TikTok</span><input class="input" id="tiktokUrl" placeholder="https://tiktok.com/@..."></label>
+          <label class="form-field"><span>Google Meu Negócio</span><input class="input" id="googleBusinessUrl" placeholder="https://..."></label>
+          <label class="form-field"><span>Google Maps</span><input class="input" id="mapsUrl" placeholder="https://maps.google.com/..."></label>
+        </div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar"><div><h3>SEO da landing page</h3><p>Campos para otimizar o Google: título, descrição, palavras-chave e imagem social.</p></div></div>
+        <div class="form-grid form-row-gap">
+          <label class="form-field span-2"><span>Título SEO</span><input class="input" id="seoTitle" maxlength="70" placeholder="PetFunny - Banho e Tosa em Ribeirão Preto"></label>
+          <label class="form-field span-2"><span>Descrição SEO</span><textarea class="textarea" id="seoDescription" maxlength="180" rows="3"></textarea></label>
+          <label class="form-field span-2"><span>Palavras-chave</span><input class="input" id="seoKeywords" placeholder="banho e tosa, pet shop, Ribeirão Preto"></label>
+          <label class="form-field span-2"><span>Imagem social / Open Graph</span><input class="input" id="seoImageUrl" placeholder="/assets/img/logo-petfunny-full.png"></label>
+          <label class="form-field span-2"><span>Headline da landing</span><input class="input" id="landingHeadline"></label>
+          <label class="form-field span-2"><span>Subheadline da landing</span><textarea class="textarea" id="landingSubheadline" rows="3"></textarea></label>
+        </div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Tipos de serviços</h3><p>Categorias operacionais usadas para organizar serviços como Banho, Tosa, Tratamentos e Extras.</p></div>
+          <div class="actions"><button class="btn" id="new-service-type" type="button">＋ Tipo de serviço</button></div>
+        </div>
+        <div id="service-types-list" class="config-grid service-type-grid"></div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Status da agenda</h3><p>Cadastre os status que aparecem no dashboard em “Distribuição por status” e na saúde da agenda de hoje.</p></div>
+          <div class="actions"><button class="btn" id="new-appointment-status" type="button">＋ Status da agenda</button></div>
+        </div>
+        <div id="appointment-statuses-list" class="config-grid service-type-grid"></div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Status de pagamento</h3><p>Cadastre os status financeiros usados no Financeiro, Agenda, Pacotes, Comandas e Recibos.</p></div>
+          <div class="actions"><button class="btn" id="new-payment-status" type="button">＋ Status de pagamento</button></div>
+        </div>
+        <div id="payment-statuses-list" class="config-grid service-type-grid"></div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Formas de pagamento</h3><p>Cadastre as formas aceitas no PetFunny. Por padrão: Dinheiro, Pix, Cartão de Crédito e Cartão de Débito.</p></div>
+          <div class="actions"><button class="btn" id="new-payment-method" type="button">＋ Forma de pagamento</button></div>
+        </div>
+        <div id="payment-methods-list" class="config-grid service-type-grid"></div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Dias e horários de funcionamento</h3><p>Defina quais dias abrem e o intervalo de atendimento. A agenda futura deve validar esses horários.</p></div>
+          <div class="actions"><button class="btn" id="save-hours" type="button">💾 Salvar dias e horários</button></div>
+        </div>
+        <div id="business-hours-grid" class="hours-grid"></div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Slots por hora</h3><p>Os slots aparecem automaticamente apenas dentro do horário de funcionamento cadastrado para cada dia. Exemplo: segunda 08:00 com 2 vagas.</p></div>
+          <div class="actions"><button class="btn" id="save-slots" type="button">💾 Salvar slots</button></div>
+        </div>
+        <div class="schedule-scroll custom-scroll"><div id="slot-matrix" class="slot-matrix"></div></div>
+      </section>
+
+      <section class="module-card stack-md">
+        <div class="section-toolbar">
+          <div><h3>Tipos, portes e raças</h3><p>Cadastros-base que alimentam o formulário de pets e futuramente serviços por porte.</p></div>
+          <div class="actions"><button class="btn btn-secondary" id="new-type" type="button">＋ Tipo</button><button class="btn btn-secondary" id="new-size" type="button">＋ Porte</button><button class="btn" id="new-breed" type="button">＋ Raça</button></div>
+        </div>
+        <div class="config-grid">
+          <article class="mini-panel"><h3>Tipos de pet</h3><div id="types-list" class="stack-sm"></div></article>
+          <article class="mini-panel"><h3>Portes</h3><div id="sizes-list" class="stack-sm"></div></article>
+          <article class="mini-panel"><h3>Raças</h3><div id="breeds-list" class="stack-sm custom-scroll" style="max-height:520px;overflow:auto"></div></article>
+        </div>
+      </section>
+
+      <dialog class="premium-modal" id="option-modal">
+        <form method="dialog" class="modal-card" id="option-form">
+          <header class="modal-header"><div><p class="eyebrow" id="option-eyebrow">Cadastro-base</p><h3 id="option-title">Novo item</h3></div><button class="icon-btn" value="cancel" type="button" id="close-option">×</button></header>
+          <div class="modal-body custom-scroll"><div id="option-fields" class="form-grid form-row-gap"></div></div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-option">Cancelar</button><button class="btn" type="submit">Salvar</button></footer>
+        </form>
+      </dialog>
+    `
+  });
+
+  const ids = ['businessName','legalName','documentNumber','whatsapp','phone','email','addressStreet','addressNumber','addressNeighborhood','addressCity','addressState','addressZipcode','websiteUrl','instagramUrl','facebookUrl','tiktokUrl','googleBusinessUrl','mapsUrl','seoTitle','seoDescription','seoKeywords','seoImageUrl','landingHeadline','landingSubheadline'];
+  const $ = (id) => document.getElementById(id);
+  const optionModal = $('option-modal');
+  const optionForm = $('option-form');
+
+  function setBusinessForm(data = {}) { ids.forEach(id => { if ($(id)) $(id).value = data[id] || ''; }); if (data.whatsapp) $('whatsapp').value = formatWhatsapp(data.whatsapp); if (data.phone) $('phone').value = formatWhatsapp(data.phone); }
+  function getBusinessPayload() { return Object.fromEntries(ids.map(id => [id, $(id)?.value || ''])); }
+
+  function updateMetrics() {
+    const openDays = (state.operational.businessHours || []).filter(day => day.isOpen).length;
+    const totalCapacity = (state.operational.timeSlotCapacities || []).reduce((sum, slot) => sum + Number(slot.capacity || 0), 0);
+    $('config-metrics').innerHTML = bigNumberGrid([
+      ['Tipos', String(state.petOptions.types.length), 'pets'],
+      ['Serviços', String(state.operational.serviceTypes.length), 'categorias'],
+      ['Status', String(state.operational.appointmentStatuses?.length || 0), 'agenda'],
+      ['Pagamentos', String((state.operational.paymentStatuses?.length || 0) + (state.operational.paymentMethods?.length || 0)), 'status + formas'],
+      ['Agenda', `${openDays} dias`, `${totalCapacity} vagas/semana`]
+    ]);
+  }
+
+  function chip(item, type) {
+    const subtitle = type === 'breed' ? `${item.petTypeName || 'Tipo'} · ${item.suggestedSizeCode || 'sem porte'} · ${item.coatType || 'pelagem livre'}` : `${item.code || ''} ${item.description ? '· ' + item.description : ''}`;
+    return `<div class="data-row" data-id="${item.id}" data-type="${type}"><div><strong>${esc(item.name)}</strong><small>${esc(subtitle)}</small></div><div class="actions"><span class="status-pill ${item.isActive ? 'ok':'muted-pill'}">${item.isActive ? 'Ativo':'Inativo'}</span><button class="icon-btn edit-option" type="button">✎</button><button class="icon-btn delete-option" type="button">×</button></div></div>`;
+  }
+
+  function renderPetOptions() {
+    $('types-list').innerHTML = state.petOptions.types.map(item => chip(item, 'type')).join('') || '<p>Nenhum tipo cadastrado.</p>';
+    $('sizes-list').innerHTML = state.petOptions.sizes.map(item => chip(item, 'size')).join('') || '<p>Nenhum porte cadastrado.</p>';
+    $('breeds-list').innerHTML = state.petOptions.breeds.map(item => chip(item, 'breed')).join('') || '<p>Nenhuma raça cadastrada.</p>';
+    updateMetrics();
+  }
+
+  function renderServiceTypes() {
+    $('service-types-list').innerHTML = (state.operational.serviceTypes || []).map(item => `
+      <article class="mini-panel service-type-card" data-id="${item.id}" data-type="serviceType">
+        <div class="page-heading-row between">
+          <div><h3>${esc(item.name)}</h3><p>${esc(item.description || 'Sem descrição cadastrada.')}</p><small>Pet: ${esc(item.petTypeName || 'Todos os tipos')} · Porte: ${esc(item.petSizeName || 'Todos os portes')}</small></div>
+          <span class="status-pill ${item.isActive ? 'ok':'muted-pill'}">${item.isActive ? 'Ativo':'Inativo'}</span>
+        </div>
+        <div class="actions"><button class="btn btn-secondary edit-option" type="button">Editar</button><button class="btn btn-secondary delete-option" type="button">Inativar</button></div>
+      </article>
+    `).join('') || '<p>Nenhum tipo de serviço cadastrado.</p>';
+    updateMetrics();
+  }
+
+  function renderAppointmentStatuses() {
+    const statuses = state.operational.appointmentStatuses || [];
+    $('appointment-statuses-list').innerHTML = statuses.map(item => `
+      <article class="mini-panel appointment-status-card" data-id="${item.id}" data-type="appointmentStatus">
+        <div class="page-heading-row between">
+          <div><h3><span class="status-dot" style="background:${esc(item.color || '#00A9B7')}"></span>${esc(item.name)}</h3><p><strong>${esc(item.code)}</strong> · ${esc(item.description || 'Sem descrição cadastrada.')}</p></div>
+          <span class="status-pill ${item.isActive ? 'ok':'muted-pill'}">${item.isActive ? 'Ativo':'Inativo'}</span>
+        </div>
+        <small>${item.isFinal ? 'Status final' : 'Status em aberto'} · ${item.blocksSlot ? 'bloqueia slot' : 'não bloqueia slot'}</small>
+        <div class="actions"><button class="btn btn-secondary edit-option" type="button">Editar</button><button class="btn btn-secondary delete-option" type="button">Inativar</button></div>
+      </article>
+    `).join('') || '<p>Nenhum status da agenda cadastrado.</p>';
+    updateMetrics();
+  }
+
+  function renderPaymentStatuses() {
+    const statuses = state.operational.paymentStatuses || [];
+    $('payment-statuses-list').innerHTML = statuses.map(item => `
+      <article class="mini-panel payment-status-card" data-id="${item.id}" data-type="paymentStatus">
+        <div class="page-heading-row between">
+          <div><h3><span class="status-dot" style="background:${esc(item.color || '#00A9B7')}"></span>${esc(item.name)}</h3><p><strong>${esc(item.code)}</strong> · ${esc(item.description || 'Sem descrição cadastrada.')}</p></div>
+          <span class="status-pill ${item.isActive ? 'ok':'muted-pill'}">${item.isActive ? 'Ativo':'Inativo'}</span>
+        </div>
+        <div class="actions"><button class="btn btn-secondary edit-option" type="button">Editar</button><button class="btn btn-secondary delete-option" type="button">Inativar</button></div>
+      </article>
+    `).join('') || '<p>Nenhum status de pagamento cadastrado.</p>';
+    updateMetrics();
+  }
+
+  function renderPaymentMethods() {
+    const methods = state.operational.paymentMethods || [];
+    $('payment-methods-list').innerHTML = methods.map(item => `
+      <article class="mini-panel payment-method-card" data-id="${item.id}" data-type="paymentMethod">
+        <div class="page-heading-row between">
+          <div><h3>💳 ${esc(item.name)}</h3><p>${esc(item.description || 'Sem descrição cadastrada.')}</p></div>
+          <span class="status-pill ${item.isActive ? 'ok':'muted-pill'}">${item.isActive ? 'Ativo':'Inativo'}</span>
+        </div>
+        <small>Ordem ${Number(item.sortOrder || 0)}</small>
+        <div class="actions"><button class="btn btn-secondary edit-option" type="button">Editar</button><button class="btn btn-secondary delete-option" type="button">Inativar</button></div>
+      </article>
+    `).join('') || '<p>Nenhuma forma de pagamento cadastrada.</p>';
+    updateMetrics();
+  }
+
+  function renderHours() {
+    const hours = state.operational.businessHours || [];
+    $('business-hours-grid').innerHTML = weekdays.map((name, weekday) => {
+      const item = hours.find(day => Number(day.weekday) === weekday) || { weekday, isOpen: weekday > 0, opensAt: '08:00', closesAt: weekday === 6 ? '14:00' : '18:00' };
+      return `<article class="hour-card" data-weekday="${weekday}">
+        <strong>${name}</strong>
+        <label class="toggle-line"><input type="checkbox" class="day-open" ${item.isOpen ? 'checked' : ''}> Aberto</label>
+        <div class="hour-inputs">
+          <label><span>Abre</span><input class="input day-open-at" type="time" step="3600" value="${esc(item.opensAt || '08:00')}"></label>
+          <label><span>Fecha</span><input class="input day-close-at" type="time" step="3600" value="${esc(item.closesAt || '18:00')}"></label>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  function getSlotCapacity(weekday, hour) {
+    const slot = (state.operational.timeSlotCapacities || []).find(item => Number(item.weekday) === weekday && item.slotTime === hour);
+    return Number(slot?.capacity ?? (weekday === 0 ? 0 : 2));
+  }
+
+  function renderSlots() {
+    const hoursByDay = visibleSlotHoursByWeekday();
+    const allHours = [...new Set(hoursByDay.flat())].sort();
+    const header = `<div class="slot-head sticky-cell">Horário</div>${weekdays.map((day, weekday) => `<div class="slot-head ${hoursByDay[weekday].length ? '' : 'muted-slot'}">${day.slice(0,3)}<small>${hoursByDay[weekday].length ? `${hoursByDay[weekday].length}h` : 'fechado'}</small></div>`).join('')}`;
+    const rows = allHours.length ? allHours.map(hour => `<div class="slot-hour sticky-cell">${hour}</div>${weekdays.map((day, weekday) => {
+      const visible = hoursByDay[weekday].includes(hour);
+      return visible
+        ? `<label class="slot-cell-input"><input class="input slot-capacity" data-weekday="${weekday}" data-time="${hour}" inputmode="numeric" type="number" min="0" max="20" value="${getSlotCapacity(weekday, hour)}"><span>vagas</span></label>`
+        : `<div class="slot-cell-input disabled-slot"><span>fora do horário</span></div>`;
+    }).join('')}`).join('') : `<div class="slot-empty span-8">Nenhum horário aberto. Ative pelo menos um dia de funcionamento para configurar slots.</div>`;
+    $('slot-matrix').innerHTML = header + rows;
+  }
+
+  function renderOperational() {
+    renderServiceTypes();
+    renderAppointmentStatuses();
+    renderPaymentStatuses();
+    renderPaymentMethods();
+    renderHours();
+    document.querySelectorAll('.day-open, .day-open-at, .day-close-at').forEach(input => input.addEventListener('change', renderSlots));
+    renderSlots();
+    updateMetrics();
+  }
+
+  async function loadConfig() {
+    showLoading('Carregando configurações...');
+    try {
+      const data = await api.get('/configuracoes');
+      state.business = data.business || {};
+      state.petOptions = data.petOptions || { types: [], sizes: [], breeds: [] };
+      state.operational = data.operational || { serviceTypes: [], appointmentStatuses: [], paymentStatuses: [], paymentMethods: [], businessHours: [], timeSlotCapacities: [] };
+      setBusinessForm(state.business);
+      renderPetOptions();
+      renderOperational();
+      setupPremiumInteractions(document.body);
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  async function refreshOperational() {
+    const data = await api.get('/configuracoes/operational');
+    state.operational = data;
+    renderOperational();
+  }
+
+  async function saveBusiness() {
+    try {
+      showLoading('Salvando dados do comércio e SEO...');
+      const data = await api.put('/configuracoes/business', getBusinessPayload());
+      state.business = data.business;
+      setBusinessForm(state.business);
+      updateMetrics();
+      toast('Configurações salvas com sucesso.', 'success');
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  function openOptionModal(type, item = null) {
+    state.editing = { type, item };
+    const titleMap = { type: 'Tipo de pet', size: 'Porte', breed: 'Raça', serviceType: 'Tipo de serviço', appointmentStatus: 'Status da agenda', paymentStatus: 'Status de pagamento', paymentMethod: 'Forma de pagamento' };
+    $('option-title').textContent = item ? `Editar ${titleMap[type]}` : `Novo ${titleMap[type]}`;
+    $('option-eyebrow').textContent = type === 'appointmentStatus' ? 'Configuração da agenda' : type === 'paymentStatus' || type === 'paymentMethod' ? 'Configuração financeira' : type === 'serviceType' ? 'Configuração de serviços' : 'Configuração de pets';
+    if (type === 'serviceType') {
+      const petTypeOptions = state.petOptions.types.map(t => `<option value="${esc(t.code)}" ${t.code === item?.petTypeCode ? 'selected':''}>${esc(t.name)}</option>`).join('');
+      const petSizeOptions = state.petOptions.sizes.map(sz => `<option value="${esc(sz.code)}" ${sz.code === item?.petSizeCode ? 'selected':''}>${esc(sz.name)}</option>`).join('');
+      $('option-fields').innerHTML = `<label class="form-field"><span>Nome</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}" placeholder="Banho, Tosa, Tratamentos..."></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field"><span>Tipo de pet</span><select class="select" id="opt-pet-type-code"><option value="">Todos os tipos</option>${petTypeOptions}</select></label><label class="form-field"><span>Porte</span><select class="select" id="opt-pet-size-code"><option value="">Todos os portes</option>${petSizeOptions}</select></label><label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="opt-description" rows="3">${esc(item?.description || '')}</textarea></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+    }
+    if (type === 'appointmentStatus') {
+      $('option-fields').innerHTML = `<label class="form-field"><span>Nome do status</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}" placeholder="Agendado, Confirmado..."></label><label class="form-field"><span>Código técnico</span><input class="input" id="opt-code" required value="${esc(item?.code || '')}" placeholder="agendado"></label><label class="form-field"><span>Cor</span><input class="input" id="opt-color" type="color" value="${esc(item?.color || '#00A9B7')}"></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="opt-description" rows="3">${esc(item?.description || '')}</textarea></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label><label class="form-field"><span>Finaliza fluxo?</span><select class="select" id="opt-final"><option value="false">Não</option><option value="true">Sim</option></select></label><label class="form-field"><span>Bloqueia slot?</span><select class="select" id="opt-blocks"><option value="true">Sim</option><option value="false">Não</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+      $('opt-final').value = String(item?.isFinal ?? false);
+      $('opt-blocks').value = String(item?.blocksSlot ?? true);
+    }
+    if (type === 'paymentStatus') {
+      $('option-fields').innerHTML = `<label class="form-field"><span>Nome do status</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}" placeholder="Pago, Pendente..."></label><label class="form-field"><span>Código técnico</span><input class="input" id="opt-code" required value="${esc(item?.code || '')}" placeholder="paid ou pending"></label><label class="form-field"><span>Cor</span><input class="input" id="opt-color" type="color" value="${esc(item?.color || '#00A9B7')}"></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="opt-description" rows="3">${esc(item?.description || '')}</textarea></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+    }
+    if (type === 'paymentMethod') {
+      $('option-fields').innerHTML = `<label class="form-field"><span>Nome da forma</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}" placeholder="Dinheiro, Pix, Cartão de Crédito..."></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="opt-description" rows="3">${esc(item?.description || '')}</textarea></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+    }
+    if (type === 'type') {
+      $('option-fields').innerHTML = `<label class="form-field"><span>Nome</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}"></label><label class="form-field"><span>Código</span><input class="input" id="opt-code" value="${esc(item?.code || '')}"></label><label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="opt-description" rows="3">${esc(item?.description || '')}</textarea></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+    }
+    if (type === 'size') {
+      $('option-fields').innerHTML = `<label class="form-field"><span>Nome</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}"></label><label class="form-field"><span>Código</span><input class="input" id="opt-code" value="${esc(item?.code || '')}"></label><label class="form-field"><span>Peso mínimo KG</span><input class="input" id="opt-min" inputmode="decimal" value="${esc(item?.minWeightKg ?? '')}"></label><label class="form-field"><span>Peso máximo KG</span><input class="input" id="opt-max" inputmode="decimal" value="${esc(item?.maxWeightKg ?? '')}"></label><label class="form-field span-2"><span>Descrição</span><textarea class="textarea" id="opt-description" rows="3">${esc(item?.description || '')}</textarea></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+    }
+    if (type === 'breed') {
+      const typeOptions = state.petOptions.types.map(t => `<option value="${t.id}" ${t.id === item?.petTypeId ? 'selected':''}>${esc(t.name)}</option>`).join('');
+      const sizeOptions = state.petOptions.sizes.map(s => `<option value="${s.code}" ${s.code === item?.suggestedSizeCode ? 'selected':''}>${esc(s.name)}</option>`).join('');
+      $('option-fields').innerHTML = `<label class="form-field"><span>Tipo</span><select class="select" id="opt-pet-type" required>${typeOptions}</select></label><label class="form-field"><span>Nome da raça</span><input class="input" id="opt-name" required value="${esc(item?.name || '')}"></label><label class="form-field"><span>Porte sugerido</span><select class="select" id="opt-size"><option value="">Sem sugestão</option>${sizeOptions}</select></label><label class="form-field"><span>Pelagem padrão</span><input class="input" id="opt-coat" value="${esc(item?.coatType || '')}"></label><label class="form-field"><span>Ordem</span><input class="input" id="opt-sort" inputmode="numeric" value="${esc(item?.sortOrder ?? 0)}"></label><label class="form-field"><span>Status</span><select class="select" id="opt-active"><option value="true">Ativo</option><option value="false">Inativo</option></select></label>`;
+      $('opt-active').value = String(item?.isActive ?? true);
+    }
+    optionModal.showModal();
+  }
+
+  async function saveOption(event) {
+    event.preventDefault();
+    const { type, item } = state.editing;
+    const payload = { name: $('opt-name')?.value, code: $('opt-code')?.value, description: $('opt-description')?.value, sortOrder: $('opt-sort')?.value, isActive: $('opt-active')?.value };
+    let base = '/configuracoes/pet-types';
+    if (type === 'serviceType') { base = '/configuracoes/service-types'; payload.petTypeCode = $('opt-pet-type-code')?.value || ''; payload.petSizeCode = $('opt-pet-size-code')?.value || ''; }
+    if (type === 'appointmentStatus') { base = '/configuracoes/appointment-statuses'; payload.code = $('opt-code')?.value; payload.color = $('opt-color')?.value; payload.isFinal = $('opt-final')?.value; payload.blocksSlot = $('opt-blocks')?.value; }
+    if (type === 'paymentStatus') { base = '/configuracoes/payment-statuses'; payload.code = $('opt-code')?.value; payload.color = $('opt-color')?.value; }
+    if (type === 'paymentMethod') base = '/configuracoes/payment-methods';
+    if (type === 'size') { base = '/configuracoes/pet-sizes'; payload.minWeightKg = $('opt-min')?.value; payload.maxWeightKg = $('opt-max')?.value; }
+    if (type === 'breed') { base = '/configuracoes/pet-breeds'; payload.petTypeId = $('opt-pet-type')?.value; payload.suggestedSizeCode = $('opt-size')?.value; payload.coatType = $('opt-coat')?.value; }
+    try {
+      showLoading('Salvando configuração...');
+      if (item?.id) await api.put(`${base}/${item.id}`, payload); else await api.post(base, payload);
+      optionModal.close();
+      toast('Configuração salva.', 'success');
+      if (['serviceType','appointmentStatus','paymentStatus','paymentMethod'].includes(type)) await refreshOperational();
+      else { const data = await api.get('/configuracoes/pet-options'); state.petOptions = data; renderPetOptions(); }
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  async function deleteOption(type, id) {
+    if (!confirm('Inativar este item?')) return;
+    const base = type === 'appointmentStatus' ? '/configuracoes/appointment-statuses' : type === 'paymentStatus' ? '/configuracoes/payment-statuses' : type === 'paymentMethod' ? '/configuracoes/payment-methods' : type === 'serviceType' ? '/configuracoes/service-types' : type === 'type' ? '/configuracoes/pet-types' : type === 'size' ? '/configuracoes/pet-sizes' : '/configuracoes/pet-breeds';
+    try {
+      showLoading('Inativando item...');
+      await api.delete(`${base}/${id}`);
+      if (['serviceType','appointmentStatus','paymentStatus','paymentMethod'].includes(type)) await refreshOperational();
+      else { const data = await api.get('/configuracoes/pet-options'); state.petOptions = data; renderPetOptions(); }
+      toast('Item inativado.', 'success');
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  async function saveHours() {
+    const days = Array.from(document.querySelectorAll('.hour-card')).map(card => ({
+      weekday: Number(card.dataset.weekday),
+      isOpen: card.querySelector('.day-open')?.checked || false,
+      opensAt: card.querySelector('.day-open-at')?.value || '',
+      closesAt: card.querySelector('.day-close-at')?.value || ''
+    }));
+    try {
+      showLoading('Salvando dias e horários...');
+      state.operational = await api.put('/configuracoes/business-hours', { days });
+      renderOperational();
+      toast('Horários de funcionamento salvos.', 'success');
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  async function saveSlots() {
+    const slots = Array.from(document.querySelectorAll('.slot-capacity')).map(input => ({
+      weekday: Number(input.dataset.weekday),
+      slotTime: input.dataset.time,
+      capacity: Number(input.value || 0)
+    }));
+    try {
+      showLoading('Salvando slots por hora...');
+      state.operational = await api.put('/configuracoes/time-slots', { slots });
+      renderOperational();
+      toast('Slots por hora salvos.', 'success');
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
+  }
+
+  $('save-business').addEventListener('click', saveBusiness);
+  $('save-hours').addEventListener('click', saveHours);
+  $('save-slots').addEventListener('click', saveSlots);
+  $('new-service-type').addEventListener('click', () => openOptionModal('serviceType'));
+  $('new-appointment-status').addEventListener('click', () => openOptionModal('appointmentStatus'));
+  $('new-payment-status').addEventListener('click', () => openOptionModal('paymentStatus'));
+  $('new-payment-method').addEventListener('click', () => openOptionModal('paymentMethod'));
+  $('new-type').addEventListener('click', () => openOptionModal('type'));
+  $('new-size').addEventListener('click', () => openOptionModal('size'));
+  $('new-breed').addEventListener('click', () => openOptionModal('breed'));
+  $('close-option').addEventListener('click', () => optionModal.close());
+  $('cancel-option').addEventListener('click', () => optionModal.close());
+  optionForm.addEventListener('submit', saveOption);
+
+  document.body.addEventListener('click', (event) => {
+    const statusCard = event.target.closest('.appointment-status-card');
+    if (statusCard) {
+      const item = state.operational.appointmentStatuses.find(x => x.id === statusCard.dataset.id);
+      if (event.target.closest('.edit-option')) openOptionModal('appointmentStatus', item);
+      if (event.target.closest('.delete-option')) deleteOption('appointmentStatus', statusCard.dataset.id);
+      return;
+    }
+    const paymentStatusCard = event.target.closest('.payment-status-card');
+    if (paymentStatusCard) {
+      const item = state.operational.paymentStatuses.find(x => x.id === paymentStatusCard.dataset.id);
+      if (event.target.closest('.edit-option')) openOptionModal('paymentStatus', item);
+      if (event.target.closest('.delete-option')) deleteOption('paymentStatus', paymentStatusCard.dataset.id);
+      return;
+    }
+    const paymentMethodCard = event.target.closest('.payment-method-card');
+    if (paymentMethodCard) {
+      const item = state.operational.paymentMethods.find(x => x.id === paymentMethodCard.dataset.id);
+      if (event.target.closest('.edit-option')) openOptionModal('paymentMethod', item);
+      if (event.target.closest('.delete-option')) deleteOption('paymentMethod', paymentMethodCard.dataset.id);
+      return;
+    }
+    const serviceCard = event.target.closest('.service-type-card');
+    if (serviceCard) {
+      const item = state.operational.serviceTypes.find(x => x.id === serviceCard.dataset.id);
+      if (event.target.closest('.edit-option')) openOptionModal('serviceType', item);
+      if (event.target.closest('.delete-option')) deleteOption('serviceType', serviceCard.dataset.id);
+      return;
+    }
+    const row = event.target.closest('.data-row');
+    if (!row) return;
+    const type = row.dataset.type;
+    const list = type === 'type' ? state.petOptions.types : type === 'size' ? state.petOptions.sizes : state.petOptions.breeds;
+    const item = list.find(x => x.id === row.dataset.id);
+    if (event.target.closest('.edit-option')) openOptionModal(type, item);
+    if (event.target.closest('.delete-option')) deleteOption(type, row.dataset.id);
+  });
+
+  document.body.addEventListener('input', (event) => {
+    if (event.target?.dataset?.mask === 'whatsapp') event.target.value = formatWhatsapp(event.target.value);
+    if (event.target?.dataset?.mask === 'cep') {
+      const d = onlyDigits(event.target.value).slice(0,8);
+      event.target.value = d.length > 5 ? `${d.slice(0,5)}-${d.slice(5)}` : d;
+    }
+    if (event.target?.classList?.contains('slot-capacity')) {
+      const value = Math.max(0, Math.min(20, Number(event.target.value || 0)));
+      event.target.value = value;
+    }
+  });
+
+  await loadConfig();
+  finishPageLoading();
+</script>
+</body>
+</html>

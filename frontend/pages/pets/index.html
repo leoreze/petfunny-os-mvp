@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pets · PetFunny OS</title>
+  
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <meta name="msapplication-TileColor" content="#26b9c7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  showLoading('Carregando pets...', 'Organizando a lista de pets e seus vínculos com tutores.');
+
+  const state = {
+    page: 1,
+    limit: 20,
+    search: '',
+    size: 'all',
+    status: 'active',
+    loading: false,
+    done: false,
+    items: [],
+    tutors: [],
+    petOptions: { types: [], sizes: [], breeds: [] },
+    sortKey: 'name',
+    sortDir: 'asc'
+  };
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+  const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
+  const formatWhatsapp = (value = '') => {
+    const d = onlyDigits(value).replace(/^55/, '');
+    if (d.length <= 2) return d;
+    if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+    return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
+  };
+  const sizeLabel = (value) => state.petOptions.sizes.find(s => s.code === value)?.name || ({ pequeno:'Pequeno', medio:'Médio', grande:'Grande', gigante:'Gigante', todos:'Todos' }[value] || value || 'Pequeno');
+  const speciesLabel = (value) => state.petOptions.types.find(t => t.code === value)?.name || ({ dog:'Cachorro', cat:'Gato', other:'Outro' }[value] || value || 'Pet');
+  const initials = (name = '') => String(name || '?').trim().split(/\s+/).slice(0,2).map(p => p[0] || '').join('').toUpperCase() || '?';
+  const avatarHtml = (name, photoUrl, className = '') => photoUrl
+    ? `<img class="photo-avatar ${className}" src="${esc(photoUrl)}" alt="Foto de ${esc(name)}">`
+    : `<span class="photo-avatar avatar-initials ${className}" aria-label="Avatar de ${esc(name)}">${esc(initials(name))}</span>`;
+  const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+    if (!file) return resolve('');
+    if (!file.type.startsWith('image/')) return reject(new Error('Selecione uma imagem válida.'));
+    if (file.size > 750 * 1024) return reject(new Error('Use uma imagem com até 750 KB para manter o carregamento rápido.'));
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+    reader.readAsDataURL(file);
+  });
+
+  buildShell({
+    active: 'Pets',
+    eyebrow: 'Cadastro dos pets',
+    title: 'Pets atendidos',
+    subtitle: 'Consulte pets, identifique o tutor responsável, acompanhe porte, raça, preferências e cuidados importantes antes de cada atendimento.',
+    content: `
+      <section class="hero-panel stack-lg pets-page pets-page-hero">
+        <div class="page-heading-row between">
+          <div>
+            <p class="eyebrow">Base de atendimento</p>
+            <h1>Pets do PetFunny</h1>
+            <p>Tenha uma lista clara dos pets cadastrados, com tutor vinculado, foto ou iniciais, porte, raça e observações essenciais para a rotina do banho e tosa.</p>
+          </div>
+          <div class="actions"><button class="btn" id="new-pet-btn" type="button">＋ Novo pet</button><a class="btn btn-secondary" href="/admin/tutores">👥 Ver tutores</a></div>
+        </div>
+        <div id="pet-metrics">${bigNumberGrid([['Pets cadastrados','--','na base'],['Tutores vinculados','--','responsáveis'],['Raças registradas','--','para personalizar o atendimento']])}</div>
+      </section>
+
+      <section class="module-card stack-md pets-list-card pets-page">
+        <div class="section-toolbar pets-filter-toolbar">
+          <div><h3>Consulta de pets</h3><p>Busque por pet, tutor, raça ou WhatsApp. A lista carrega mais registros conforme você rola a página.</p></div>
+          <div class="compact-filter-row pets-filter-row">
+            <input class="input" id="search-pets" placeholder="Buscar pet, tutor, raça ou WhatsApp" autocomplete="off">
+            <select class="select" id="size-filter"><option value="all">Todos os portes</option></select>
+            <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
+            <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
+          </div>
+        </div>
+        <div class="table-scroll custom-scroll pets-table-wrap no-inner-scroll" id="pets-scroll">
+          <table class="premium-table sortable-table">
+            <thead><tr>
+              <th><button class="th-sort" type="button" data-sort="name">Pet <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="tutorName">Tutor <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="size">Porte <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="breed">Raça <span class="sort-arrow">↕</span></button></th>
+              <th>Cuidados</th>
+              <th><button class="th-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th>
+              <th>Ações</th>
+            </tr></thead>
+            <tbody id="pets-body"><tr><td colspan="7">Preparando tudo...</td></tr></tbody>
+          </table>
+          <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais pets...</div>
+        </div>
+      </section>
+
+      <dialog class="premium-modal" id="pet-modal">
+        <form method="dialog" class="modal-card" id="pet-form">
+          <header class="modal-header"><div><p class="eyebrow">Cadastro de pet</p><h3 id="modal-title">Novo pet</h3></div><button class="icon-btn" value="cancel" type="button" id="close-modal">×</button></header>
+          <div class="modal-body custom-scroll">
+            <input type="hidden" id="pet-id">
+            <div class="form-grid form-row-gap">
+              <div class="form-field span-2 photo-upload-field">
+                <span>Foto do pet</span>
+                <div class="photo-upload-row">
+                  <div id="pet-photo-preview" class="photo-avatar avatar-initials photo-preview">?</div>
+                  <div class="stack-sm grow">
+                    <input type="hidden" id="photoDataUrl">
+                    <input class="input" id="photoFile" type="file" accept="image/*">
+                    <small class="muted">PNG, JPG, WebP ou GIF. Quando não houver foto, a listagem mostra as iniciais.</small>
+                  </div>
+                </div>
+              </div>
+              <label class="form-field span-2"><span>Tutor responsável</span><select class="select" id="tutorId" required><option value="">Carregando tutores...</option></select></label>
+              <label class="form-field"><span>Nome do pet</span><input class="input" id="name" required placeholder="Ex.: Mel"></label>
+              <label class="form-field"><span>Tipo</span><select class="select" id="species"><option value="dog">Cachorro</option></select></label>
+              <label class="form-field"><span>Raça</span><input class="input" id="breed" list="breed-options" placeholder="Ex.: Spitz Alemão"><datalist id="breed-options"></datalist></label>
+              <label class="form-field"><span>Porte</span><select class="select" id="size"><option value="pequeno">Pequeno</option></select></label>
+              <label class="form-field"><span>Pelagem</span><input class="input" id="coatType" placeholder="Curta, média, longa..."></label>
+              <label class="form-field"><span>Nascimento</span><input class="input" id="birthDate" type="date"></label>
+              <label class="form-field"><span>Peso KG</span><input class="input" id="weightKg" inputmode="decimal" placeholder="Ex.: 4.8"></label>
+              <label class="form-field"><span>Status</span><select class="select" id="status"><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
+              <label class="form-field span-2"><span>Preferências</span><textarea class="textarea" id="preferences" rows="3" placeholder="Laço, perfume, banho morno, finalização..."></textarea></label>
+              <label class="form-field span-2"><span>Restrições / cuidados</span><textarea class="textarea" id="restrictions" rows="3" placeholder="Alergias, medo de secador, cuidado com patas..."></textarea></label>
+              <label class="form-field span-2"><span>Observações internas</span><textarea class="textarea" id="notes" rows="3"></textarea></label>
+            </div>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-modal">Cancelar</button><button class="btn" type="submit">Salvar pet</button></footer>
+        </form>
+      </dialog>
+    `
+  });
+
+  const body = document.getElementById('pets-body');
+  const scrollBox = document.getElementById('pets-scroll');
+  const loader = document.getElementById('infinite-loader');
+  const modal = document.getElementById('pet-modal');
+  const form = document.getElementById('pet-form');
+  const fields = ['pet-id','photoDataUrl','photoFile','tutorId','name','species','breed','size','coatType','birthDate','weightKg','status','preferences','restrictions','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
+
+  function setPetPhotoPreview(name, photoUrl) {
+    const next = new DOMParser().parseFromString(avatarHtml(name || 'Pet', photoUrl || '', 'photo-preview'), 'text/html').body.firstElementChild;
+    next.id = 'pet-photo-preview';
+    document.getElementById('pet-photo-preview')?.replaceWith(next);
+  }
+
+  function rowTemplate(item) {
+    const care = item.restrictions || item.preferences || item.notes || '';
+    return `<tr data-id="${esc(item.id)}">
+      <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(speciesLabel(item.species))}</small></div></div></td>
+      <td><strong>${esc(item.tutorName || 'Tutor não informado')}</strong><small>${formatWhatsapp(item.tutorWhatsapp || '') || 'sem WhatsApp'}</small></td>
+      <td><strong>${esc(sizeLabel(item.size))}</strong><small>${esc(item.coatType || 'pelagem não informada')}</small></td>
+      <td><strong>${esc(item.breed || 'não informada')}</strong><small>${esc(speciesLabel(item.species))}</small></td>
+      <td><small>${esc(care || 'sem cuidados registrados')}</small></td>
+      <td><span class="status-pill ${item.status === 'active' ? 'ok' : 'muted-pill'}">${item.status === 'active' ? 'Ativo' : 'Inativo'}</span></td>
+      <td><div class="row-actions"><button class="icon-btn edit-btn" data-id="${esc(item.id)}" type="button" title="Editar">✎</button><button class="icon-btn delete-btn" data-id="${esc(item.id)}" type="button" title="Inativar">🗑</button></div></td>
+    </tr>`;
+  }
+
+  function updateMetrics() {
+    const active = state.items.filter(item => item.status === 'active').length;
+    const tutors = new Set(state.items.map(item => item.tutorId).filter(Boolean)).size;
+    const breeds = new Set(state.items.map(item => String(item.breed || '').trim().toLowerCase()).filter(Boolean)).size;
+    document.getElementById('pet-metrics').innerHTML = bigNumberGrid([
+      ['Pets carregados', String(state.items.length), `${active} ativos nesta consulta`],
+      ['Tutores vinculados', String(tutors), 'responsáveis únicos'],
+      ['Raças registradas', String(breeds), 'personalização do atendimento']
+    ]);
+  }
+
+  function sortValue(item, key) {
+    if (key === 'tutorName') return String(item.tutorName || '').toLowerCase();
+    if (key === 'size') return String(sizeLabel(item.size) || '').toLowerCase();
+    return String(item[key] || '').toLowerCase();
+  }
+
+  function sortedItems() {
+    const dir = state.sortDir === 'asc' ? 1 : -1;
+    return [...state.items].sort((a, b) => {
+      const av = sortValue(a, state.sortKey);
+      const bv = sortValue(b, state.sortKey);
+      if (av > bv) return dir;
+      if (av < bv) return -dir;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+    });
+  }
+
+  function renderPets() {
+    const rows = sortedItems();
+    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="7">Nenhum pet encontrado.</td></tr>';
+    document.querySelectorAll('.th-sort').forEach((button) => {
+      const active = button.dataset.sort === state.sortKey;
+      button.classList.toggle('active', active);
+      const arrow = button.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = active ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  async function loadPetOptions() {
+    try {
+      state.petOptions = await api.get('/configuracoes/pet-options?activeOnly=true');
+      const sizeOptions = (state.petOptions.sizes || []).filter(s => s.code !== 'todos').map(s => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join('');
+      const typeOptions = (state.petOptions.types || []).map(t => `<option value="${esc(t.code)}">${esc(t.name)}</option>`).join('');
+      const breedOptions = (state.petOptions.breeds || []).map(b => `<option value="${esc(b.name)}" data-size="${esc(b.suggestedSizeCode || '')}" data-coat="${esc(b.coatType || '')}"></option>`).join('');
+      document.getElementById('size-filter').innerHTML = '<option value="all">Todos os portes</option>' + sizeOptions;
+      fields.size.innerHTML = sizeOptions || '<option value="pequeno">Pequeno</option>';
+      fields.species.innerHTML = typeOptions || '<option value="dog">Cachorro</option>';
+      document.getElementById('breed-options').innerHTML = breedOptions;
+    } catch (error) {
+      console.warn('[pets] opções de configuração não carregadas', error.message);
+    }
+  }
+
+  async function loadTutorsForSelect() {
+    const data = await api.get('/tutores?status=active&limit=100');
+    state.tutors = data.items || [];
+    fields.tutorId.innerHTML = '<option value="">Selecione o tutor</option>' + state.tutors.map(t => `<option value="${esc(t.id)}">${esc(t.name)} · ${formatWhatsapp(t.whatsapp)}</option>`).join('');
+  }
+
+  async function loadPets(reset = false) {
+    if (state.loading || (state.done && !reset)) return;
+    state.loading = true;
+    loader.hidden = false;
+    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="7">Preparando tudo...</td></tr>'; }
+    try {
+      const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status, size: state.size });
+      if (state.search) params.set('search', state.search);
+      const data = await api.get(`/pets?${params.toString()}`);
+      if (reset) state.items = [];
+      state.items.push(...(data.items || []));
+      state.done = state.items.length >= Number(data.total || 0) || (data.items || []).length === 0;
+      state.page += 1;
+      renderPets();
+      updateMetrics();
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="7">${esc(error.message)}</td></tr>`;
+      toast(error.message, 'error');
+    } finally {
+      loader.hidden = true;
+      state.loading = false;
+    }
+  }
+
+  function openForm(item = null) {
+    document.getElementById('modal-title').textContent = item ? 'Editar pet' : 'Novo pet';
+    fields['pet-id'].value = item?.id || '';
+    fields.photoDataUrl.value = item?.photoUrl || '';
+    if (fields.photoFile) fields.photoFile.value = '';
+    setPetPhotoPreview(item?.name || 'Pet', item?.photoUrl || '');
+    fields.tutorId.value = item?.tutorId || '';
+    fields.name.value = item?.name || '';
+    fields.species.value = item?.species || 'dog';
+    fields.breed.value = item?.breed || '';
+    fields.size.value = item?.size || 'pequeno';
+    fields.coatType.value = item?.coatType || '';
+    fields.birthDate.value = item?.birthDate ? String(item.birthDate).slice(0,10) : '';
+    fields.weightKg.value = item?.weightKg || '';
+    fields.status.value = item?.status || 'active';
+    fields.preferences.value = item?.preferences || '';
+    fields.restrictions.value = item?.restrictions || '';
+    fields.notes.value = item?.notes || '';
+    setupPremiumInteractions(modal);
+    modal.showModal();
+  }
+
+  async function savePet(event) {
+    event.preventDefault();
+    const id = fields['pet-id'].value;
+    const payload = {
+      tutorId: fields.tutorId.value,
+      name: fields.name.value,
+      species: fields.species.value,
+      breed: fields.breed.value,
+      size: fields.size.value,
+      coatType: fields.coatType.value,
+      birthDate: fields.birthDate.value,
+      weightKg: fields.weightKg.value,
+      status: fields.status.value,
+      preferences: fields.preferences.value,
+      restrictions: fields.restrictions.value,
+      notes: fields.notes.value,
+      photoDataUrl: fields.photoDataUrl.value
+    };
+    try {
+      showLoading('Salvando pet...');
+      if (id) await api.put(`/pets/${id}`, payload); else await api.post('/pets', payload);
+      modal.close();
+      toast('Pet salvo com sucesso.', 'success');
+      await loadPets(true);
+      finishPageLoading();
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  document.getElementById('new-pet-btn').addEventListener('click', () => openForm());
+  document.getElementById('close-modal').addEventListener('click', () => modal.close());
+  document.getElementById('cancel-modal').addEventListener('click', () => modal.close());
+  document.getElementById('refresh-btn').addEventListener('click', () => loadPets(true));
+  document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.sort;
+    if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+    else { state.sortKey = key; state.sortDir = key === 'name' ? 'asc' : 'desc'; }
+    renderPets();
+  }));
+  form.addEventListener('submit', savePet);
+  document.getElementById('search-pets').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__petSearch); window.__petSearch = window.setTimeout(() => loadPets(true), 320); });
+  document.getElementById('size-filter').addEventListener('change', (event) => { state.size = event.target.value; loadPets(true); });
+  document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadPets(true); });
+  body.addEventListener('click', async (event) => {
+    const edit = event.target.closest('.edit-btn');
+    const del = event.target.closest('.delete-btn');
+    if (edit) openForm(state.items.find(row => row.id === edit.dataset.id));
+    if (del) {
+      if (!confirm('Inativar este pet?')) return;
+      try { showLoading('Inativando pet...'); await api.delete(`/pets/${del.dataset.id}`); toast('Pet inativado.', 'success'); await loadPets(true); }
+      catch (error) { toast(error.message, 'error'); }
+      finally { hideLoading(); }
+    }
+  });
+
+  fields.photoFile.addEventListener('change', async () => {
+    try {
+      const dataUrl = await fileToDataUrl(fields.photoFile.files?.[0]);
+      fields.photoDataUrl.value = dataUrl;
+      setPetPhotoPreview(fields.name.value || 'Pet', dataUrl);
+    } catch (error) {
+      fields.photoFile.value = '';
+      toast(error.message, 'error');
+    }
+  });
+
+  fields.breed.addEventListener('change', () => {
+    const selected = (state.petOptions.breeds || []).find(b => b.name.toLowerCase() === fields.breed.value.toLowerCase());
+    if (selected?.suggestedSizeCode) fields.size.value = selected.suggestedSizeCode;
+    if (selected?.coatType && !fields.coatType.value) fields.coatType.value = selected.coatType;
+  });
+
+  const maybeLoadMore = () => {
+    const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 420;
+    if (nearBottom) loadPets(false);
+  };
+  window.addEventListener('scroll', maybeLoadMore, { passive: true });
+  scrollBox.addEventListener('scroll', maybeLoadMore, { passive: true });
+
+  try {
+    await loadPetOptions();
+    await loadTutorsForSelect();
+    await loadPets(true);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('new') === '1') {
+      requestAnimationFrame(() => openForm());
+    }
+  } finally {
+    finishPageLoading();
+    hideLoading();
+  }
+</script>
+</body>
+</html>
