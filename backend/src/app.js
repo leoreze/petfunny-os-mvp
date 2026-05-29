@@ -3741,12 +3741,8 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     if (!petId) return res.status(400).json({ error: 'Escolha o pet para agendar.' });
     if (!startsAt) return res.status(400).json({ error: 'Informe data e horário válidos.' });
     if (!serviceIds.length) return res.status(400).json({ error: 'Selecione ao menos um serviço.' });
-<<<<<<< HEAD
     const paymentType = normalizeAppPaymentType(req.body?.paymentType || req.body?.paymentMethod || 'pix');
     if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN no servidor para o app salvar agendamentos pagos.' });
-=======
-    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento Pix indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN no servidor para o app salvar agendamentos pagos.' });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 
     const pet = await query(`SELECT id, name, size FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
     if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
@@ -3756,11 +3752,7 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
     const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || rawStartsAt, petSize: pet.rows[0]?.size || 'todos', serviceIds: services.rows.map((row) => row.id) });
     const totals = applyPromotionsToItems(baseItems, activePromotions);
-<<<<<<< HEAD
     if (totals.totalCents <= 0) return res.status(400).json({ error: `O valor total do agendamento precisa ser maior que zero para gerar ${paymentTypeLabel(paymentType)}.` });
-=======
-    if (totals.totalCents <= 0) return res.status(400).json({ error: 'O valor total do agendamento precisa ser maior que zero para gerar Pix.' });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 
     let appointmentNotes = cleanText(req.body?.notes);
     let giftSpin = null;
@@ -3796,7 +3788,6 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     const description = `Agendamento PetFunny · ${pet.rows[0].name} · ${services.rows.map((row) => row.name).join(', ')}`.slice(0, 250);
     const pixExpirationMinutes = getMercadoPagoPixExpirationMinutes();
     const expiresAt = new Date(Date.now() + pixExpirationMinutes * 60 * 1000).toISOString();
-<<<<<<< HEAD
     await ensurePaymentIntentCompatibility('appointment_payment_intents');
     const intent = await query(`
       INSERT INTO appointment_payment_intents (tutor_id, client_account_id, pet_id, status, payment_type, amount_cents, description, pending_payload, expires_at)
@@ -3816,15 +3807,6 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
         `, [intent.rows[0].id]);
         return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), message: 'Pagamento por cartão iniciado. Preencha os dados no ambiente seguro Mercado Pago dentro do app.' });
       }
-=======
-    const intent = await query(`
-      INSERT INTO appointment_payment_intents (tutor_id, client_account_id, pet_id, status, amount_cents, description, pending_payload, expires_at)
-      VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending', $4::integer, $5::text, $6::jsonb, $7::timestamptz)
-      RETURNING *
-    `, [tutorId, accountId, petId, totals.totalCents, description, JSON.stringify(payload), expiresAt]);
-
-    try {
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       const mp = await createMercadoPagoPixPayment({
         intentId: intent.rows[0].id,
         amountCents: totals.totalCents,
@@ -3832,25 +3814,13 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
         payerEmail: tutorEmail,
         payerName: tutorName
       });
-<<<<<<< HEAD
       updated = await query(`
-=======
-      const updated = await query(`
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
         UPDATE appointment_payment_intents
         SET mp_payment_id=$2::text, mp_status=$3::text, qr_code=$4::text, qr_code_base64=$5::text, provider_response=$6::jsonb, updated_at=NOW()
         WHERE id=$1::uuid
         RETURNING *
       `, [intent.rows[0].id, mp.paymentId, mp.status, mp.qrCode, mp.qrCodeBase64, JSON.stringify(mp.payment || {})]);
-<<<<<<< HEAD
       return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePaymentIntent(updated.rows[0]), message: 'Pix gerado. O agendamento só será salvo após a confirmação do pagamento pelo Mercado Pago.' });
-=======
-      return res.status(201).json({
-        requiresPayment: true,
-        paymentIntent: sanitizePaymentIntent(updated.rows[0]),
-        message: 'Pix gerado. O agendamento só será salvo após a confirmação do pagamento pelo Mercado Pago.'
-      });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     } catch (error) {
       await query(`UPDATE appointment_payment_intents SET status='failed', last_error=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, error.message, JSON.stringify(error.details || {})]).catch(() => null);
       throw error;
@@ -3860,7 +3830,6 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
   }
 });
 
-<<<<<<< HEAD
 app.get('/api/app/appointments', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
@@ -3885,8 +3854,6 @@ app.all('/api/app/appointments', (req, res) => {
   });
 });
 
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 app.get('/api/app/appointments/payment/:intentId', requireClientAuth, async (req, res, next) => {
   try {
     const intentResult = await query(`
@@ -3899,12 +3866,8 @@ app.get('/api/app/appointments/payment/:intentId', requireClientAuth, async (req
     if (intent.status === 'paid') {
       return res.json({ paymentIntent: sanitizePaymentIntent(intent), appointment: intent.appointment_id ? sanitizeAppointment(await getAppointmentById(intent.appointment_id)) : null, message: 'Agendamento pago e realizado com sucesso.' });
     }
-<<<<<<< HEAD
     const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
     if (!isCardPayment && new Date(intent.expires_at).getTime() < Date.now()) {
-=======
-    if (new Date(intent.expires_at).getTime() < Date.now()) {
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       const expired = await query(`UPDATE appointment_payment_intents SET status='expired', updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.id]);
       return res.status(410).json({ paymentIntent: sanitizePaymentIntent(expired.rows[0]), error: 'Pix expirado. Gere um novo QR Code para concluir o agendamento.' });
     }
@@ -3916,7 +3879,6 @@ app.get('/api/app/appointments/payment/:intentId', requireClientAuth, async (req
         return res.json({ paymentIntent: sanitizePaymentIntent({ ...intent, status: 'paid', appointment_id: finalized.appointment?.id, paid_at: new Date().toISOString(), mp_status: payment.status }), appointment: sanitizeAppointment(finalized.appointment), message: 'Agendamento pago e realizado com sucesso.' });
       }
       intent = { ...intent, mp_status: payment.status || intent.mp_status };
-<<<<<<< HEAD
     } else if (isCardPayment && intent.mp_preference_id && isMercadoPagoConfigured()) {
       const payment = await findApprovedMercadoPagoPaymentByReference(intent.id);
       if (payment) {
@@ -4062,10 +4024,6 @@ app.post('/api/app/packages/payment/:intentId/card', requireClientAuth, async (r
       ? `Pagamento recusado pelo Mercado Pago${payment.status_detail ? `: ${payment.status_detail}` : '.'}`
       : 'Pagamento enviado ao Mercado Pago e ainda não aprovado.';
     return res.status(payment.status === 'rejected' ? 402 : 202).json({ paymentIntent: sanitizePackagePaymentIntent({ ...intent, mp_payment_id: String(payment.id || ''), mp_status: payment.status, provider_response: payment }), message, mercadoPago: { status: payment.status, statusDetail: payment.status_detail || '' } });
-=======
-    }
-    res.json({ paymentIntent: sanitizePaymentIntent(intent), message: 'Pagamento ainda não confirmado.' });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   } catch (error) {
     next(error);
   }
@@ -4077,7 +4035,6 @@ app.post('/api/mercado-pago/webhook', async (req, res) => {
     const type = req.query?.type || req.body?.type || req.body?.action || '';
     if (!paymentId || !String(type).includes('payment')) return res.json({ ok: true, ignored: true });
     const payment = await mercadoPagoRequest(`/v1/payments/${paymentId}`);
-<<<<<<< HEAD
     const paymentReference = String(payment?.external_reference || payment?.metadata?.intent_id || '');
     let intent = await query(`SELECT * FROM appointment_payment_intents WHERE mp_payment_id=$1::text AND deleted_at IS NULL LIMIT 1`, [String(paymentId)]);
     if (!intent.rowCount && paymentReference) {
@@ -4086,9 +4043,6 @@ app.post('/api/mercado-pago/webhook', async (req, res) => {
     if (intent.rowCount) {
       await query(`UPDATE appointment_payment_intents SET mp_payment_id=$2::text, mp_status=$3::text, provider_response=$4::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, String(paymentId), payment.status || '', JSON.stringify(payment || {})]).catch(() => null);
     }
-=======
-    const intent = await query(`SELECT * FROM appointment_payment_intents WHERE mp_payment_id=$1::text AND deleted_at IS NULL LIMIT 1`, [String(paymentId)]);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (intent.rowCount && payment.status === 'approved') {
       await finalizePaidAppointmentIntent(intent.rows[0].id, payment.status, payment);
       return res.json({ ok: true, kind: 'appointment' });
@@ -4096,7 +4050,6 @@ app.post('/api/mercado-pago/webhook', async (req, res) => {
       await query(`UPDATE appointment_payment_intents SET mp_status=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, payment.status || '', JSON.stringify(payment || {})]);
       return res.json({ ok: true, kind: 'appointment' });
     }
-<<<<<<< HEAD
     let packageIntent = await query(`SELECT * FROM package_payment_intents WHERE mp_payment_id=$1::text AND deleted_at IS NULL LIMIT 1`, [String(paymentId)]).catch(() => ({ rows: [], rowCount: 0 }));
     if (!packageIntent.rowCount && paymentReference) {
       packageIntent = await query(`SELECT * FROM package_payment_intents WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1`, [paymentReference]).catch(() => ({ rows: [], rowCount: 0 }));
@@ -4104,9 +4057,6 @@ app.post('/api/mercado-pago/webhook', async (req, res) => {
     if (packageIntent.rowCount) {
       await query(`UPDATE package_payment_intents SET mp_payment_id=$2::text, mp_status=$3::text, provider_response=$4::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [packageIntent.rows[0].id, String(paymentId), payment.status || '', JSON.stringify(payment || {})]).catch(() => null);
     }
-=======
-    const packageIntent = await query(`SELECT * FROM package_payment_intents WHERE mp_payment_id=$1::text AND deleted_at IS NULL LIMIT 1`, [String(paymentId)]).catch(() => ({ rows: [], rowCount: 0 }));
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (packageIntent.rowCount && payment.status === 'approved') {
       await finalizePaidPackageIntent(packageIntent.rows[0].id, payment.status, payment);
       return res.json({ ok: true, kind: 'package' });
@@ -4160,7 +4110,6 @@ async function finalizePaidPackageIntent(intentId, providerStatus = 'approved', 
     const packageRow = pack.rows[0];
     const perMonth = Number(packageRow.appointments_per_month || 4);
     const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
-<<<<<<< HEAD
     const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
     const paymentMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE $2) ORDER BY sort_order ASC LIMIT 1`, isCardPayment ? ['%cart%', '%card%'] : ['%pix%', '%pix%']).catch(() => ({ rows: [] }));
     const paidViaCode = isCardPayment ? 'mercado_pago_card' : 'mercado_pago_pix';
@@ -4174,19 +4123,6 @@ async function finalizePaidPackageIntent(intentId, providerStatus = 'approved', 
       VALUES ($1::uuid, $2::uuid, 'income', $6::text, $3::text, $4::integer, $5::date, 'paid')
       ON CONFLICT DO NOTHING
     `, [intent.tutor_id, sold.rows[0].id, `Pacote ${packageRow.name} pago via ${isCardPayment ? 'cartão' : 'Pix'} Mercado Pago · ${Number(packageRow.sessions_count || 1)} sessões`, Number(packageRow.price_cents || 0), startsOn, isCardPayment ? 'pacote_app_cartao' : 'pacote_app_pix']);
-=======
-    const pixMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND lower(name) LIKE '%pix%' ORDER BY sort_order ASC LIMIT 1`).catch(() => ({ rows: [] }));
-    const sold = await query(`
-      INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule)
-      VALUES ($1::uuid, $2::uuid, $3::uuid, 'active', $4::date, ($4::date + (($5::integer - 1) * $6::integer || ' days')::interval)::date, $5::integer, 0, $7::integer, 'paid', NULLIF($8::text,'')::uuid, $9::boolean, $4::date, jsonb_build_object('enabled', $9::boolean, 'appointmentsPerMonth', $10::integer, 'intervalDays', $6::integer, 'firstTime', $11::text, 'paidVia', 'mercado_pago_pix'))
-      RETURNING *
-    `, [intent.tutor_id, petId, packageId, startsOn, Number(packageRow.sessions_count || 1), intervalDays, Number(packageRow.price_cents || 0), pixMethod.rows[0]?.id || '', recurring, perMonth, firstTime]);
-    await query(`
-      INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status)
-      VALUES ($1::uuid, $2::uuid, 'income', 'pacote_app_pix', $3::text, $4::integer, $5::date, 'paid')
-      ON CONFLICT DO NOTHING
-    `, [intent.tutor_id, sold.rows[0].id, `Pacote ${packageRow.name} pago via Pix Mercado Pago · ${Number(packageRow.sessions_count || 1)} sessões`, Number(packageRow.price_cents || 0), startsOn]);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime });
     await query(`
       UPDATE package_payment_intents
@@ -4220,10 +4156,7 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
     const startsOn = cleanText(req.body?.startsOn) || new Date().toISOString().slice(0, 10);
     const firstTime = cleanText(req.body?.firstTime) || '09:00';
     const recurring = parseBool(req.body?.recurring, false);
-<<<<<<< HEAD
     const paymentType = normalizeAppPaymentType(req.body?.paymentType || req.body?.paymentMethod || 'pix');
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (!petId) return res.status(400).json({ error: 'Escolha o pet para contratar o pacote.' });
     if (!packageId) return res.status(400).json({ error: 'Escolha um pacote.' });
     if (String(startsOn).slice(0, 10) < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'Escolha uma data inicial válida para o pacote.' });
@@ -4233,18 +4166,13 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
     if (!pack.rowCount) return res.status(404).json({ error: 'Pacote ativo não encontrado.' });
     const packageRow = pack.rows[0];
     const amountCents = Number(packageRow.price_cents || 0);
-<<<<<<< HEAD
     if (amountCents <= 0) return res.status(400).json({ error: `O valor do pacote precisa ser maior que zero para gerar ${paymentTypeLabel(paymentType)}.` });
-=======
-    if (amountCents <= 0) return res.status(400).json({ error: 'O valor do pacote precisa ser maior que zero para gerar Pix.' });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     const tutorName = req.clientApp.tutor?.name || 'Tutor PetFunny';
     const tutorEmail = req.clientApp.tutor?.email || `cliente+pacote-${String(packageId).slice(0, 8)}@petfunny.com.br`;
     const payload = { petId, packageId, startsOn, firstTime, recurring };
     const description = `Pacote PetFunny · ${packageRow.name} · ${pet.rows[0].name}`.slice(0, 250);
     const pixExpirationMinutes = getMercadoPagoPixExpirationMinutes();
     const expiresAt = new Date(Date.now() + pixExpirationMinutes * 60 * 1000).toISOString();
-<<<<<<< HEAD
     await ensurePaymentIntentCompatibility('package_payment_intents');
     const intent = await query(`
       INSERT INTO package_payment_intents (tutor_id, client_account_id, pet_id, package_id, status, payment_type, amount_cents, description, pending_payload, expires_at)
@@ -4263,14 +4191,6 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
         `, [intent.rows[0].id]);
         return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePackagePaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), message: 'Pagamento por cartão iniciado. Preencha os dados no ambiente seguro Mercado Pago dentro do app.' });
       }
-=======
-    const intent = await query(`
-      INSERT INTO package_payment_intents (tutor_id, client_account_id, pet_id, package_id, status, amount_cents, description, pending_payload, expires_at)
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'pending', $5::integer, $6::text, $7::jsonb, $8::timestamptz)
-      RETURNING *
-    `, [tutorId, accountId, petId, packageId, amountCents, description, JSON.stringify(payload), expiresAt]);
-    try {
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       const mp = await createMercadoPagoPixPayment({
         intentId: intent.rows[0].id,
         amountCents,
@@ -4278,25 +4198,13 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
         payerEmail: tutorEmail,
         payerName: tutorName
       });
-<<<<<<< HEAD
       updated = await query(`
-=======
-      const updated = await query(`
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
         UPDATE package_payment_intents
         SET mp_payment_id=$2::text, mp_status=$3::text, qr_code=$4::text, qr_code_base64=$5::text, provider_response=$6::jsonb, updated_at=NOW()
         WHERE id=$1::uuid
         RETURNING *
       `, [intent.rows[0].id, mp.paymentId, mp.status, mp.qrCode, mp.qrCodeBase64, JSON.stringify(mp.payment || {})]);
-<<<<<<< HEAD
       return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePackagePaymentIntent(updated.rows[0]), message: 'Pix do pacote gerado. O pacote e os agendamentos só serão criados após confirmação do pagamento.' });
-=======
-      return res.status(201).json({
-        requiresPayment: true,
-        paymentIntent: sanitizePackagePaymentIntent(updated.rows[0]),
-        message: 'Pix do pacote gerado. O pacote e os agendamentos só serão criados após confirmação do pagamento.'
-      });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     } catch (error) {
       await query(`UPDATE package_payment_intents SET status='failed', last_error=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, error.message, JSON.stringify(error.details || {})]).catch(() => null);
       throw error;
@@ -4318,12 +4226,8 @@ app.get('/api/app/packages/payment/:intentId', requireClientAuth, async (req, re
     if (intent.status === 'paid') {
       return res.json({ paymentIntent: sanitizePackagePaymentIntent(intent), customerPackageId: intent.customer_package_id, message: 'Pacote pago e contratado com sucesso.' });
     }
-<<<<<<< HEAD
     const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
     if (!isCardPayment && new Date(intent.expires_at).getTime() < Date.now()) {
-=======
-    if (new Date(intent.expires_at).getTime() < Date.now()) {
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       const expired = await query(`UPDATE package_payment_intents SET status='expired', updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.id]);
       return res.status(410).json({ paymentIntent: sanitizePackagePaymentIntent(expired.rows[0]), error: 'Pix expirado. Gere uma nova contratação para concluir o pacote.' });
     }
@@ -4335,7 +4239,6 @@ app.get('/api/app/packages/payment/:intentId', requireClientAuth, async (req, re
         return res.json({ paymentIntent: sanitizePackagePaymentIntent({ ...intent, status: 'paid', customer_package_id: finalized.customerPackage?.id || finalized.customerPackageId, paid_at: new Date().toISOString(), mp_status: payment.status }), customerPackageId: finalized.customerPackage?.id || finalized.customerPackageId, message: 'Pacote pago e contratado com sucesso.' });
       }
       intent = { ...intent, mp_status: payment.status || intent.mp_status };
-<<<<<<< HEAD
     } else if (isCardPayment && intent.mp_preference_id && isMercadoPagoConfigured()) {
       const payment = await findApprovedMercadoPagoPaymentByReference(intent.id);
       if (payment) {
@@ -4348,10 +4251,6 @@ app.get('/api/app/packages/payment/:intentId', requireClientAuth, async (req, re
       }
     }
     res.json({ paymentIntent: sanitizePackagePaymentIntent(intent), message: isCardPayment ? 'Pagamento do pacote por cartão ainda não aprovado.' : 'Pagamento do pacote ainda não confirmado.' });
-=======
-    }
-    res.json({ paymentIntent: sanitizePackagePaymentIntent(intent), message: 'Pagamento do pacote ainda não confirmado.' });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   } catch (error) {
     next(error);
   }
@@ -4834,12 +4733,9 @@ function sanitizePaymentIntent(row = {}) {
     description: row.description || '',
     provider: row.provider || 'mercado_pago',
     mpPaymentId: row.mp_payment_id || null,
-<<<<<<< HEAD
     mpPreferenceId: row.mp_preference_id || null,
     paymentType: row.payment_type || 'pix',
     checkoutUrl: row.checkout_url || null,
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     mpStatus: row.mp_status || null,
     qrCode: normalizePixQrCode(row.qr_code || tx.qr_code || ''),
     qrCodeBase64: normalizePixQrBase64(row.qr_code_base64 || tx.qr_code_base64 || ''),
@@ -4848,13 +4744,9 @@ function sanitizePaymentIntent(row = {}) {
     paidAt: row.paid_at,
     appointmentId: row.appointment_id || null,
     lastError: row.last_error || null,
-<<<<<<< HEAD
     mercadoPagoTestMode: isMercadoPagoTestMode(),
     mercadoPagoPublicKey: env.mercadoPagoPublicKey || '',
     payerEmail: row.tutor_email || row.payer_email || ''
-=======
-    mercadoPagoTestMode: isMercadoPagoTestMode()
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   };
 }
 
@@ -4869,12 +4761,9 @@ function sanitizePackagePaymentIntent(row = {}) {
     description: row.description || '',
     provider: row.provider || 'mercado_pago',
     mpPaymentId: row.mp_payment_id || null,
-<<<<<<< HEAD
     mpPreferenceId: row.mp_preference_id || null,
     paymentType: row.payment_type || 'pix',
     checkoutUrl: row.checkout_url || null,
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     mpStatus: row.mp_status || null,
     qrCode: normalizePixQrCode(row.qr_code || tx.qr_code || ''),
     qrCodeBase64: normalizePixQrBase64(row.qr_code_base64 || tx.qr_code_base64 || ''),
@@ -4884,11 +4773,8 @@ function sanitizePackagePaymentIntent(row = {}) {
     customerPackageId: row.customer_package_id || null,
     lastError: row.last_error || null,
     mercadoPagoTestMode: isMercadoPagoTestMode(),
-<<<<<<< HEAD
     mercadoPagoPublicKey: env.mercadoPagoPublicKey || '',
     payerEmail: row.tutor_email || row.payer_email || '',
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     kind: 'package'
   };
 }
@@ -4932,7 +4818,6 @@ async function createMercadoPagoPixPayment({ intentId, amountCents, description,
   };
 }
 
-<<<<<<< HEAD
 
 function normalizeAppPaymentType(value = '') {
   const raw = String(value || '').toLowerCase().trim();
@@ -5046,8 +4931,6 @@ async function findApprovedMercadoPagoPaymentByReference(reference) {
   return results.find((payment) => payment.status === 'approved') || results[0] || null;
 }
 
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 function sanitizeAppointment(row = {}) {
   return {
     id: row.id,
@@ -5148,21 +5031,13 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     const petForPromotion = await query(`SELECT size FROM pets WHERE id=$1::uuid LIMIT 1`, [petId]).catch(() => ({ rows: [] }));
     const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || startsAt, petSize: petForPromotion.rows[0]?.size || 'todos', serviceIds });
     const totals = applyPromotionsToItems(baseItems, activePromotions);
-<<<<<<< HEAD
     const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
     const paymentMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE $2) ORDER BY sort_order ASC LIMIT 1`, isCardPayment ? ['%cart%', '%card%'] : ['%pix%', '%pix%']).catch(() => ({ rows: [] }));
-=======
-    const pixMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND lower(name) LIKE '%pix%' ORDER BY sort_order ASC LIMIT 1`).catch(() => ({ rows: [] }));
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     const created = await query(`
       INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id)
       VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::timestamptz, $5::timestamptz, 'agendado', 'app_tutor', $6::integer, $7::numeric, $8::integer, $9::integer, $10::text, 'paid', NULLIF($11::text,'')::uuid)
       RETURNING id
-<<<<<<< HEAD
     `, [intent.tutor_id, petId, collaboratorParam, startsAt, endsAt, totals.subtotalCents, totals.appliedPromotions?.[0]?.discountPercent || 0, totals.discountCents, totals.totalCents, notes, paymentMethod.rows[0]?.id || '']);
-=======
-    `, [intent.tutor_id, petId, collaboratorParam, startsAt, endsAt, totals.subtotalCents, totals.appliedPromotions?.[0]?.discountPercent || 0, totals.discountCents, totals.totalCents, notes, pixMethod.rows[0]?.id || '']);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     for (const item of totals.items) {
       await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, 1, $5::integer, $6::numeric, $7::integer)`, [created.rows[0].id, petId, item.serviceId, item.description, item.unitPriceCents, item.discountPercent || 0, item.totalCents]);
     }
@@ -5175,15 +5050,9 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     }
     await query(`
       INSERT INTO financial_transactions (tutor_id, appointment_id, type, category, description, amount_cents, due_date, status)
-<<<<<<< HEAD
       VALUES ($1::uuid, $2::uuid, 'income', $6::text, $3::text, $4::integer, $5::date, 'paid')
       ON CONFLICT DO NOTHING
     `, [intent.tutor_id, created.rows[0].id, `Agendamento pago via ${isCardPayment ? 'cartão' : 'Pix'} Mercado Pago`, totals.totalCents, String(startsAt).slice(0, 10), isCardPayment ? 'agendamento_app_cartao' : 'agendamento_app_pix']).catch(() => null);
-=======
-      VALUES ($1::uuid, $2::uuid, 'income', 'agendamento_app_pix', $3::text, $4::integer, $5::date, 'paid')
-      ON CONFLICT DO NOTHING
-    `, [intent.tutor_id, created.rows[0].id, `Agendamento pago via Pix Mercado Pago`, totals.totalCents, String(startsAt).slice(0, 10)]).catch(() => null);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     await createOrUpdateReceiptForAppointment(created.rows[0].id, null).catch((error) => console.warn('[app:pix] recibo não gerado:', error.message));
     await query(`
       UPDATE appointment_payment_intents
@@ -7234,7 +7103,6 @@ function sanitizeGiftSpin(row = {}) {
   };
 }
 
-<<<<<<< HEAD
 function isRoletaSchemaCompatibilityError(error) {
   return ['42P01', '42703', '42883', '42P07', '22P02', '42846'].includes(String(error?.code || ''));
 }
@@ -7560,8 +7428,6 @@ async function deleteGiftCompat(id) {
 }
 
 
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 function pickWeightedGift(gifts = []) {
   const active = gifts.filter((gift) => Number(gift.probability_weight || 0) > 0);
   const total = active.reduce((sum, gift) => sum + Number(gift.probability_weight || 0), 0);
@@ -7605,7 +7471,6 @@ app.get('/api/roleta/options', requireAuth, async (req, res, next) => {
 
 app.get('/api/roleta/summary', requireAuth, async (req, res, next) => {
   try {
-<<<<<<< HEAD
     let gifts;
     try {
       gifts = await listGiftsPrimaryForAdmin({ search: '%%', status: 'all' });
@@ -7660,47 +7525,11 @@ app.get('/api/roleta/summary', requireAuth, async (req, res, next) => {
       },
       recentSpins
     });
-=======
-    const result = await query(`
-      WITH active_gifts AS (
-        SELECT * FROM gifts
-        WHERE deleted_at IS NULL
-          AND status = 'active'
-          AND (starts_on IS NULL OR starts_on <= CURRENT_DATE)
-          AND (ends_on IS NULL OR ends_on >= CURRENT_DATE)
-      ), spins_today AS (
-        SELECT COUNT(*)::int AS total FROM gift_spins WHERE spun_at::date = CURRENT_DATE
-      ), spins_month AS (
-        SELECT COUNT(*)::int AS total FROM gift_spins WHERE date_trunc('month', spun_at) = date_trunc('month', NOW())
-      ), cost_month AS (
-        SELECT COALESCE(SUM(COALESCE(g.estimated_cost_cents,0)),0)::int AS total
-        FROM gift_spins gs
-        LEFT JOIN gifts g ON g.id = gs.gift_id
-        WHERE date_trunc('month', gs.spun_at) = date_trunc('month', NOW())
-      )
-      SELECT
-        (SELECT COUNT(*)::int FROM gifts WHERE deleted_at IS NULL) AS total_gifts,
-        (SELECT COUNT(*)::int FROM active_gifts) AS active_gifts,
-        (SELECT total FROM spins_today) AS spins_today,
-        (SELECT total FROM spins_month) AS spins_month,
-        (SELECT total FROM cost_month) AS estimated_cost_month_cents
-    `);
-    const recent = await query(`
-      SELECT gs.*, t.name AS tutor_name, p.name AS pet_name
-      FROM gift_spins gs
-      LEFT JOIN tutors t ON t.id = gs.tutor_id
-      LEFT JOIN pets p ON p.id = gs.pet_id
-      ORDER BY gs.spun_at DESC
-      LIMIT 12
-    `);
-    res.json({ summary: result.rows[0] || {}, recentSpins: recent.rows.map(sanitizeGiftSpin) });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   } catch (error) { next(error); }
 });
 
 app.get('/api/roleta/gifts', requireAuth, async (req, res, next) => {
   try {
-<<<<<<< HEAD
     const searchTerm = cleanText(req.query.search || '') || '';
     const search = `%${searchTerm}%`;
     const status = cleanText(req.query.status || 'all') || 'all';
@@ -7726,22 +7555,6 @@ app.get('/api/roleta/gifts', requireAuth, async (req, res, next) => {
     }
     const rows = result?.rows || [];
     res.json({ items: rows.map(sanitizeGift), total: rows.length, source });
-=======
-    const search = `%${cleanText(req.query.search || '')}%`;
-    const status = cleanText(req.query.status || 'all');
-    const result = await query(`
-      SELECT g.*, COUNT(gs.id)::int AS spins_count
-      FROM gifts g
-      LEFT JOIN gift_spins gs ON gs.gift_id = g.id
-      WHERE g.deleted_at IS NULL
-        AND ($1::text = '%%' OR g.title ILIKE $1::text OR COALESCE(g.description,'') ILIKE $1::text)
-        AND ($2::text = 'all' OR g.status = $2::text)
-      GROUP BY g.id
-      ORDER BY g.status ASC, g.probability_weight DESC, g.title ASC
-      LIMIT 300
-    `, [search, status]);
-    res.json({ items: result.rows.map(sanitizeGift) });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   } catch (error) { next(error); }
 });
 
@@ -7749,25 +7562,8 @@ app.post('/api/roleta/gifts', requireAuth, async (req, res, next) => {
   try {
     const title = cleanText(req.body?.title);
     if (!title) return res.status(400).json({ error: 'Informe o título do mimo.' });
-<<<<<<< HEAD
     const result = await insertGiftCompat(req.body || {});
     roletaColumnCache.delete('gifts');
-=======
-    const result = await query(`
-      INSERT INTO gifts (title, description, starts_on, ends_on, probability_weight, estimated_cost_cents, status, ai_report)
-      VALUES ($1::text, $2::text, NULLIF($3::text,'')::date, NULLIF($4::text,'')::date, GREATEST($5::int, 1), GREATEST($6::int, 0), COALESCE(NULLIF($7::text,''),'active'), $8::jsonb)
-      RETURNING *
-    `, [
-      title,
-      cleanText(req.body?.description),
-      cleanText(req.body?.startsOn),
-      cleanText(req.body?.endsOn),
-      Number(req.body?.probabilityWeight || 1),
-      moneyToCents(req.body?.estimatedCostCents ?? req.body?.estimatedCost),
-      cleanText(req.body?.status || 'active'),
-      JSON.stringify(req.body?.aiReport || null)
-    ]);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     res.status(201).json({ gift: sanitizeGift(result.rows[0]), message: 'Mimo cadastrado.' });
   } catch (error) { next(error); }
 });
@@ -7776,34 +7572,7 @@ app.put('/api/roleta/gifts/:id', requireAuth, async (req, res, next) => {
   try {
     const title = cleanText(req.body?.title);
     if (!title) return res.status(400).json({ error: 'Informe o título do mimo.' });
-<<<<<<< HEAD
     const result = await updateGiftCompat(req.params.id, req.body || {});
-=======
-    const result = await query(`
-      UPDATE gifts
-      SET title=$2::text,
-          description=$3::text,
-          starts_on=NULLIF($4::text,'')::date,
-          ends_on=NULLIF($5::text,'')::date,
-          probability_weight=GREATEST($6::int, 1),
-          estimated_cost_cents=GREATEST($7::int, 0),
-          status=COALESCE(NULLIF($8::text,''),'active'),
-          ai_report=$9::jsonb,
-          updated_at=NOW()
-      WHERE id=$1::uuid AND deleted_at IS NULL
-      RETURNING *
-    `, [
-      req.params.id,
-      title,
-      cleanText(req.body?.description),
-      cleanText(req.body?.startsOn),
-      cleanText(req.body?.endsOn),
-      Number(req.body?.probabilityWeight || 1),
-      moneyToCents(req.body?.estimatedCostCents ?? req.body?.estimatedCost),
-      cleanText(req.body?.status || 'active'),
-      JSON.stringify(req.body?.aiReport || null)
-    ]);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (!result.rowCount) return res.status(404).json({ error: 'Mimo não encontrado.' });
     res.json({ gift: sanitizeGift(result.rows[0]), message: 'Mimo atualizado.' });
   } catch (error) { next(error); }
@@ -7812,15 +7581,7 @@ app.put('/api/roleta/gifts/:id', requireAuth, async (req, res, next) => {
 app.patch('/api/roleta/gifts/:id/status', requireAuth, async (req, res, next) => {
   try {
     const status = cleanText(req.body?.status || 'active');
-<<<<<<< HEAD
     const result = await setGiftStatusCompat(req.params.id, status);
-=======
-    const result = await query(`
-      UPDATE gifts SET status=$2::text, updated_at=NOW()
-      WHERE id=$1::uuid AND deleted_at IS NULL
-      RETURNING *
-    `, [req.params.id, status]);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (!result.rowCount) return res.status(404).json({ error: 'Mimo não encontrado.' });
     res.json({ gift: sanitizeGift(result.rows[0]), message: 'Status do mimo atualizado.' });
   } catch (error) { next(error); }
@@ -7828,11 +7589,7 @@ app.patch('/api/roleta/gifts/:id/status', requireAuth, async (req, res, next) =>
 
 app.delete('/api/roleta/gifts/:id', requireAuth, async (req, res, next) => {
   try {
-<<<<<<< HEAD
     const result = await deleteGiftCompat(req.params.id);
-=======
-    const result = await query(`UPDATE gifts SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING id`, [req.params.id]);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (!result.rowCount) return res.status(404).json({ error: 'Mimo não encontrado.' });
     res.json({ ok: true, message: 'Mimo removido.' });
   } catch (error) { next(error); }
@@ -7840,7 +7597,6 @@ app.delete('/api/roleta/gifts/:id', requireAuth, async (req, res, next) => {
 
 app.post('/api/roleta/spin', requireAuth, async (req, res, next) => {
   try {
-<<<<<<< HEAD
     const result = await listGiftsCompat({ search: '%%', status: 'active' });
     const todayIso = new Date().toISOString().slice(0, 10);
     const availableRows = result.rows.filter((gift) => {
@@ -7854,20 +7610,6 @@ app.post('/api/roleta/spin', requireAuth, async (req, res, next) => {
       return res.status(201).json({ spin: { resultTitle: gift.title, spunAt: new Date().toISOString() }, gift: sanitizeGift(gift), message: `Resultado: ${gift.title}` });
     }
     const insert = await query(`
-=======
-    const available = await query(`
-      SELECT * FROM gifts
-      WHERE deleted_at IS NULL
-        AND status = 'active'
-        AND probability_weight > 0
-        AND (starts_on IS NULL OR starts_on <= CURRENT_DATE)
-        AND (ends_on IS NULL OR ends_on >= CURRENT_DATE)
-      ORDER BY probability_weight DESC, title ASC
-    `);
-    const gift = pickWeightedGift(available.rows);
-    if (!gift) return res.status(400).json({ error: 'Nenhum mimo ativo disponível para sortear.' });
-    const result = await query(`
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       INSERT INTO gift_spins (gift_id, tutor_id, pet_id, result_title, spin_context)
       VALUES ($1::uuid, NULLIF($2::text,'')::uuid, NULLIF($3::text,'')::uuid, $4::text, $5::jsonb)
       RETURNING *
@@ -7876,24 +7618,15 @@ app.post('/api/roleta/spin', requireAuth, async (req, res, next) => {
       cleanText(req.body?.tutorId),
       cleanText(req.body?.petId),
       gift.title,
-<<<<<<< HEAD
       JSON.stringify({ source: 'admin_simulation', weightsTotal: availableRows.reduce((sum, item) => sum + Number(item.probability_weight || 0), 0) })
     ]);
     res.status(201).json({ spin: sanitizeGiftSpin(insert.rows[0]), gift: sanitizeGift(gift), message: `Resultado: ${gift.title}` });
-=======
-      JSON.stringify({ source: 'admin_simulation', weightsTotal: available.rows.reduce((sum, item) => sum + Number(item.probability_weight || 0), 0) })
-    ]);
-    res.status(201).json({ spin: sanitizeGiftSpin(result.rows[0]), gift: sanitizeGift(gift), message: `Resultado: ${gift.title}` });
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   } catch (error) { next(error); }
 });
 
 app.get('/api/roleta/spins', requireAuth, async (req, res, next) => {
   try {
-<<<<<<< HEAD
     if (!(await hasTable('gift_spins'))) return res.json({ items: [] });
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     const result = await query(`
       SELECT gs.*, t.name AS tutor_name, p.name AS pet_name
       FROM gift_spins gs

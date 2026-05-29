@@ -269,7 +269,6 @@ CREATE TABLE IF NOT EXISTS pet_wellbeing_insights (
 CREATE INDEX IF NOT EXISTS idx_pet_wellbeing_insights_pet ON pet_wellbeing_insights (pet_id, created_at DESC) WHERE deleted_at IS NULL;
 
 
-<<<<<<< HEAD
 -- Tabela-base de pagamentos: precisa existir antes de appointments.payment_method_id.
 -- A migration anterior criava appointments antes de payment_methods e quebrava o banco zerado.
 CREATE TABLE IF NOT EXISTS payment_methods (
@@ -283,8 +282,6 @@ CREATE TABLE IF NOT EXISTS payment_methods (
   deleted_at TIMESTAMPTZ
 );
 
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 CREATE TABLE IF NOT EXISTS business_hours (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   weekday SMALLINT NOT NULL CHECK (weekday BETWEEN 0 AND 6),
@@ -416,19 +413,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   deleted_at TIMESTAMPTZ
 );
 
-<<<<<<< HEAD
-=======
-CREATE TABLE IF NOT EXISTS payment_methods (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
-);
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -544,7 +528,6 @@ CREATE TABLE IF NOT EXISTS gift_spins (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-<<<<<<< HEAD
 -- Compatibilidade incremental da Roleta de Mimos para bancos já existentes.
 -- Garante que instalações antigas passem a listar mimos cadastrados sem exigir reset do banco.
 ALTER TABLE gifts ADD COLUMN IF NOT EXISTS description TEXT;
@@ -561,8 +544,6 @@ ALTER TABLE gift_spins ADD COLUMN IF NOT EXISTS spin_context JSONB NOT NULL DEFA
 ALTER TABLE gift_spins ADD COLUMN IF NOT EXISTS spun_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE gift_spins ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 
 
 CREATE TABLE IF NOT EXISTS promotions (
@@ -710,13 +691,10 @@ CREATE TABLE IF NOT EXISTS appointment_payment_intents (
 CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_tutor ON appointment_payment_intents (tutor_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_mp ON appointment_payment_intents (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_status ON appointment_payment_intents (status, expires_at) WHERE deleted_at IS NULL;
-<<<<<<< HEAD
 ALTER TABLE appointment_payment_intents ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT 'pix';
 ALTER TABLE appointment_payment_intents ADD COLUMN IF NOT EXISTS mp_preference_id TEXT;
 ALTER TABLE appointment_payment_intents ADD COLUMN IF NOT EXISTS checkout_url TEXT;
 CREATE INDEX IF NOT EXISTS idx_appointment_payment_intents_preference ON appointment_payment_intents (mp_preference_id) WHERE mp_preference_id IS NOT NULL;
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 
 CREATE TABLE IF NOT EXISTS package_payment_intents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -745,13 +723,10 @@ CREATE TABLE IF NOT EXISTS package_payment_intents (
 CREATE INDEX IF NOT EXISTS idx_package_payment_intents_tutor ON package_payment_intents (tutor_id, created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_package_payment_intents_mp ON package_payment_intents (mp_payment_id) WHERE mp_payment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_package_payment_intents_status ON package_payment_intents (status, expires_at) WHERE deleted_at IS NULL;
-<<<<<<< HEAD
 ALTER TABLE package_payment_intents ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT 'pix';
 ALTER TABLE package_payment_intents ADD COLUMN IF NOT EXISTS mp_preference_id TEXT;
 ALTER TABLE package_payment_intents ADD COLUMN IF NOT EXISTS checkout_url TEXT;
 CREATE INDEX IF NOT EXISTS idx_package_payment_intents_preference ON package_payment_intents (mp_preference_id) WHERE mp_preference_id IS NOT NULL;
-=======
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 
 
 CREATE TABLE IF NOT EXISTS system_notifications (

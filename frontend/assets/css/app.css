@@ -9431,7 +9431,6 @@ body.franchise-body .pf-franchise-ambiences {
   overflow: visible !important;
 }
 
-<<<<<<< HEAD
 /* v1.5.128 — Roleta de Mimos: listagem CRUD com menu de ações e big numbers no padrão admin */
 .roleta-page .roleta-metrics-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -9523,37 +9522,4 @@ body.franchise-body .pf-franchise-ambiences {
   .roleta-page .roleta-metrics-grid { grid-template-columns: 1fr; }
   .roleta-page .roleta-gifts-table-wrap { overflow-x: auto; }
   .roleta-page .roleta-gifts-table { min-width: 850px; }
-=======
-/* v1.5.124 — /franquias: rolagem única real + hero sem padding */
-html:has(body.franchise-body) {
-  height: auto !important;
-  min-height: 100% !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
-}
-body.franchise-body {
-  height: auto !important;
-  min-height: 100dvh !important;
-  max-height: none !important;
-  overflow-x: hidden !important;
-  overflow-y: clip !important;
-}
-body.franchise-body .pf-site,
-body.franchise-body .pf-franchise-page,
-body.franchise-body main {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  overflow: visible !important;
-}
-body.franchise-body .pf-franchise-hero,
-body.franchise-body .pf-franchise-hero-v118 {
-  padding: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  border: 0 !important;
-}
-@supports not (overflow: clip) {
-  body.franchise-body { overflow-y: hidden !important; }
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
 }

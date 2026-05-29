@@ -1,5 +1,1 @@
-<<<<<<< HEAD
-v1.5.130-app-tutor-cartao-mercado-pago
-=======
-v1.5.124-franquias-rolagem-unica-hero-sem-padding
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
+v1.5.140-render-merge-conflicts-clean
