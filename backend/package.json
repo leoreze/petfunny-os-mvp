@@ -1,10 +1,6 @@
 {
   "name": "petfunny-os-backend",
-<<<<<<< HEAD
-  "version": "1.5.131",
-=======
-  "version": "1.5.124",
->>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
+  "version": "1.5.139",
   "type": "module",
   "main": "src/server.js",
   "engines": {
@@ -22,20 +18,20 @@
     "render:build": "npm install --omit=dev --omit=optional --no-audit --no-fund --legacy-peer-deps --progress=false && npm run db:migrate"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "pg": "^8.11.3",
-    "bcryptjs": "^2.4.3",
+    "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "helmet": "^7.1.0"
+    "pg": "^8.11.3"
   },
   "optionalDependencies": {
-    "web-push": "^3.6.7",
     "asn1.js": "^5.4.1",
     "http_ece": "1.2.0",
     "https-proxy-agent": "^7.0.6",
     "jws": "^4.0.0",
-    "minimist": "^1.2.8"
+    "minimist": "^1.2.8",
+    "web-push": "^3.6.7"
   }
 }
