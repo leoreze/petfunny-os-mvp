@@ -34,6 +34,7 @@
       </div>
     </section>
 
+<<<<<<< HEAD
     <section class="admin-big-numbers-strip roleta-big-numbers-strip" aria-label="Indicadores da roleta"><div class="big-number-grid roleta-metrics-grid">
       <article class="big-number-card"><span>Mimos cadastrados</span><strong id="gift-total">—</strong><small>Ativos e inativos</small></article>
       <article class="big-number-card"><span>Mimos ativos</span><strong id="gift-active">—</strong><small>Elegíveis hoje</small></article>
@@ -51,6 +52,15 @@
       <div class="gift-grid" id="gift-list"></div>
     </section>
 
+=======
+    <section class="admin-big-numbers-strip roleta-big-numbers-strip"><div class="big-number-grid">
+      <article class="metric-card"><span>Mimos cadastrados</span><strong id="gift-total">—</strong><small>Ativos e inativos</small></article>
+      <article class="metric-card"><span>Mimos ativos</span><strong id="gift-active">—</strong><small>Elegíveis hoje</small></article>
+      <article class="metric-card"><span>Sorteios hoje</span><strong id="spins-today">—</strong><small>Giros registrados</small></article>
+      <article class="metric-card"><span>Custo estimado/mês</span><strong id="cost-month">—</strong><small>Com base nos sorteios</small></article>
+    </div></section>
+
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     <section class="grid-two page-section roleta-layout">
       <article class="panel roleta-wheel-panel">
         <div class="panel-head compact-head"><div><p class="eyebrow">Simulação</p><h2>Girar roleta</h2><p>O sorteio respeita o peso de probabilidade cadastrado em cada mimo ativo.</p></div></div>
@@ -69,10 +79,26 @@
       </article>
     </section>
 
+<<<<<<< HEAD
 
     <dialog class="premium-modal" id="gift-modal">
       <form class="modal-card tutor-modal-card" method="dialog" id="gift-form">
         <header class="modal-header"><div><p class="eyebrow">Mimo</p><h2 id="gift-modal-title">Novo mimo</h2><p class="modal-subtitle">Cadastre ou edite o mimo mantendo status, vigência, custo e peso da roleta.</p></div><button class="icon-btn" type="button" id="close-gift-modal">×</button></header>
+=======
+    <section class="module-card page-section roleta-list-card">
+      <div class="section-toolbar stacked-toolbar"><div class="toolbar-copy-line"><div><p class="eyebrow">Cadastro</p><h2>Mimos configurados</h2><p>Controle títulos, datas, custo e probabilidade para evitar impacto excessivo no caixa e manter as campanhas sustentáveis.</p></div><button class="btn" type="button" id="new-gift-inline">+ Novo mimo</button></div></div>
+      <div class="filter-row">
+        <input class="input" id="gift-search" placeholder="Buscar mimo ou descrição">
+        <select class="select" id="gift-status"><option value="all">Todos os status</option><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="expired">Encerrados</option></select>
+        <button class="btn btn-secondary" id="gift-filter">Filtrar</button>
+      </div>
+      <div class="gift-grid" id="gift-list"></div>
+    </section>
+
+    <dialog class="modal" id="gift-modal">
+      <form class="modal-card" method="dialog" id="gift-form">
+        <header class="modal-header"><div><p class="eyebrow">Mimo</p><h2 id="gift-modal-title">Novo mimo</h2></div><button class="icon-button" value="cancel">✕</button></header>
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
         <div class="modal-body custom-scroll">
           <div class="form-grid form-row-gap">
             <label class="form-field"><span>Título do mimo</span><input class="input" id="gift-title" required></label>
@@ -84,7 +110,11 @@
             <label class="form-field full"><span>Descrição</span><textarea class="textarea" id="gift-description" rows="4"></textarea></label>
           </div>
         </div>
+<<<<<<< HEAD
         <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-gift-modal">Cancelar</button><button class="btn" id="save-gift" type="submit">Salvar mimo</button></footer>
+=======
+        <footer class="modal-footer"><button class="btn btn-secondary" value="cancel">Cancelar</button><button class="btn" id="save-gift" value="default">Salvar mimo</button></footer>
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       </form>
     </dialog>
 
@@ -113,6 +143,7 @@
   }
 
   function renderGifts(){
+<<<<<<< HEAD
     const rows = state.gifts || [];
     if (!rows.length) {
       $('gift-list').innerHTML = '<p class="empty-small">Nenhum mimo cadastrado.</p>';
@@ -175,11 +206,29 @@
     return String(value ?? '').replace(/[&<>'"]/g, (char)=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
   }
 
+=======
+    $('gift-list').innerHTML = state.gifts.map(gift=>`
+      <article class="module-card gift-card" style="--gift-accent:${gift.status==='active' ? '#00a9b7' : '#F8A198'}">
+        <button class="card-kebab" data-gift-menu="${gift.id}">⋯</button>
+        <span class="badge">${statusName(gift.status)}</span>
+        <h3>${gift.title}</h3>
+        <p>${gift.description || 'Sem descrição cadastrada.'}</p>
+        <div class="gift-meta"><span>Peso <strong>${gift.probabilityWeight}</strong></span><span>Custo <strong>${money(gift.estimatedCostCents)}</strong></span><span>Sorteios <strong>${gift.spinsCount}</strong></span></div>
+        <small>Vigência: ${fmtDate(gift.startsOn)} até ${fmtDate(gift.endsOn)}</small>
+        <div class="actions compact-actions"><button class="btn secondary edit-gift" data-id="${gift.id}">Editar</button><button class="btn danger delete-gift" data-id="${gift.id}">Remover</button></div>
+      </article>
+    `).join('') || '<p class="empty-small">Nenhum mimo cadastrado.</p>';
+    document.querySelectorAll('.edit-gift').forEach(btn=>btn.addEventListener('click',()=>openGift(btn.dataset.id)));
+    document.querySelectorAll('.delete-gift').forEach(btn=>btn.addEventListener('click',()=>removeGift(btn.dataset.id)));
+  }
+
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   function renderSpins(){
     const items = state.spins.length ? state.spins : (state.summaryRecent || []);
     $('spin-history').innerHTML = items.map(spin=>`<article class="module-card compact-card"><strong>${spin.resultTitle}</strong><small>${spin.tutorName || 'Sem tutor'} ${spin.petName ? '· '+spin.petName : ''}</small><p>${new Date(spin.spunAt || spin.createdAt).toLocaleString('pt-BR')}</p></article>`).join('') || '<p class="empty-small">Nenhum sorteio registrado ainda.</p>';
   }
 
+<<<<<<< HEAD
   function normalizeGift(raw = {}) {
     return {
       id: raw.id,
@@ -240,6 +289,18 @@
       if (!state.gifts.length && (gifts?.error || gifts?.message)) {
         showToast(gifts.error || gifts.message, 'error');
       }
+=======
+  async function load(){
+    await withLoading(async()=>{
+      const [options, summary, gifts, spins] = await Promise.all([
+        api.get('/api/roleta/options'),
+        api.get('/api/roleta/summary'),
+        api.get(`/api/roleta/gifts?search=${encodeURIComponent($('gift-search')?.value||'')}&status=${$('gift-status')?.value||'all'}`),
+        api.get('/api/roleta/spins')
+      ]);
+      state.options = options; state.summary = summary.summary || {}; state.summaryRecent = summary.recentSpins || []; state.gifts = gifts.items || []; state.spins = spins.items || [];
+      fillSelects(); renderSummary(); renderGifts(); renderSpins();
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     }, 'Carregando Roleta de Mimos...');
   }
 
@@ -262,6 +323,7 @@
     $('gift-modal').close(); showToast('Mimo salvo com sucesso.','success'); await load();
   }
 
+<<<<<<< HEAD
   async function toggleGift(id){
     const gift = state.gifts.find(item => item.id === id);
     if (!gift) return;
@@ -274,6 +336,12 @@
     if(!confirm('Excluir este mimo? Esta ação remove o mimo da listagem.')) return;
     await withLoading(()=>api.delete(`/api/roleta/gifts/${id}`), 'Excluindo mimo...');
     showToast('Mimo excluído.','success'); await load();
+=======
+  async function removeGift(id){
+    if(!confirm('Remover este mimo?')) return;
+    await withLoading(()=>api.delete(`/api/roleta/gifts/${id}`), 'Removendo mimo...');
+    showToast('Mimo removido.','success'); await load();
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   }
 
   async function spin(){
@@ -300,10 +368,14 @@
   $('new-gift-inline')?.addEventListener('click',()=>openGift());
   $('refresh-roleta').addEventListener('click',load);
   $('gift-filter').addEventListener('click',load);
+<<<<<<< HEAD
   document.addEventListener('click',()=>document.querySelectorAll('[data-gift-menu-panel].is-open').forEach(panel=>panel.classList.remove('is-open')));
   $('gift-form').addEventListener('submit',(e)=>{ e.preventDefault(); saveGift(); });
   $('close-gift-modal')?.addEventListener('click',()=>$('gift-modal').close());
   $('cancel-gift-modal')?.addEventListener('click',()=>$('gift-modal').close());
+=======
+  $('gift-form').addEventListener('submit',(e)=>{ e.preventDefault(); saveGift(); });
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   $('spin-button').addEventListener('click',spin);
   $('ai-suggest').addEventListener('click',generateReport);
   $('close-report').addEventListener('click',()=>$('report-modal').close());

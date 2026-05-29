@@ -483,7 +483,10 @@
         <label class="client-field"><span>Horário disponível</span><select name="appointmentTime" id="appointment-time"><option value="">Carregando horários...</option></select><small class="client-field-hint" id="appointment-time-hint">Os horários seguem as Configurações do admin.</small></label>
         <div class="client-field"><span>Serviços</span><div class="client-check-list" id="services-list">${renderServiceChecks(serviceList)}</div></div>
         ${textArea('Observações para a equipe', 'notes', roletaNote)}
+<<<<<<< HEAD
         <div class="client-field"><span>Forma de pagamento</span><div class="client-check-list client-payment-method-list"><label><input type="radio" name="paymentType" value="pix" checked><span><strong>Pix Mercado Pago</strong><small>QR Code e copia e cola.</small></span></label><label><input type="radio" name="paymentType" value="card"><span><strong>Cartão de crédito ou débito</strong><small>Checkout seguro Mercado Pago.</small></span></label></div></div>
+=======
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
         <button class="btn" type="submit">Criar agendamento</button>
       </form>
     </section>
@@ -576,7 +579,10 @@
         ${field('Data inicial', 'startsOn', today(), `type="date" min="${today()}"`)}
         ${field('Primeiro horário', 'firstTime', '09:00', 'type="time"')}
         <label class="client-switch"><input type="checkbox" name="recurring"><span>Ativar recorrência automática ao acabar as sessões</span></label>
+<<<<<<< HEAD
         <div class="client-field"><span>Forma de pagamento</span><div class="client-check-list client-payment-method-list"><label><input type="radio" name="paymentType" value="pix" checked><span><strong>Pix Mercado Pago</strong><small>QR Code e copia e cola.</small></span></label><label><input type="radio" name="paymentType" value="card"><span><strong>Cartão de crédito ou débito</strong><small>Checkout seguro Mercado Pago.</small></span></label></div></div>
+=======
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
         <button class="btn" type="submit">Contratar pacote</button>
       </form>
     </section>
@@ -588,7 +594,11 @@
   }
 
   function renderPagamento() {
+<<<<<<< HEAD
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pagamento Mercado Pago</h2><p>Finalize com Pix, crédito ou débito em ambiente seguro do Mercado Pago. O agendamento ou pacote só será concluído depois da confirmação do pagamento.</p></div><article class="client-form-card" id="pix-page-card"><div class="client-pix-status">Carregando dados do pagamento...</div></article></section>`;
+=======
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Pagamento Pix</h2><p>Finalize o Pix em uma tela segura. Escaneie o QR Code oficial do Mercado Pago ou use o Pix copia e cola. O agendamento ou pacote só será concluído depois da confirmação do pagamento.</p></div><article class="client-form-card" id="pix-page-card"><div class="client-pix-status">Carregando dados do Pix...</div></article></section>`;
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   }
 
   function renderRoleta() {
@@ -707,6 +717,7 @@
   }
 
   function paymentPageHtml(intent = {}) {
+<<<<<<< HEAD
     const paymentType = String(intent.paymentType || 'pix').toLowerCase();
     if (paymentType === 'card') {
       return `<div class="client-pix-page-panel client-card-payment-panel">
@@ -717,17 +728,29 @@
         <div class="client-pix-status" id="pix-payment-status">Aguardando preenchimento do cartão...</div>
       </div>`;
     }
+=======
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     const expires = intent.expiresAt ? new Date(intent.expiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '5 minutos';
     const qrSrc = pixQrImageSrc(intent.qrCodeBase64 || '');
     const isValidPixCode = String(intent.qrCode || '').trim().startsWith('000201');
     return `<div class="client-pix-page-panel">
       <div class="client-pix-header"><span>Pix Mercado Pago</span><strong>${money(intent.amountCents || 0)}</strong></div>
       ${intent.mercadoPagoTestMode ? '<div class="client-pix-warning"><strong>Atenção:</strong> credencial de teste detectada. Para pagar com banco real, use credenciais de produção do Mercado Pago.</div>' : ''}
+<<<<<<< HEAD
       <p>Use somente o QR Code oficial ou o Pix copia e cola abaixo. O QR Code expira às <strong>${escapeHtml(expires)}</strong>.</p>
       ${qrSrc ? `<img class="client-pix-qr" src="${escapeHtml(qrSrc)}" alt="QR Code Pix Mercado Pago oficial">` : '<div class="client-pix-qr placeholder">QR Code indisponível</div>'}
       ${!isValidPixCode ? '<div class="client-pix-warning">O código Pix retornado não parece válido. Gere outro Pix ou revise as credenciais de produção do Mercado Pago.</div>' : ''}
       <label class="client-field"><span>Pix copia e cola</span><textarea id="pix-copy-code" readonly rows="5">${escapeHtml(intent.qrCode || '')}</textarea></label>
       <div class="client-card-actions client-pix-actions"><button class="btn btn-secondary" id="copy-pix-code-inline" type="button">Copiar código Pix</button></div>
+=======
+      <p>Use somente o QR Code oficial ou o Pix copia e cola abaixo. O link de cobrança do Mercado Pago foi removido porque pode abrir como indisponível quando o Pix expira ou quando a sessão do Mercado Pago muda. O QR Code expira às <strong>${escapeHtml(expires)}</strong>.</p>
+      ${qrSrc ? `<img class="client-pix-qr" src="${escapeHtml(qrSrc)}" alt="QR Code Pix Mercado Pago oficial">` : '<div class="client-pix-qr placeholder">QR Code indisponível</div>'}
+      ${!isValidPixCode ? '<div class="client-pix-warning">O código Pix retornado não parece válido. Gere outro Pix ou revise as credenciais de produção do Mercado Pago.</div>' : ''}
+      <label class="client-field"><span>Pix copia e cola</span><textarea id="pix-copy-code" readonly rows="5">${escapeHtml(intent.qrCode || '')}</textarea></label>
+      <div class="client-card-actions client-pix-actions">
+        <button class="btn btn-secondary" id="copy-pix-code-inline" type="button">Copiar código Pix</button>
+      </div>
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
       <div class="client-pix-help">Se o banco informar pagamento indisponível, gere um novo Pix. Não use QR antigo, print ou link de cobrança expirado.</div>
       <div class="client-pix-status" id="pix-payment-status">Aguardando confirmação do Mercado Pago...</div>
     </div>`;
@@ -764,6 +787,7 @@
     });
   }
 
+<<<<<<< HEAD
 
   function loadMercadoPagoSdk() {
     if (window.MercadoPago) return Promise.resolve();
@@ -849,6 +873,9 @@
   }
 
   function goToPaymentPage(intent, kind = 'appointment') {
+=======
+  function goToPixPaymentPage(intent, kind = 'appointment') {
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     if (!intent?.id) {
       openModal('Pix não gerado', '<p>Não recebemos o identificador do pagamento. Tente novamente.</p>', '<button class="btn" data-close-modal>OK</button>');
       return;
@@ -884,10 +911,13 @@
       return;
     }
     card.innerHTML = paymentPageHtml(intent) + '<div class="client-card-actions"><a class="btn btn-ghost" href="/app/agenda">Cancelar e voltar</a></div>';
+<<<<<<< HEAD
     if (String(intent.paymentType || 'pix').toLowerCase() === 'card') {
       await mountMercadoPagoPaymentBrick(intent, paymentKind);
       return;
     }
+=======
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
     const copyPix = async () => {
       const code = document.getElementById('pix-copy-code')?.value || '';
       try { await navigator.clipboard.writeText(code); toast('Código Pix copiado.'); } catch { toast('Copie o código Pix manualmente.'); }
@@ -1047,7 +1077,11 @@
       try {
         const response = await clientApi.post('/app/appointments', payload);
         if (response.requiresPayment && response.paymentIntent) {
+<<<<<<< HEAD
           goToPaymentPage(response.paymentIntent);
+=======
+          goToPixPaymentPage(response.paymentIntent);
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
           return;
         }
         clearRoletaScheduleContext();
@@ -1098,7 +1132,11 @@
       try {
         const response = await clientApi.post('/app/packages', payload);
         if (response.requiresPayment && response.paymentIntent) {
+<<<<<<< HEAD
           goToPaymentPage(response.paymentIntent, 'package');
+=======
+          goToPixPaymentPage(response.paymentIntent, 'package');
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
           return;
         }
         toast(response.message || 'Pacote contratado.');

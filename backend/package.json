@@ -1,6 +1,10 @@
 {
   "name": "petfunny-os-backend",
+<<<<<<< HEAD
   "version": "1.5.131",
+=======
+  "version": "1.5.124",
+>>>>>>> 5b2753e57531cf8b8767c9f9b2fc478ed3f96b0a
   "type": "module",
   "main": "src/server.js",
   "engines": {
