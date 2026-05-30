@@ -199,6 +199,10 @@ function sanitizeTutor(tutor = {}) {
     name: tutor.name,
     whatsapp: tutor.whatsapp,
     email: tutor.email,
+    address: tutor.address || '',
+    addressNumber: tutor.address_number || tutor.addressNumber || '',
+    addressNeighborhood: tutor.address_neighborhood || tutor.addressNeighborhood || '',
+    addressZipcode: tutor.address_zipcode || tutor.addressZipcode || '',
     city: tutor.city,
     state: tutor.state,
     photoUrl: tutor.photo_url || tutor.photoUrl || null,
@@ -343,7 +347,7 @@ async function activateClientAccount(accountId, password) {
 async function getClientAppPayload(accountId) {
   const result = await query(`
     SELECT ca.id AS account_id, ca.status, ca.is_active, ca.whatsapp,
-           t.id AS tutor_id, t.name, t.email, t.city, t.state, t.tags
+           t.id AS tutor_id, t.name, t.email, t.address, t.address_number, t.address_neighborhood, t.address_zipcode, t.city, t.state, t.photo_url, t.tags
     FROM client_accounts ca
     INNER JOIN tutors t ON t.id = ca.tutor_id
     WHERE ca.id = $1
@@ -513,31 +517,75 @@ function sanitizeUser(user, business) {
 }
 
 async function getDashboardSummary() {
+  const demoTutorFilter = `COALESCE('demo' = ANY(t.tags), FALSE) = FALSE AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'`;
+  const demoAppointmentFilter = `LOWER(COALESCE(a.notes, '')) NOT LIKE '%exemplo%' AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%demonstra%' AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%popular o dashboard%'`;
+
   const metricsResult = await query(`
-    WITH today_appointments AS (
-      SELECT * FROM appointments
+    WITH real_tutors AS (
+      SELECT * FROM tutors t
+      WHERE t.deleted_at IS NULL
+        AND ${demoTutorFilter}
+    ), real_pets AS (
+      SELECT p.* FROM pets p
+      LEFT JOIN real_tutors rt ON rt.id = p.tutor_id
+      WHERE p.deleted_at IS NULL
+        AND (p.tutor_id IS NULL OR rt.id IS NOT NULL)
+    ), real_appointments AS (
+      SELECT a.* FROM appointments a
+      LEFT JOIN real_tutors rt ON rt.id = a.tutor_id
+      WHERE a.deleted_at IS NULL
+        AND (a.tutor_id IS NULL OR rt.id IS NOT NULL)
+        AND ${demoAppointmentFilter}
+    ), today_appointments AS (
+      SELECT * FROM real_appointments
       WHERE starts_at::date = CURRENT_DATE
-        AND deleted_at IS NULL
     ), week_appointments AS (
-      SELECT * FROM appointments
+      SELECT * FROM real_appointments
       WHERE starts_at >= date_trunc('week', NOW())
         AND starts_at < date_trunc('week', NOW()) + INTERVAL '7 days'
-        AND deleted_at IS NULL
     ), pending_financial AS (
-      SELECT COALESCE(SUM(amount_cents), 0) AS total, COUNT(*) AS count
-      FROM financial_transactions
-      WHERE type = 'income'
-        AND status <> 'paid'
-        AND deleted_at IS NULL
+      SELECT COALESCE(SUM(ft.amount_cents), 0) AS total, COUNT(*) AS count
+      FROM financial_transactions ft
+      LEFT JOIN real_tutors rt ON rt.id = ft.tutor_id
+      LEFT JOIN real_appointments ra ON ra.id = ft.appointment_id
+      WHERE ft.type = 'income'
+        AND ft.status <> 'paid'
+        AND ft.deleted_at IS NULL
+        AND (ft.tutor_id IS NULL OR rt.id IS NOT NULL)
+        AND (ft.appointment_id IS NULL OR ra.id IS NOT NULL)
+        AND LOWER(COALESCE(ft.description, '')) NOT LIKE '%exemplo%'
+        AND LOWER(COALESCE(ft.description, '')) NOT LIKE '%demonstra%'
     ), revenue_today AS (
-      SELECT COALESCE(SUM(amount_cents), 0) AS total
-      FROM payments
-      WHERE paid_at::date = CURRENT_DATE
+      SELECT COALESCE(SUM(p.amount_cents), 0) AS total
+      FROM payments p
+      LEFT JOIN financial_transactions ft ON ft.id = p.financial_transaction_id
+      LEFT JOIN real_tutors rt ON rt.id = ft.tutor_id
+      LEFT JOIN real_appointments ra ON ra.id = ft.appointment_id
+      WHERE p.paid_at::date = CURRENT_DATE
+        AND (ft.id IS NULL OR ft.deleted_at IS NULL)
+        AND (ft.tutor_id IS NULL OR rt.id IS NOT NULL)
+        AND (ft.appointment_id IS NULL OR ra.id IS NOT NULL)
+        AND LOWER(COALESCE(p.notes, '')) NOT LIKE '%exemplo%'
+        AND LOWER(COALESCE(p.notes, '')) NOT LIKE '%demonstra%'
     ), revenue_week AS (
-      SELECT COALESCE(SUM(amount_cents), 0) AS total
-      FROM payments
-      WHERE paid_at >= date_trunc('week', NOW())
-        AND paid_at < date_trunc('week', NOW()) + INTERVAL '7 days'
+      SELECT COALESCE(SUM(p.amount_cents), 0) AS total
+      FROM payments p
+      LEFT JOIN financial_transactions ft ON ft.id = p.financial_transaction_id
+      LEFT JOIN real_tutors rt ON rt.id = ft.tutor_id
+      LEFT JOIN real_appointments ra ON ra.id = ft.appointment_id
+      WHERE p.paid_at >= date_trunc('week', NOW())
+        AND p.paid_at < date_trunc('week', NOW()) + INTERVAL '7 days'
+        AND (ft.id IS NULL OR ft.deleted_at IS NULL)
+        AND (ft.tutor_id IS NULL OR rt.id IS NOT NULL)
+        AND (ft.appointment_id IS NULL OR ra.id IS NOT NULL)
+        AND LOWER(COALESCE(p.notes, '')) NOT LIKE '%exemplo%'
+        AND LOWER(COALESCE(p.notes, '')) NOT LIKE '%demonstra%'
+    ), active_customer_packages AS (
+      SELECT cp.* FROM customer_packages cp
+      LEFT JOIN real_tutors rt ON rt.id = cp.tutor_id
+      WHERE cp.status = 'active'
+        AND cp.deleted_at IS NULL
+        AND (cp.tutor_id IS NULL OR rt.id IS NOT NULL)
     )
     SELECT
       (SELECT COUNT(*) FROM today_appointments) AS appointments_today,
@@ -549,10 +597,10 @@ async function getDashboardSummary() {
       (SELECT count FROM pending_financial) AS pending_payments_count,
       (SELECT total FROM revenue_today) AS revenue_today_cents,
       (SELECT total FROM revenue_week) AS revenue_week_cents,
-      (SELECT COUNT(*) FROM tutors WHERE deleted_at IS NULL) AS tutors_total,
-      (SELECT COUNT(*) FROM pets WHERE deleted_at IS NULL) AS pets_total,
-      (SELECT COUNT(*) FROM customer_packages WHERE status = 'active' AND deleted_at IS NULL) AS active_packages,
-      (SELECT COUNT(*) FROM tutors WHERE deleted_at IS NULL AND ('recorrente' = ANY(tags) OR id IN (SELECT tutor_id FROM customer_packages WHERE status = 'active' AND deleted_at IS NULL))) AS recurring_clients,
+      (SELECT COUNT(*) FROM real_tutors) AS tutors_total,
+      (SELECT COUNT(*) FROM real_pets) AS pets_total,
+      (SELECT COUNT(*) FROM active_customer_packages) AS active_packages,
+      (SELECT COUNT(*) FROM real_tutors rt WHERE ('recorrente' = ANY(rt.tags) OR rt.id IN (SELECT tutor_id FROM active_customer_packages))) AS recurring_clients,
       (SELECT COUNT(*) FROM gifts WHERE status = 'active' AND deleted_at IS NULL) AS active_gifts
   `);
 
@@ -586,6 +634,11 @@ async function getDashboardSummary() {
     LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
     WHERE a.starts_at::date = CURRENT_DATE
       AND a.deleted_at IS NULL
+      AND COALESCE('demo' = ANY(t.tags), FALSE) = FALSE
+      AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%exemplo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%demonstra%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%popular o dashboard%'
     GROUP BY a.id, t.name, t.whatsapp, p.name, p.size, p.photo_url, c.name, ps.name, ps.color, pm.name
     ORDER BY a.starts_at ASC
     LIMIT 16
@@ -596,11 +649,18 @@ async function getDashboardSummary() {
            s.name AS label,
            s.color,
            s.sort_order,
-           COALESCE(COUNT(a.id), 0)::int AS total
+           COALESCE(COUNT(CASE WHEN a.tutor_id IS NULL OR t.id IS NOT NULL THEN a.id END), 0)::int AS total
     FROM appointment_statuses s
     LEFT JOIN appointments a ON a.status = s.code
       AND a.starts_at::date = CURRENT_DATE
       AND a.deleted_at IS NULL
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%exemplo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%demonstra%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%popular o dashboard%'
+    LEFT JOIN tutors t ON t.id = a.tutor_id
+      AND t.deleted_at IS NULL
+      AND COALESCE('demo' = ANY(t.tags), FALSE) = FALSE
+      AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'
     WHERE s.deleted_at IS NULL
       AND s.is_active = TRUE
     GROUP BY s.code, s.name, s.color, s.sort_order
@@ -617,6 +677,10 @@ async function getDashboardSummary() {
       AND a.starts_at < NOW() + INTERVAL '7 days'
       AND a.deleted_at IS NULL
       AND a.status NOT IN ('cancelado','finalizado','nao_compareceu')
+      AND COALESCE('demo' = ANY(t.tags), FALSE) = FALSE
+      AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%exemplo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%demonstra%'
     GROUP BY a.id, t.name, p.name
     ORDER BY a.starts_at ASC
     LIMIT 8
@@ -650,6 +714,11 @@ async function getDashboardSummary() {
     WHERE a.starts_at >= date_trunc('month', CURRENT_DATE)
       AND a.starts_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
       AND a.deleted_at IS NULL
+      AND COALESCE('demo' = ANY(t.tags), FALSE) = FALSE
+      AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%exemplo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%demonstra%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%popular o dashboard%'
     GROUP BY a.id, t.name, p.name, p.photo_url, p.size, ps.name, ps.color, pm.name
     ORDER BY a.starts_at ASC
   `);
@@ -660,9 +729,14 @@ async function getDashboardSummary() {
            COUNT(a.id)::int AS used
     FROM appointments a
     INNER JOIN appointment_statuses s ON s.code = a.status AND s.blocks_slot = TRUE
+    LEFT JOIN tutors t ON t.id = a.tutor_id
     WHERE a.starts_at >= date_trunc('month', CURRENT_DATE)
       AND a.starts_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
       AND a.deleted_at IS NULL
+      AND (a.tutor_id IS NULL OR (COALESCE('demo' = ANY(t.tags), FALSE) = FALSE AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'))
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%exemplo%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%demonstra%'
+      AND LOWER(COALESCE(a.notes, '')) NOT LIKE '%popular o dashboard%'
     GROUP BY 1, 2
   `);
 
@@ -1761,6 +1835,7 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
       where.push(`(unaccent(lower(t.name)) ILIKE unaccent(lower($${params.length - 1})) OR t.whatsapp ILIKE $${params.length} OR lower(COALESCE(t.email,'')) ILIKE lower($${params.length - 1}))`);
     }
 
+    const filterParams = [...params];
     params.push(limit);
     params.push(offset);
 
@@ -1768,7 +1843,20 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
       SELECT t.id, t.name, t.whatsapp, t.phone, t.email, t.document_number, t.address, t.city, t.state, t.photo_url,
              t.tags, t.notes, t.status, t.created_at, t.updated_at,
              COUNT(DISTINCT p.id) FILTER (WHERE p.deleted_at IS NULL)::int AS pets_count,
-             COALESCE(MAX(a.starts_at), NULL) AS last_appointment_at
+             COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL)::int AS appointments_count,
+             COALESCE(MAX(a.starts_at), NULL) AS last_appointment_at,
+             CASE
+               WHEN COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL) = 0 THEN NULL
+               ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - MAX(a.starts_at))) / 86400))::int
+             END AS days_without_appointment,
+             CASE
+               WHEN COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL) = 0 THEN 'novo_lead'
+               WHEN COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL) >= 3 AND GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - MAX(a.starts_at))) / 86400))::int <= 45 THEN 'recorrente'
+               WHEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - MAX(a.starts_at))) / 86400))::int <= 30 THEN 'ativo'
+               WHEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - MAX(a.starts_at))) / 86400))::int BETWEEN 46 AND 60 THEN 'em_atencao'
+               WHEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - MAX(a.starts_at))) / 86400))::int BETWEEN 61 AND 90 THEN 'em_risco'
+               ELSE 'perdido'
+             END AS crm_status
       FROM tutors t
       LEFT JOIN pets p ON p.tutor_id = t.id AND p.deleted_at IS NULL
       LEFT JOIN appointments a ON a.tutor_id = t.id AND a.deleted_at IS NULL
@@ -1778,7 +1866,30 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
 
-    const totalResult = await query(`SELECT COUNT(*)::int AS total FROM tutors t WHERE ${where.join(' AND ')}`, params.slice(0, -2));
+    const totalResult = await query(`SELECT COUNT(*)::int AS total FROM tutors t WHERE ${where.join(' AND ')}`, filterParams);
+    const statsResult = await query(`
+      WITH tutor_activity AS (
+        SELECT
+          t.id,
+          t.status,
+          MAX(a.starts_at) AS last_appointment_at,
+          COUNT(a.id)::int AS appointments_count
+        FROM tutors t
+        LEFT JOIN appointments a ON a.tutor_id = t.id AND a.deleted_at IS NULL
+        WHERE ${where.join(' AND ')}
+        GROUP BY t.id, t.status
+      )
+      SELECT
+        COUNT(DISTINCT ta.id)::int AS total_tutors,
+        COUNT(DISTINCT ta.id) FILTER (WHERE ta.status = 'active')::int AS active_tutors,
+        (SELECT COUNT(DISTINCT p.id)::int FROM pets p INNER JOIN tutors t2 ON t2.id = p.tutor_id WHERE p.deleted_at IS NULL AND t2.deleted_at IS NULL) AS pets_count,
+        COALESCE(MAX(ta.last_appointment_at), NULL) AS last_appointment_at,
+        COUNT(DISTINCT ta.id) FILTER (WHERE ta.appointments_count = 0)::int AS new_leads,
+        COUNT(DISTINCT ta.id) FILTER (WHERE ta.appointments_count > 0 AND GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ta.last_appointment_at)) / 86400))::int BETWEEN 61 AND 90)::int AS at_risk_tutors,
+        COUNT(DISTINCT ta.id) FILTER (WHERE ta.appointments_count > 0 AND GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ta.last_appointment_at)) / 86400))::int > 90)::int AS lost_tutors
+      FROM tutor_activity ta
+    `, filterParams);
+    const stats = statsResult.rows[0] || {};
 
     res.json({
       items: result.rows.map((row) => ({
@@ -1789,13 +1900,25 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
         status: row.status,
         notes: row.notes,
         petsCount: Number(row.pets_count || 0),
+        appointmentsCount: Number(row.appointments_count || 0),
         lastAppointmentAt: row.last_appointment_at,
+        daysWithoutAppointment: row.days_without_appointment === null || row.days_without_appointment === undefined ? null : Number(row.days_without_appointment),
+        crmStatus: row.crm_status || 'novo_lead',
         createdAt: row.created_at,
         updatedAt: row.updated_at
       })),
       page: Number(req.query.page || 1),
       limit,
-      total: Number(totalResult.rows[0]?.total || 0)
+      total: Number(totalResult.rows[0]?.total || 0),
+      stats: {
+        totalTutors: Number(stats.total_tutors || 0),
+        activeTutors: Number(stats.active_tutors || 0),
+        petsCount: Number(stats.pets_count || 0),
+        lastAppointmentAt: stats.last_appointment_at || null,
+        newLeads: Number(stats.new_leads || 0),
+        atRiskTutors: Number(stats.at_risk_tutors || 0),
+        lostTutors: Number(stats.lost_tutors || 0)
+      }
     });
   } catch (error) {
     next(error);
@@ -2033,6 +2156,7 @@ app.get('/api/pets', requireAuth, async (req, res, next) => {
       where.push(`(unaccent(lower(p.name)) ILIKE unaccent(lower($${params.length - 1})) OR unaccent(lower(COALESCE(p.breed,''))) ILIKE unaccent(lower($${params.length - 1})) OR unaccent(lower(t.name)) ILIKE unaccent(lower($${params.length - 1})) OR t.whatsapp ILIKE $${params.length})`);
     }
 
+    const filterParams = [...params];
     params.push(limit);
     params.push(offset);
 
@@ -2049,13 +2173,30 @@ app.get('/api/pets', requireAuth, async (req, res, next) => {
       FROM pets p
       INNER JOIN tutors t ON t.id = p.tutor_id
       WHERE ${where.join(' AND ')}
-    `, params.slice(0, -2));
+    `, filterParams);
+    const statsResult = await query(`
+      SELECT
+        COUNT(*)::int AS total_pets,
+        COUNT(*) FILTER (WHERE p.status = 'active')::int AS active_pets,
+        COUNT(DISTINCT p.tutor_id)::int AS tutor_count,
+        COUNT(DISTINCT NULLIF(lower(trim(COALESCE(p.breed, ''))), ''))::int AS breed_count
+      FROM pets p
+      INNER JOIN tutors t ON t.id = p.tutor_id
+      WHERE ${where.join(' AND ')}
+    `, filterParams);
+    const stats = statsResult.rows[0] || {};
 
     res.json({
       items: result.rows.map(sanitizePet),
       page: Number(req.query.page || 1),
       limit,
-      total: Number(totalResult.rows[0]?.total || 0)
+      total: Number(totalResult.rows[0]?.total || 0),
+      stats: {
+        totalPets: Number(stats.total_pets || 0),
+        activePets: Number(stats.active_pets || 0),
+        tutorCount: Number(stats.tutor_count || 0),
+        breedCount: Number(stats.breed_count || 0)
+      }
     });
   } catch (error) {
     next(error);
@@ -2969,12 +3110,56 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       id: `wellbeing-${row.id}`,
       type: 'petfunny360',
       icon: row.severity === 'warning' ? '🧠⚠️' : '🧠',
-      label: 'PetFunny 360',
+      label: 'PetFunny 360 IA',
       title: row.title || `Bem-estar de ${row.pet_name || 'pet'}`,
       text: row.message || 'Novo diagnóstico de bem-estar disponível.',
       createdAt: row.created_at,
       url: `/app/bem-estar?petId=${row.pet_id}`,
-      ctaLabel: 'Ver diagnóstico'
+      ctaLabel: 'Ver diagnóstico 360'
+    }));
+
+    const healthTimelineResult = await safeClientSummaryQuery('health360 timeline', `
+      SELECT ht.id, ht.pet_id, ht.risk_level, ht.summary, ht.guidance, ht.recommended_action, ht.created_at, p.name AS pet_name
+      FROM pet_health_triages ht
+      INNER JOIN pets p ON p.id = ht.pet_id
+      WHERE ht.tutor_id = $1::uuid
+        AND ht.deleted_at IS NULL
+        AND ht.created_at >= NOW() - INTERVAL '90 days'
+      ORDER BY ht.created_at DESC
+      LIMIT 12
+    `, [tutorId]);
+    const teleTimelineResult = await safeClientSummaryQuery('teleconsultation timeline', `
+      SELECT tc.id, tc.pet_id, tc.status, tc.payment_status, tc.starts_at, tc.reason, tc.meeting_url, tc.created_at, p.name AS pet_name, v.name AS veterinarian_name
+      FROM teleconsultations tc
+      INNER JOIN pets p ON p.id = tc.pet_id
+      LEFT JOIN veterinarians v ON v.id = tc.veterinarian_id
+      WHERE tc.tutor_id = $1::uuid
+        AND tc.deleted_at IS NULL
+        AND tc.created_at >= NOW() - INTERVAL '90 days'
+      ORDER BY COALESCE(tc.starts_at, tc.created_at) DESC
+      LIMIT 12
+    `, [tutorId]);
+    const healthEvents = healthTimelineResult.rows.map((row) => ({
+      id: `health360-triage-${row.id}`,
+      type: 'health360_triage',
+      icon: row.risk_level === 'high' ? '🚨' : row.risk_level === 'medium' ? '🟡' : '🩺',
+      label: 'Saúde 360 IA',
+      title: row.risk_level === 'high' ? `Atenção urgente para ${row.pet_name || 'pet'}` : `Triagem de ${row.pet_name || 'pet'} registrada`,
+      text: row.summary || row.guidance || 'Nova análise preventiva registrada.',
+      createdAt: row.created_at,
+      url: `/app/saude-360?petId=${row.pet_id}`,
+      ctaLabel: row.risk_level === 'high' ? 'Ver orientação' : 'Ver Saúde 360'
+    }));
+    const teleEvents = teleTimelineResult.rows.map((row) => ({
+      id: `health360-tele-${row.id}`,
+      type: 'health360_teleconsultation',
+      icon: '🩺',
+      label: 'Teleconsulta veterinária',
+      title: `${row.veterinarian_name || 'Veterinário parceiro'} · ${row.pet_name || 'Pet'}`,
+      text: row.starts_at ? `Teleconsulta ${row.status || 'solicitada'} para ${new Date(row.starts_at).toLocaleString('pt-BR')}.` : 'Teleconsulta solicitada pelo Saúde 360.',
+      createdAt: row.created_at || row.starts_at,
+      url: row.meeting_url || `/app/saude-360?petId=${row.pet_id}`,
+      ctaLabel: row.meeting_url ? 'Entrar na consulta' : 'Ver teleconsulta'
     }));
 
     const nextAppointment = appointmentsResult.rows[0] ? sanitizeClientAppointment(appointmentsResult.rows[0]) : null;
@@ -2995,7 +3180,8 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       upcomingAppointments: appointmentsResult.rows.map(sanitizeClientAppointment),
       history: historyResult.rows.map(sanitizeClientAppointment),
       packages: packagesResult.rows.map(sanitizeClientPackage),
-      timelineEvents: [...timelineResult.rows.map(makeClientAppointmentTimelineEvent), ...wellbeingEvents]
+      timelineEvents: [...timelineResult.rows.map(makeClientAppointmentTimelineEvent), ...wellbeingEvents, ...healthEvents, ...teleEvents],
+      health360Timeline: [...healthEvents, ...teleEvents]
     });
   } catch (error) {
     next(error);
@@ -3507,7 +3693,7 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
     const [pets, services, collaborators, petSizes, petBreeds, packages, paymentMethods, gifts, promotions, operational] = await Promise.all([
       query(`SELECT id, name, size, breed, coat_type FROM pets WHERE tutor_id=$1::uuid AND deleted_at IS NULL AND status='active' ORDER BY name ASC`, [tutorId]),
       query(`
-        SELECT s.id, s.name, s.price_cents, s.duration_minutes, s.pet_size, ps.name AS pet_size_name,
+        SELECT s.id, s.name, s.description, s.price_cents, s.duration_minutes, s.pet_size, ps.name AS pet_size_name,
                sc.name AS category_name, sc.sort_order AS category_sort_order
         FROM services s
         LEFT JOIN pet_sizes ps ON ps.code = s.pet_size
@@ -3550,7 +3736,7 @@ app.get('/api/app/options', requireClientAuth, async (req, res, next) => {
 
     res.json({
       pets: pets.rows.map((row) => ({ id: row.id, name: row.name, size: row.size, breed: row.breed, coatType: row.coat_type })),
-      services: services.rows.map((row) => ({ id: row.id, name: row.name, priceCents: Number(row.price_cents || 0), durationMinutes: Number(row.duration_minutes || 0), petSize: row.pet_size, petSizeName: row.pet_size_name, categoryName: row.category_name || 'Serviços PetFunny' })),
+      services: services.rows.map((row) => ({ id: row.id, name: row.name, description: row.description || '', priceCents: Number(row.price_cents || 0), durationMinutes: Number(row.duration_minutes || 0), petSize: row.pet_size, petSizeName: row.pet_size_name, categoryName: row.category_name || 'Serviços PetFunny' })),
       collaborators: collaborators.rows.map((row) => ({ id: row.id, name: row.name, role: row.role, color: row.color })),
       petSizes: petSizes.rows.map((row) => ({ code: row.code, name: row.name, sortOrder: Number(row.sort_order || 0) })),
       petBreeds: petBreeds.rows.map(sanitizePetBreed),
@@ -3572,16 +3758,33 @@ app.put('/api/app/profile', requireClientAuth, async (req, res, next) => {
     const tutorId = req.clientApp.tutor.id;
     const name = cleanText(req.body?.name);
     if (!name) return res.status(400).json({ error: 'Informe seu nome para atualizar o perfil.' });
+    const photoUrl = cleanPhotoDataUrl(req.body?.photoDataUrl || req.body?.photoUrl);
     const result = await query(`
       UPDATE tutors
       SET name=$2::text,
           email=NULLIF($3::text,''),
-          city=NULLIF($4::text,''),
-          state=NULLIF($5::text,''),
+          address=NULLIF($4::text,''),
+          address_number=NULLIF($5::text,''),
+          address_neighborhood=NULLIF($6::text,''),
+          address_zipcode=NULLIF($7::text,''),
+          city=NULLIF($8::text,''),
+          state=NULLIF($9::text,''),
+          photo_url=COALESCE($10::text, photo_url),
           updated_at=NOW()
       WHERE id=$1::uuid AND deleted_at IS NULL
-      RETURNING id, name, whatsapp, email, city, state, tags
-    `, [tutorId, name, cleanText(req.body?.email), cleanText(req.body?.city), cleanText(req.body?.state)]);
+      RETURNING id, name, whatsapp, email, address, address_number, address_neighborhood, address_zipcode, city, state, photo_url, tags
+    `, [
+      tutorId,
+      name,
+      cleanText(req.body?.email),
+      cleanText(req.body?.address),
+      cleanText(req.body?.addressNumber),
+      cleanText(req.body?.addressNeighborhood),
+      cleanText(req.body?.addressZipcode),
+      cleanText(req.body?.city),
+      cleanText(req.body?.state),
+      photoUrl
+    ]);
     res.json({ tutor: sanitizeTutor(result.rows[0]), message: 'Perfil atualizado com sucesso.' });
   } catch (error) {
     next(error);
@@ -3607,10 +3810,10 @@ app.post('/api/app/pets', requireClientAuth, async (req, res, next) => {
     const name = cleanText(req.body?.name);
     if (!name) return res.status(400).json({ error: 'Informe o nome do pet.' });
     const result = await query(`
-      INSERT INTO pets (tutor_id, name, species, breed, size, coat_type, birth_date, weight_kg, preferences, restrictions, notes, status)
-      VALUES ($1::uuid, $2::text, COALESCE(NULLIF($3::text,''), 'dog'), NULLIF($4::text,''), COALESCE(NULLIF($5::text,''), 'pequeno'), NULLIF($6::text,''), NULLIF($7::text,'')::date, NULLIF($8::text,'')::numeric, NULLIF($9::text,''), NULLIF($10::text,''), NULLIF($11::text,''), 'active')
+      INSERT INTO pets (tutor_id, name, species, breed, size, coat_type, birth_date, weight_kg, preferences, restrictions, notes, status, photo_url)
+      VALUES ($1::uuid, $2::text, COALESCE(NULLIF($3::text,''), 'dog'), NULLIF($4::text,''), COALESCE(NULLIF($5::text,''), 'pequeno'), NULLIF($6::text,''), NULLIF($7::text,'')::date, NULLIF($8::text,'')::numeric, NULLIF($9::text,''), NULLIF($10::text,''), NULLIF($11::text,''), 'active', $12::text)
       RETURNING *
-    `, [tutorId, name, cleanText(req.body?.species), cleanText(req.body?.breed), cleanText(req.body?.size), cleanText(req.body?.coatType), cleanText(req.body?.birthDate), cleanText(req.body?.weightKg), cleanText(req.body?.preferences), cleanText(req.body?.restrictions), cleanText(req.body?.notes)]);
+    `, [tutorId, name, cleanText(req.body?.species), cleanText(req.body?.breed), cleanText(req.body?.size), cleanText(req.body?.coatType), cleanText(req.body?.birthDate), cleanText(req.body?.weightKg), cleanText(req.body?.preferences), cleanText(req.body?.restrictions), cleanText(req.body?.notes), cleanPhotoDataUrl(req.body?.photoDataUrl || req.body?.photoUrl)]);
     res.status(201).json({ pet: sanitizeClientPet(result.rows[0]), message: 'Pet cadastrado no app.' });
   } catch (error) {
     next(error);
@@ -3634,10 +3837,11 @@ app.put('/api/app/pets/:id', requireClientAuth, async (req, res, next) => {
           preferences=NULLIF($10::text,''),
           restrictions=NULLIF($11::text,''),
           notes=NULLIF($12::text,''),
+          photo_url=COALESCE($13::text, photo_url),
           updated_at=NOW()
       WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL
       RETURNING *
-    `, [req.params.id, tutorId, name, cleanText(req.body?.species), cleanText(req.body?.breed), cleanText(req.body?.size), cleanText(req.body?.coatType), cleanText(req.body?.birthDate), cleanText(req.body?.weightKg), cleanText(req.body?.preferences), cleanText(req.body?.restrictions), cleanText(req.body?.notes)]);
+    `, [req.params.id, tutorId, name, cleanText(req.body?.species), cleanText(req.body?.breed), cleanText(req.body?.size), cleanText(req.body?.coatType), cleanText(req.body?.birthDate), cleanText(req.body?.weightKg), cleanText(req.body?.preferences), cleanText(req.body?.restrictions), cleanText(req.body?.notes), cleanPhotoDataUrl(req.body?.photoDataUrl || req.body?.photoUrl)]);
     if (!result.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
     res.json({ pet: sanitizeClientPet(result.rows[0]), message: 'Pet atualizado.' });
   } catch (error) {
@@ -3797,7 +4001,7 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
 
     try {
       let updated;
-      if (paymentType === 'card') {
+      if (isCardLikeAppPaymentType(paymentType)) {
         if (!env.mercadoPagoPublicKey) return res.status(503).json({ error: 'Pagamento por cartão indisponível. Configure MERCADO_PAGO_PUBLIC_KEY no servidor para usar Payment Brick.' });
         updated = await query(`
           UPDATE appointment_payment_intents
@@ -3866,7 +4070,7 @@ app.get('/api/app/appointments/payment/:intentId', requireClientAuth, async (req
     if (intent.status === 'paid') {
       return res.json({ paymentIntent: sanitizePaymentIntent(intent), appointment: intent.appointment_id ? sanitizeAppointment(await getAppointmentById(intent.appointment_id)) : null, message: 'Agendamento pago e realizado com sucesso.' });
     }
-    const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
+    const isCardPayment = isCardLikeAppPaymentType(intent.payment_type || 'pix');
     if (!isCardPayment && new Date(intent.expires_at).getTime() < Date.now()) {
       const expired = await query(`UPDATE appointment_payment_intents SET status='expired', updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.id]);
       return res.status(410).json({ paymentIntent: sanitizePaymentIntent(expired.rows[0]), error: 'Pix expirado. Gere um novo QR Code para concluir o agendamento.' });
@@ -4110,7 +4314,7 @@ async function finalizePaidPackageIntent(intentId, providerStatus = 'approved', 
     const packageRow = pack.rows[0];
     const perMonth = Number(packageRow.appointments_per_month || 4);
     const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
-    const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
+    const isCardPayment = isCardLikeAppPaymentType(intent.payment_type || 'pix');
     const paymentMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE $2) ORDER BY sort_order ASC LIMIT 1`, isCardPayment ? ['%cart%', '%card%'] : ['%pix%', '%pix%']).catch(() => ({ rows: [] }));
     const paidViaCode = isCardPayment ? 'mercado_pago_card' : 'mercado_pago_pix';
     const sold = await query(`
@@ -4181,7 +4385,7 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
     `, [tutorId, accountId, petId, packageId, paymentType, amountCents, description, JSON.stringify(payload), expiresAt]);
     try {
       let updated;
-      if (paymentType === 'card') {
+      if (isCardLikeAppPaymentType(paymentType)) {
         if (!env.mercadoPagoPublicKey) return res.status(503).json({ error: 'Pagamento por cartão indisponível. Configure MERCADO_PAGO_PUBLIC_KEY no servidor para usar Payment Brick.' });
         updated = await query(`
           UPDATE package_payment_intents
@@ -4226,7 +4430,7 @@ app.get('/api/app/packages/payment/:intentId', requireClientAuth, async (req, re
     if (intent.status === 'paid') {
       return res.json({ paymentIntent: sanitizePackagePaymentIntent(intent), customerPackageId: intent.customer_package_id, message: 'Pacote pago e contratado com sucesso.' });
     }
-    const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
+    const isCardPayment = isCardLikeAppPaymentType(intent.payment_type || 'pix');
     if (!isCardPayment && new Date(intent.expires_at).getTime() < Date.now()) {
       const expired = await query(`UPDATE package_payment_intents SET status='expired', updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.id]);
       return res.status(410).json({ paymentIntent: sanitizePackagePaymentIntent(expired.rows[0]), error: 'Pix expirado. Gere uma nova contratação para concluir o pacote.' });
@@ -4352,6 +4556,662 @@ app.post('/api/app/push/unsubscribe', requireClientAuth, async (req, res, next) 
   } catch (error) {
     next(error);
   }
+});
+
+
+
+function safeJsonObject(value, fallback = {}) {
+  if (!value) return fallback;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function sanitizeHealthTriage(row = {}) {
+  const raw = safeJsonObject(row.raw_result, {});
+  const thermometer = raw.thermometer || raw.themeThermometer || null;
+  return {
+    id: row.id,
+    petId: row.pet_id,
+    petName: row.pet_name || '',
+    riskLevel: row.risk_level || 'low',
+    summary: row.summary || '',
+    guidance: row.guidance || '',
+    recommendedAction: row.recommended_action || '',
+    emergency: Boolean(row.emergency),
+    redFlags: Array.isArray(row.red_flags) ? row.red_flags : [],
+    aiUsed: Boolean(row.ai_used),
+    dailyTheme: raw.dailyTheme || row.daily_theme || raw.theme || '',
+    themeTitle: raw.themeTitle || raw?.thermometer?.title || '',
+    thermometer,
+    insight: raw.insight || null,
+    cta: raw.cta || raw?.insight?.cta || null,
+    createdAt: row.created_at
+  };
+}
+
+function sanitizeTeleconsultation(row = {}) {
+  return {
+    id: row.id,
+    tutorId: row.tutor_id,
+    tutorName: row.tutor_name || row.tutor_display_name || '',
+    petId: row.pet_id,
+    petName: row.pet_name || '',
+    veterinarianId: row.veterinarian_id,
+    veterinarianName: row.veterinarian_name || 'Veterinário parceiro',
+    veterinarianCrmv: row.veterinarian_crmv || row.crmv || '',
+    specialty: row.specialty || row.veterinarian_specialty || '',
+    reason: row.reason || '',
+    symptoms: row.symptoms || '',
+    startsAt: row.starts_at,
+    priceCents: Number(row.price_cents || 0),
+    paymentMethod: row.payment_method || 'pix',
+    paymentStatus: row.payment_status || 'pending',
+    status: row.status || 'pending_payment',
+    meetingUrl: row.meeting_url || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function computeHealth360Score({ pet = {}, lastTriage = null, recordsCount = 0, appointmentsCount = 0 } = {}) {
+  let score = 72;
+  const factors = [];
+  if (pet.weight_kg) { score += 5; factors.push('Peso informado'); }
+  if (pet.restrictions || pet.preferences || pet.notes) { score += 5; factors.push('Perfil de cuidado completo'); }
+  if (appointmentsCount > 0) { score += 8; factors.push('Rotina PetFunny registrada'); }
+  if (recordsCount > 0) { score += 5; factors.push('Prontuário com registros'); }
+  if (lastTriage?.risk_level === 'medium') { score -= 12; factors.push('Última triagem em atenção'); }
+  if (lastTriage?.risk_level === 'high') { score -= 28; factors.push('Última triagem urgente'); }
+  score = Math.max(35, Math.min(98, score));
+  const label = score >= 90 ? 'Excelente' : score >= 75 ? 'Bom' : score >= 60 ? 'Atenção' : 'Risco';
+  return { score, label, factors };
+}
+
+
+const HEALTH360_DAILY_THEME_BANK = [
+  { day: 1, key: 'apetite', title: 'Apetite', icon: '🍽️', ctaType: 'teleconsultation' },
+  { day: 2, key: 'agua', title: 'Consumo de água', icon: '💧', ctaType: 'weight' },
+  { day: 3, key: 'energia', title: 'Energia/disposição', icon: '⚡', ctaType: 'teleconsultation' },
+  { day: 4, key: 'fezes', title: 'Fezes', icon: '💩', ctaType: 'teleconsultation' },
+  { day: 5, key: 'urina', title: 'Urina', icon: '🚽', ctaType: 'teleconsultation' },
+  { day: 6, key: 'sono', title: 'Sono', icon: '🌙', ctaType: 'teleconsultation' },
+  { day: 7, key: 'pele', title: 'Pele e coceiras', icon: '🧴', ctaType: 'bath' },
+  { day: 8, key: 'mobilidade', title: 'Mobilidade', icon: '🐾', ctaType: 'teleconsultation' },
+  { day: 9, key: 'comportamento', title: 'Comportamento', icon: '🧠', ctaType: 'teleconsultation' },
+  { day: 10, key: 'ansiedade', title: 'Ansiedade', icon: '💚', ctaType: 'teleconsultation' },
+  { day: 11, key: 'peso', title: 'Peso corporal', icon: '⚖️', ctaType: 'weight' },
+  { day: 12, key: 'bucal', title: 'Saúde bucal', icon: '🦷', ctaType: 'bath' },
+  { day: 13, key: 'ouvidos', title: 'Ouvidos', icon: '👂', ctaType: 'teleconsultation' },
+  { day: 14, key: 'higiene', title: 'Rotina de higiene', icon: '🛁', ctaType: 'bath' }
+];
+
+function getHealth360DailyThemeForDate(date = new Date()) {
+  const dayIndex = Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 86400000) % HEALTH360_DAILY_THEME_BANK.length;
+  return HEALTH360_DAILY_THEME_BANK[(dayIndex + HEALTH360_DAILY_THEME_BANK.length) % HEALTH360_DAILY_THEME_BANK.length];
+}
+
+function normalizeHealth360StatusValue(value = '') {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function buildHealth360SmartCta(analysis = {}, payload = {}) {
+  const normalized = Object.fromEntries(Object.entries(payload || {}).map(([key, value]) => [key, normalizeHealth360StatusValue(value)]));
+  if (analysis.emergency || analysis.riskLevel === 'high') return { type: 'teleconsultation', label: 'Agendar Teleconsulta', href: '/app/saude-360', reason: 'Sinais de alerta pedem orientação veterinária imediata.' };
+  if (['menos','nao','muito_baixo','baixo','dificuldade','sangue','repetido','persistente','intensa','moderada'].some((value) => Object.values(normalized).includes(value))) return { type: 'teleconsultation', label: 'Agendar Teleconsulta', href: '/app/saude-360', reason: 'Mudança importante detectada na triagem.' };
+  if (['pele','higiene','bucal','ouvidos'].includes(normalized.dailytheme) || ['coceira','vermelhidao','ferida','queda_pelo','odor','secrecao'].some((value) => Object.values(normalized).includes(value))) return { type: 'bath', label: 'Agendar Banho/Tosa', href: '/app/agenda', reason: 'A rotina de higiene pode ajudar quando o pet estiver apto.' };
+  if (['peso'].includes(normalized.dailytheme)) return { type: 'weight', label: 'Registrar novo peso', href: '/app/pets', reason: 'Acompanhar peso ajuda a entender evolução do bem-estar.' };
+  return { type: 'care', label: 'Agendar cuidado PetFunny', href: '/app/agenda', reason: 'Mantenha a rotina preventiva em dia.' };
+}
+
+
+function getHealth360ThemeMeta(key = '') {
+  const normalized = normalizeHealth360StatusValue(key);
+  return HEALTH360_DAILY_THEME_BANK.find((item) => item.key === normalized) || HEALTH360_DAILY_THEME_BANK[0];
+}
+
+function health360ScoreLabel(score = 0) {
+  const value = Number(score || 0);
+  if (value >= 85) return 'Excelente';
+  if (value >= 70) return 'Bom';
+  if (value >= 50) return 'Atenção';
+  return 'Risco';
+}
+
+function health360ScoreLevel(score = 0) {
+  const value = Number(score || 0);
+  if (value >= 85) return 'excellent';
+  if (value >= 70) return 'good';
+  if (value >= 50) return 'attention';
+  return 'risk';
+}
+
+function computeHealth360ThemeThermometer(payload = {}, analysis = {}) {
+  const theme = getHealth360ThemeMeta(payload.dailyTheme || payload.dailytheme || 'apetite');
+  const normalized = Object.fromEntries(Object.entries(payload || {}).map(([key, value]) => [key, normalizeHealth360StatusValue(value)]));
+  let score = 88;
+  const good = [];
+  const warnings = [];
+  const values = Object.values(normalized);
+  const mediumSignals = ['menos','muito','baixo','muito_baixo','mole','liquida','inquieto','coceira','vermelhidao','odor','secrecao','moderada','ansioso','estressado','acima','abaixo','nos','precisa'];
+  const highSignals = ['nao','sangue','dificuldade','intensa','persistente','ferida','queda_pelo','muita','pouca','agressivo','isolado'];
+  if (analysis.riskLevel === 'medium') score -= 14;
+  if (analysis.riskLevel === 'high') score -= 34;
+  values.forEach((value) => {
+    if (!value || ['triagem diaria saude 360'].includes(value)) return;
+    if (['normal','ok','adequado','sim','igual','boa','estavel','brincando','em_dia'].includes(value)) { score += 2; good.push(value); }
+    if (mediumSignals.includes(value)) { score -= 12; warnings.push(value); }
+    if (highSignals.includes(value)) { score -= 22; warnings.push(value); }
+  });
+  score = Math.max(20, Math.min(98, Math.round(score)));
+  const label = health360ScoreLabel(score);
+  return {
+    key: theme.key,
+    title: theme.title,
+    icon: theme.icon,
+    score,
+    label,
+    level: health360ScoreLevel(score),
+    status: label,
+    goodSignals: good.slice(0, 5),
+    warningSignals: warnings.slice(0, 5),
+    cta: buildHealth360SmartCta(analysis, payload)
+  };
+}
+
+function buildHealth360ThemeScores(triageRows = []) {
+  const byTheme = new Map();
+  (triageRows || []).forEach((row) => {
+    const raw = safeJsonObject(row.raw_result, {});
+    const thermometer = raw.thermometer || raw.themeThermometer;
+    if (!thermometer?.key) return;
+    if (!byTheme.has(thermometer.key)) byTheme.set(thermometer.key, []);
+    byTheme.get(thermometer.key).push({
+      key: thermometer.key,
+      title: thermometer.title || getHealth360ThemeMeta(thermometer.key).title,
+      icon: thermometer.icon || getHealth360ThemeMeta(thermometer.key).icon,
+      score: Number(thermometer.score || 0),
+      label: thermometer.label || health360ScoreLabel(thermometer.score || 0),
+      level: thermometer.level || health360ScoreLevel(thermometer.score || 0),
+      createdAt: row.created_at
+    });
+  });
+  return Array.from(byTheme.entries()).map(([key, items]) => {
+    const sorted = items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const latest = sorted[0];
+    const previous = sorted[1];
+    const trend = previous ? latest.score - previous.score : 0;
+    return {
+      key,
+      title: latest.title,
+      icon: latest.icon,
+      score: latest.score,
+      label: latest.label,
+      level: latest.level,
+      trend,
+      history: sorted.slice(0, 7).map((item) => ({ score: item.score, createdAt: item.createdAt }))
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function buildHealth360PredictiveRisks(triageRows = [], themeScores = []) {
+  const latest = (triageRows || []).slice(0, 14);
+  const risk = (key, title, percent, reason, cta = { label: 'Agendar Teleconsulta', href: '/app/saude-360' }) => ({ key, title, percent: Math.max(0, Math.min(100, Math.round(percent))), reason, cta });
+  const scoreMap = Object.fromEntries((themeScores || []).map((item) => [item.key, item.score]));
+  const countThemeLow = (key, limit = 60) => latest.filter((row) => {
+    const raw = safeJsonObject(row.raw_result, {});
+    const t = raw.thermometer || {};
+    return t.key === key && Number(t.score || 100) < limit;
+  }).length;
+  const risks = [];
+  const appetiteLow = countThemeLow('apetite');
+  const energyLow = countThemeLow('energia');
+  const skinLow = countThemeLow('pele');
+  const urineLow = countThemeLow('urina');
+  const stoolLow = countThemeLow('fezes');
+  const anxietyLow = countThemeLow('ansiedade');
+  if (appetiteLow >= 2 || (scoreMap.apetite || 100) < 60) risks.push(risk('gastrointestinal', 'Risco gastrointestinal', 68 + appetiteLow * 8, 'Apetite/fezes com atenção recorrente nos últimos registros.'));
+  if (skinLow >= 1 || (scoreMap.pele || 100) < 65) risks.push(risk('dermatologico', 'Risco dermatológico', 56 + skinLow * 12, 'Coceira, pele, odor ou pelagem pedem acompanhamento preventivo.', { label: 'Agendar Banho/Tosa', href: '/app/agenda' }));
+  if (urineLow >= 1 || (scoreMap.urina || 100) < 65) risks.push(risk('urinario', 'Risco urinário', 62 + urineLow * 12, 'Alterações urinárias merecem orientação veterinária.'));
+  if (energyLow >= 2 || (scoreMap.energia || 100) < 60) risks.push(risk('sedentarismo', 'Risco de sedentarismo', 55 + energyLow * 10, 'Energia/disposição baixa apareceu mais de uma vez.'));
+  if (anxietyLow >= 1 || (scoreMap.ansiedade || 100) < 65) risks.push(risk('ansiedade', 'Risco de ansiedade', 60 + anxietyLow * 12, 'Comportamento ansioso ou alteração emocional foi registrado.'));
+  if ((scoreMap.peso || 100) < 65) risks.push(risk('obesidade', 'Risco de peso corporal', 64, 'O acompanhamento de peso precisa ser reforçado.', { label: 'Registrar novo peso', href: '/app/pets' }));
+  return risks.sort((a, b) => b.percent - a.percent).slice(0, 6);
+}
+
+function buildHealth360Insight({ analysis = {}, payload = {}, pet = {}, score = null } = {}) {
+  const ok = [];
+  const attention = [];
+  const normalized = Object.fromEntries(Object.entries(payload || {}).map(([key, value]) => [key, normalizeHealth360StatusValue(value)]));
+  if (['normal'].includes(normalized.appetite)) ok.push('apetite normal');
+  if (['menos','nao'].includes(normalized.appetite)) attention.push('alteração no apetite');
+  if (['normal'].includes(normalized.water)) ok.push('hidratação adequada');
+  if (['menos','muito','nao'].includes(normalized.water)) attention.push('alteração no consumo de água');
+  if (['normal'].includes(normalized.energy)) ok.push('energia preservada');
+  if (['baixo','muito_baixo'].includes(normalized.energy)) attention.push('redução de atividade física');
+  if (['normal'].includes(normalized.sleep)) ok.push('sono sem alteração relevante');
+  if (['menos','muito','inquieto'].includes(normalized.sleep)) attention.push('alteração de sono');
+  if (['normal'].includes(normalized.stool)) ok.push('fezes normais');
+  if (['mole','liquida','sangue','nao_fez'].includes(normalized.stool) || ['sim','persistente','sangue'].includes(normalized.diarrhea)) attention.push('alteração nas fezes');
+  if (['normal'].includes(normalized.urination)) ok.push('urina normal');
+  if (['pouca','muita','dificuldade','sangue'].includes(normalized.urination)) attention.push('alteração urinária');
+  if (!ok.length && !attention.length) ok.push('registro diário realizado');
+  const cta = buildHealth360SmartCta(analysis, payload);
+  const scoreValue = Number(score?.score || 0) || (analysis.riskLevel === 'high' ? 58 : analysis.riskLevel === 'medium' ? 74 : 87);
+  return {
+    title: 'PetFunny Health Insight™',
+    positives: ok.slice(0, 4),
+    attention: attention.slice(0, 4),
+    recommendation: analysis.emergency ? 'Buscar atendimento veterinário presencial imediatamente.' : analysis.riskLevel === 'medium' ? 'Acompanhar por 3 dias e considerar teleconsulta veterinária.' : 'Acompanhar por 3 dias e manter rotina preventiva.',
+    score: scoreValue,
+    scoreText: `${scoreValue}/100`,
+    cta
+  };
+}
+
+function buildHealth360AlertEngine(triageRows = []) {
+  const alerts = [];
+  const latest = triageRows.slice(0, 7);
+  const countBadAppetite = latest.filter((row) => ['menos','nao'].includes(normalizeHealth360StatusValue(row.appetite))).length;
+  const countMediumHigh = latest.filter((row) => ['medium','high'].includes(row.risk_level)).length;
+  if (countBadAppetite >= 3) alerts.push({ level: 'high', title: '3 dias seguidos sem apetite', message: 'Recomendamos uma teleconsulta veterinária.' });
+  if (countMediumHigh >= 2) alerts.push({ level: 'medium', title: 'Sinais de atenção recorrentes', message: 'Considere orientação veterinária para interpretar a evolução.' });
+  return alerts;
+}
+
+function analyzePetHealthTriage(payload = {}, pet = {}) {
+  const normalized = Object.fromEntries(Object.entries(payload || {}).map(([key, value]) => [key, String(value || '').toLowerCase()]));
+  const text = Object.values(normalized).join(' ');
+  const criticalWords = ['dificuldade para respirar', 'convuls', 'sangramento intenso', 'veneno', 'tóxico', 'toxica', 'trauma', 'desmaio', 'não urina', 'nao urina', 'dor intensa', 'mucosa pálida', 'mucosa palida', 'azulada'];
+  const attentionWords = ['vômit', 'vomit', 'diarre', 'febre', 'apatia', 'dor', 'coceira', 'não come', 'nao come', 'prostr', 'ferida', 'vermelhid', 'secreção', 'secrecao', 'odor', 'tosse'];
+  const critical = criticalWords.some((word) => text.includes(word))
+    || ['sim'].includes(normalized.seizure)
+    || ['sim'].includes(normalized.poison)
+    || ['convulsao', 'desmaio', 'trauma'].includes(normalized.criticalEvent)
+    || ['dificuldade'].includes(normalized.breathing)
+    || ['intensa'].includes(normalized.pain)
+    || ['sangue'].includes(normalized.diarrhea)
+    || ['sangue'].includes(normalized.vomiting)
+    || ['sangue', 'dificuldade'].includes(normalized.urination);
+  const medium = attentionWords.some((word) => text.includes(word))
+    || ['muito_baixo', 'baixo'].includes(normalized.energy)
+    || ['nao', 'menos'].includes(normalized.appetite)
+    || ['menos', 'muito', 'nao'].includes(normalized.water)
+    || ['sim', 'repetido', 'persistente'].includes(normalized.vomiting)
+    || ['sim', 'persistente', 'mole', 'liquida'].includes(normalized.diarrhea || normalized.stool)
+    || ['ofegante', 'tosse'].includes(normalized.breathing)
+    || ['leve', 'moderada'].includes(normalized.pain)
+    || ['coceira', 'vermelhidao', 'ferida', 'queda_pelo'].includes(normalized.skinCoat)
+    || ['secrecao', 'vermelho', 'odor', 'coçando'].includes(normalized.eyesEars)
+    || ['atrasado', 'nao_sei'].includes(normalized.preventiveStatus);
+  const riskLevel = critical ? 'high' : medium ? 'medium' : 'low';
+  const petName = pet.name || 'Seu pet';
+  const redFlags = ['dificuldade para respirar', 'convulsão ou desmaio', 'sangramento intenso', 'suspeita de envenenamento', 'dor intensa', 'apatia forte/prostração', 'vômitos repetidos', 'diarreia ou urina com sangue', 'incapacidade de urinar'];
+  const possibleCauses = [];
+  if (text.includes('vômit') || text.includes('vomit') || normalized.vomiting) possibleCauses.push('indisposição gastrointestinal, mudança alimentar ou ingestão de algo inadequado');
+  if (text.includes('diarre') || normalized.diarrhea || normalized.stool) possibleCauses.push('alteração intestinal, parasitas, alimento inadequado ou infecção');
+  if (text.includes('coceira') || normalized.skinCoat) possibleCauses.push('sensibilidade de pele, alergia, parasitas ou irritação dermatológica');
+  if (text.includes('ouvido') || normalized.eyesEars) possibleCauses.push('irritação ocular/auricular, alergia ou inflamação');
+  if (normalized.preventiveStatus === 'atrasado') possibleCauses.push('preventivos/vacinas em atraso podem aumentar riscos e merecem revisão');
+  if (!possibleCauses.length) possibleCauses.push('mudança de rotina, desconforto leve ou sinal inicial que precisa ser observado');
+  const guidance = critical
+    ? 'Procure atendimento veterinário presencial imediatamente. Não espere evolução pelo app e não medique sem orientação profissional.'
+    : medium
+      ? 'Monitore alimentação, água, energia, respiração e eliminação. Evite medicamentos sem orientação e agende teleconsulta veterinária para orientar o próximo passo.'
+      : 'Observe a evolução nas próximas horas, mantenha água disponível, registre novos sinais e agende teleconsulta se persistir ou piorar.';
+  return {
+    riskLevel,
+    summary: critical ? `${petName} relatou sinais compatíveis com alerta alto e precisa de avaliação presencial.` : medium ? `${petName} apresenta sinais de atenção que merecem acompanhamento e orientação veterinária.` : `${petName} apresenta sinais leves ou iniciais segundo as informações enviadas.`,
+    possibleCauses,
+    guidance,
+    observationPlan: ['Acompanhar apetite e ingestão de água', 'Observar energia, sono e comportamento', 'Registrar vômitos, fezes, urina, dor, coceira ou respiração alterada', 'Procurar veterinário se houver piora ou sinal de alerta'],
+    careSuggestions: ['Atualizar prontuário do pet no Saúde 360', 'Manter rotina de banho/tosa quando não houver sinal clínico impeditivo', 'Agendar teleconsulta para dúvidas sobre sintomas', 'Agendar cuidado PetFunny quando o pet estiver apto'],
+    redFlags,
+    recommendedAction: critical ? 'Buscar emergência veterinária presencial imediatamente.' : medium ? 'Agendar teleconsulta veterinária ou consulta presencial nas próximas horas.' : 'Observar, registrar evolução e agendar teleconsulta se persistir.',
+    emergency: critical
+  };
+}
+
+app.get('/api/app/health360/summary', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petId = cleanText(req.query?.petId) || '';
+    const pets = await query(`SELECT * FROM pets WHERE tutor_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at ASC`, [tutorId]);
+    const selectedPet = petId ? pets.rows.find((p) => String(p.id) === petId) : pets.rows[0];
+    if (!selectedPet) return res.json({ pets: [], score: { score: 0, label: 'Sem pet', factors: [] }, triages: [], teleconsultations: [], records: [], veterinarians: [] });
+    const triages = await query(`SELECT ht.*, p.name AS pet_name FROM pet_health_triages ht INNER JOIN pets p ON p.id=ht.pet_id WHERE ht.tutor_id=$1::uuid AND ht.pet_id=$2::uuid AND ht.deleted_at IS NULL ORDER BY ht.created_at DESC LIMIT 20`, [tutorId, selectedPet.id]);
+    const records = await query(`SELECT mr.*, p.name AS pet_name FROM pet_medical_records mr INNER JOIN pets p ON p.id=mr.pet_id WHERE mr.tutor_id=$1::uuid AND mr.pet_id=$2::uuid AND mr.deleted_at IS NULL ORDER BY mr.occurred_at DESC LIMIT 30`, [tutorId, selectedPet.id]);
+    const appointments = await query(`SELECT COUNT(*)::int AS total FROM appointments WHERE tutor_id=$1::uuid AND pet_id=$2::uuid AND deleted_at IS NULL`, [tutorId, selectedPet.id]).catch(() => ({ rows: [{ total: 0 }] }));
+    const teles = await query(`SELECT tc.*, p.name AS pet_name, v.name AS veterinarian_name, v.crmv AS veterinarian_crmv, v.specialty, v.photo_url AS veterinarian_photo_url FROM teleconsultations tc INNER JOIN pets p ON p.id=tc.pet_id LEFT JOIN veterinarians v ON v.id=tc.veterinarian_id WHERE tc.tutor_id=$1::uuid AND tc.deleted_at IS NULL ORDER BY tc.created_at DESC LIMIT 20`, [tutorId]);
+    const vets = await query(`SELECT id, name, crmv, crmv_uf, specialty, bio, photo_url, consultation_price_cents, return_price_cents, default_duration_minutes FROM veterinarians WHERE is_active=TRUE AND deleted_at IS NULL ORDER BY name ASC LIMIT 50`);
+    const slots = await query(`
+      SELECT s.*, v.name AS veterinarian_name, v.crmv AS veterinarian_crmv, v.crmv_uf AS veterinarian_crmv_uf, v.specialty AS veterinarian_specialty, v.bio AS veterinarian_bio, v.photo_url AS veterinarian_photo_url, v.consultation_price_cents AS veterinarian_price_cents
+      FROM teleconsultation_slots s
+      INNER JOIN veterinarians v ON v.id=s.veterinarian_id
+      WHERE s.deleted_at IS NULL AND v.deleted_at IS NULL AND v.is_active=TRUE AND s.status='available' AND s.starts_at >= NOW()
+      ORDER BY s.starts_at ASC
+      LIMIT 120
+    `).catch(() => ({ rows: [] }));
+    const themeScores = buildHealth360ThemeScores(triages.rows || []);
+    const predictiveRisks = buildHealth360PredictiveRisks(triages.rows || [], themeScores);
+    const score = computeHealth360Score({ pet: selectedPet, lastTriage: triages.rows[0], recordsCount: records.rowCount, appointmentsCount: appointments.rows[0]?.total || 0 });
+    if (themeScores.length) {
+      const avgThemeScore = Math.round(themeScores.reduce((sum, item) => sum + Number(item.score || 0), 0) / themeScores.length);
+      score.score = Math.round((Number(score.score || 0) + avgThemeScore) / 2);
+      score.label = score.score >= 90 ? 'Excelente' : score.score >= 75 ? 'Bom' : score.score >= 60 ? 'Atenção' : 'Risco';
+      score.factors = [...(score.factors || []), `${themeScores.length} dimensões monitoradas`];
+    }
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayTheme = getHealth360DailyThemeForDate(new Date());
+    const todayDone = triages.rows.some((row) => String(row.created_at || '').slice(0, 10) === todayIso);
+    const alerts = [...buildHealth360AlertEngine(triages.rows || []), ...predictiveRisks.filter((r) => r.percent >= 70).map((r) => ({ level: r.percent >= 80 ? 'high' : 'medium', title: r.title, message: r.reason }))];
+    const monitoredDaysResult = await query(`SELECT COUNT(DISTINCT DATE(created_at))::int AS total FROM pet_health_triages WHERE tutor_id=$1::uuid AND pet_id=$2::uuid AND deleted_at IS NULL`, [tutorId, selectedPet.id]).catch(() => ({ rows: [{ total: 0 }] }));
+    const dashboard = {
+      healthScore: score.score,
+      healthLabel: score.label,
+      lastTriageLabel: triages.rows[0] ? (String(triages.rows[0].created_at || '').slice(0, 10) === todayIso ? 'Hoje' : new Date(triages.rows[0].created_at).toLocaleDateString('pt-BR')) : 'Nenhuma',
+      monitoredDays: Number(monitoredDaysResult.rows[0]?.total || 0),
+      activeAlerts: alerts.length
+    };
+    const dailyTriage = {
+      available: !todayDone,
+      status: todayDone ? 'completed' : 'available',
+      title: todayDone ? '✅ Triagem concluída' : '🩺 Triagem diária disponível',
+      theme: todayTheme,
+      message: todayDone ? 'A devolutiva de hoje já foi registrada no prontuário.' : `Hoje o Saúde 360 quer avaliar: ${todayTheme.title}.`
+    };
+    res.json({ pets: pets.rows.map(sanitizeClientPet), selectedPetId: selectedPet.id, score, dashboard, dailyTriage, alerts, themeScores, predictiveRisks, triages: triages.rows.map(sanitizeHealthTriage), records: records.rows.map((row) => ({ id: row.id, petId: row.pet_id, petName: row.pet_name, type: row.type, title: row.title, description: row.description || '', occurredAt: row.occurred_at, createdAt: row.created_at })), teleconsultations: teles.rows.map(sanitizeTeleconsultation), veterinarians: vets.rows.map((v) => ({ id: v.id, name: v.name, crmv: v.crmv || '', crmvUf: v.crmv_uf || '', specialty: v.specialty || '', bio: v.bio || '', photoUrl: v.photo_url || '', consultationPriceCents: Number(v.consultation_price_cents || 0), returnPriceCents: Number(v.return_price_cents || 0), defaultDurationMinutes: Number(v.default_duration_minutes || 30) })), slots: slots.rows.map((s) => ({ id: s.id, veterinarianId: s.veterinarian_id, veterinarianName: s.veterinarian_name || '', veterinarianCrmv: s.veterinarian_crmv || '', veterinarianCrmvUf: s.veterinarian_crmv_uf || '', veterinarianSpecialty: s.veterinarian_specialty || '', veterinarianBio: s.veterinarian_bio || '', veterinarianPhotoUrl: s.veterinarian_photo_url || '', startsAt: s.starts_at, endsAt: s.ends_at, status: s.status || 'available', priceCents: Number(s.price_cents || s.veterinarian_price_cents || 0) })) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/health360/triage', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petId = cleanText(req.body?.petId);
+    const symptoms = cleanText(req.body?.symptoms);
+    if (!petId) return res.status(400).json({ error: 'Selecione o pet.' });
+    if (!symptoms) return res.status(400).json({ error: 'Descreva o que está acontecendo com o pet.' });
+    const pet = await getPetAccessForClient(petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const analysis = analyzePetHealthTriage(req.body || {}, pet);
+    const thermometer = computeHealth360ThemeThermometer(req.body || {}, analysis);
+    const currentScore = computeHealth360Score({ pet, lastTriage: { risk_level: analysis.riskLevel }, recordsCount: 1, appointmentsCount: 1 });
+    currentScore.score = Math.round((Number(currentScore.score || 0) + Number(thermometer.score || 0)) / 2);
+    currentScore.label = currentScore.score >= 90 ? 'Excelente' : currentScore.score >= 75 ? 'Bom' : currentScore.score >= 60 ? 'Atenção' : 'Risco';
+    currentScore.factors = [...(currentScore.factors || []), `${thermometer.title}: ${thermometer.score}/100`];
+    const insight = buildHealth360Insight({ analysis, payload: req.body || {}, pet, score: currentScore });
+    insight.thermometer = thermometer;
+    const enrichedAnalysis = { ...analysis, insight, dailyTheme: cleanText(req.body?.dailyTheme), themeTitle: thermometer.title, thermometer, themeThermometer: thermometer, cta: insight.cta };
+    const result = await query(`
+      INSERT INTO pet_health_triages (tutor_id, pet_id, symptoms, duration, appetite, water, behavior, vomiting, diarrhea, breathing, pain, bleeding, seizure, trauma, poison, fever, other_signs, risk_level, summary, guidance, red_flags, recommended_action, emergency, ai_used, raw_result)
+      VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,$22,$23,false,$24::jsonb)
+      RETURNING *
+    `, [tutorId, pet.id, symptoms, cleanText(req.body?.duration), cleanText(req.body?.appetite), cleanText(req.body?.water), cleanText(req.body?.behavior), cleanText(req.body?.vomiting), cleanText(req.body?.diarrhea), cleanText(req.body?.breathing), cleanText(req.body?.pain), cleanText(req.body?.bleeding), cleanText(req.body?.seizure), cleanText(req.body?.trauma), cleanText(req.body?.poison), cleanText(req.body?.fever), cleanText(req.body?.otherSigns), analysis.riskLevel, analysis.summary, analysis.guidance, JSON.stringify(analysis.redFlags), insight.cta?.label || analysis.recommendedAction, analysis.emergency, JSON.stringify(enrichedAnalysis)]);
+    const positiveLines = insight.positives.map((item) => `✔ ${item}`).join('\n');
+    const attentionLines = insight.attention.length ? `\n${insight.attention.map((item) => `⚠ ${item}`).join('\n')}` : '';
+    const prontuarioDescription = `${insight.title}\n\n${pet.name || 'Pet'} apresentou:\n${positiveLines}${attentionLines}\n\nRecomendação:\n${insight.recommendation}\n\nHealth Score:\n${insight.scoreText}`;
+    await query(`INSERT INTO pet_medical_records (tutor_id, pet_id, type, title, description, source_type, source_id) VALUES ($1::uuid,$2::uuid,'TRIAGE',$3,$4,'pet_health_triages',$5::uuid)`, [tutorId, pet.id, `${insight.title} · ${analysis.riskLevel}`, prontuarioDescription, result.rows[0].id]);
+    res.status(201).json({ triage: { ...sanitizeHealthTriage({ ...result.rows[0], pet_name: pet.name }), insight, recommendedAction: insight.cta?.label || analysis.recommendedAction }, insight, message: analysis.emergency ? 'Triagem registrada. Procure emergência presencial.' : 'Triagem Health 360 registrada.' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/teleconsultations', requireClientAuth, async (req, res, next) => {
+  try {
+    const result = await query(`SELECT tc.*, p.name AS pet_name, v.name AS veterinarian_name FROM teleconsultations tc INNER JOIN pets p ON p.id=tc.pet_id LEFT JOIN veterinarians v ON v.id=tc.veterinarian_id WHERE tc.tutor_id=$1::uuid AND tc.deleted_at IS NULL ORDER BY tc.created_at DESC LIMIT 50`, [req.clientApp.tutor.id]);
+    res.json({ items: result.rows.map(sanitizeTeleconsultation) });
+  } catch (error) { next(error); }
+});
+
+
+app.post('/api/app/teleconsultations', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const accountId = req.clientApp.account?.id || null;
+    const tutorEmail = req.clientApp.tutor.email || req.clientApp.account?.email || '';
+    const petId = cleanText(req.body?.petId);
+    const reason = cleanText(req.body?.reason);
+    if (!petId) return res.status(400).json({ error: 'Selecione o pet.' });
+    if (!reason) return res.status(400).json({ error: 'Informe o motivo da teleconsulta.' });
+    const pet = await getPetAccessForClient(petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const vetId = cleanText(req.body?.veterinarianId) || null;
+    const slotId = cleanText(req.body?.slotId) || null;
+    const startsAt = cleanText(req.body?.startsAt) || null;
+    const paymentType = normalizeAppPaymentType(req.body?.paymentType || req.body?.paymentMethod || 'pix');
+    const vet = vetId ? await query(`SELECT * FROM veterinarians WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1`, [vetId]) : { rows: [] };
+    const slot = slotId ? await query(`SELECT * FROM teleconsultation_slots WHERE id=$1::uuid AND deleted_at IS NULL AND status='available' LIMIT 1`, [slotId]) : { rows: [] };
+    if (slotId && !slot.rowCount) return res.status(409).json({ error: 'Este horário não está mais disponível.' });
+    const price = Number(slot.rows[0]?.price_cents || vet.rows[0]?.consultation_price_cents || 9900);
+    const finalStartsAt = slot.rows[0]?.starts_at || startsAt || null;
+    const meetingUrl = `https://meet.jit.si/petfunny-health360-${String(pet.id).slice(0,8)}-${Date.now()}`;
+    await ensureTeleconsultationPaymentIntentCompatibility();
+    await query('BEGIN');
+    const result = await query(`
+      INSERT INTO teleconsultations (tutor_id, pet_id, veterinarian_id, slot_id, reason, symptoms, starts_at, price_cents, payment_method, payment_status, status, meeting_url, safety_notice_accepted)
+      VALUES ($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,NULLIF($4::text,'')::uuid,$5,$6,NULLIF($7::text,'')::timestamptz,$8,$9,'pending','pending_payment',$10,TRUE)
+      RETURNING *
+    `, [tutorId, pet.id, vetId || '', slotId || '', reason, cleanText(req.body?.symptoms), finalStartsAt ? String(finalStartsAt) : '', price, paymentType, meetingUrl]);
+    if (slot.rowCount) await query(`UPDATE teleconsultation_slots SET status='reserved', updated_at=NOW() WHERE id=$1::uuid`, [slot.rows[0].id]);
+    const expiresAt = new Date(Date.now() + getMercadoPagoPixExpirationMinutes() * 60 * 1000);
+    const description = `Teleconsulta PetFunny Health 360 · ${pet.name}`;
+    const intent = await query(`
+      INSERT INTO teleconsultation_payment_intents (tutor_id, client_account_id, pet_id, teleconsultation_id, status, payment_type, amount_cents, description, pending_payload, expires_at)
+      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::uuid, 'pending', $5, $6, $7, $8::jsonb, $9::timestamptz)
+      RETURNING *
+    `, [tutorId, accountId || '', pet.id, result.rows[0].id, paymentType, price, description, JSON.stringify(req.body || {}), expiresAt.toISOString()]);
+    await query(`INSERT INTO pet_medical_records (tutor_id, pet_id, type, title, description, source_type, source_id, occurred_at) VALUES ($1::uuid,$2::uuid,'APPOINTMENT','Teleconsulta solicitada',$3,'teleconsultations',$4::uuid,COALESCE(NULLIF($5::text,'')::timestamptz,NOW()))`, [tutorId, pet.id, reason, result.rows[0].id, finalStartsAt ? String(finalStartsAt) : '']);
+    await query('COMMIT');
+    if (isCardLikeAppPaymentType(paymentType)) {
+      if (!env.mercadoPagoPublicKey) return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent.rows[0], tutor_email: tutorEmail }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Teleconsulta criada. Configure MERCADO_PAGO_PUBLIC_KEY para habilitar cartão.' });
+      await query(`UPDATE teleconsultation_payment_intents SET provider_response=jsonb_build_object('flow','card_payment_brick','status','waiting_card_data'), updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id]);
+      return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent.rows[0], tutor_email: tutorEmail, provider_response: { flow: 'card_payment_brick' } }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Teleconsulta criada. Finalize o pagamento por cartão dentro do app.' });
+    }
+    try {
+      if (!isMercadoPagoConfigured()) throw new Error('Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN.');
+      const mp = await createMercadoPagoPixPayment({ intentId: intent.rows[0].id, amountCents: price, description, payerEmail: tutorEmail, payerName: req.clientApp.tutor.name });
+      const updated = await query(`UPDATE teleconsultation_payment_intents SET mp_payment_id=$2::text, mp_status=$3::text, qr_code=$4::text, qr_code_base64=$5::text, provider_response=$6::jsonb, updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.rows[0].id, mp.paymentId, mp.status, mp.qrCode, mp.qrCodeBase64, JSON.stringify(mp.payment || {})]);
+      return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Pix da teleconsulta gerado. A consulta será confirmada após o pagamento.' });
+    } catch (error) {
+      await query(`UPDATE teleconsultation_payment_intents SET last_error=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, error.message, JSON.stringify(error.details || {})]).catch(() => null);
+      return res.status(error.status || 503).json({ error: error.message || 'Não foi possível gerar o pagamento da teleconsulta.' });
+    }
+  } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
+});
+
+function sanitizeTeleconsultationPaymentIntent(row = {}) {
+  const base = sanitizePaymentIntent(row);
+  return { ...base, kind: 'teleconsultation', teleconsultationId: row.teleconsultation_id || null };
+}
+
+async function ensureTeleconsultationPaymentIntentCompatibility() {
+  const exists = await hasTable('teleconsultation_payment_intents').catch(() => false);
+  if (!exists) return;
+  await query(`ALTER TABLE teleconsultation_payment_intents ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT 'pix'`).catch(() => null);
+  await query(`ALTER TABLE teleconsultation_payment_intents ADD COLUMN IF NOT EXISTS mp_preference_id TEXT`).catch(() => null);
+  await query(`ALTER TABLE teleconsultation_payment_intents ADD COLUMN IF NOT EXISTS checkout_url TEXT`).catch(() => null);
+}
+
+async function finalizePaidTeleconsultationIntent(intentId, providerStatus = 'approved', providerResponse = {}) {
+  await ensureTeleconsultationPaymentIntentCompatibility();
+  const intentResult = await query(`SELECT * FROM teleconsultation_payment_intents WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1`, [intentId]);
+  if (!intentResult.rowCount) throw new Error('Pagamento da teleconsulta não encontrado.');
+  const intent = intentResult.rows[0];
+  const paidAt = new Date().toISOString();
+  const tele = await query(`
+    UPDATE teleconsultations
+    SET payment_status='paid', status='scheduled', updated_at=NOW()
+    WHERE id=$1::uuid AND deleted_at IS NULL
+    RETURNING *
+  `, [intent.teleconsultation_id]);
+  await query(`UPDATE teleconsultation_payment_intents SET status='paid', paid_at=$2::timestamptz, mp_status=$3::text, provider_response=$4::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.id, paidAt, providerStatus, JSON.stringify(providerResponse || {})]);
+  if (tele.rowCount) {
+    await query(`INSERT INTO pet_medical_records (tutor_id, pet_id, type, title, description, source_type, source_id, occurred_at)
+      VALUES ($1::uuid,$2::uuid,'PAYMENT','Teleconsulta paga','Pagamento confirmado para teleconsulta PetFunny Health 360.','teleconsultations',$3::uuid,NOW())`, [tele.rows[0].tutor_id, tele.rows[0].pet_id, tele.rows[0].id]).catch(() => null);
+  }
+  return { teleconsultation: tele.rows[0] || null };
+}
+
+app.get('/api/app/teleconsultations/payment/:intentId', requireClientAuth, async (req, res, next) => {
+  try {
+    const result = await query(`SELECT tpi.*, t.email AS tutor_email FROM teleconsultation_payment_intents tpi LEFT JOIN tutors t ON t.id=tpi.tutor_id WHERE tpi.id=$1::uuid AND tpi.tutor_id=$2::uuid AND tpi.deleted_at IS NULL LIMIT 1`, [req.params.intentId, req.clientApp.tutor.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Pagamento da teleconsulta não encontrado.' });
+    let intent = result.rows[0];
+    if (intent.status === 'paid') return res.json({ paymentIntent: sanitizeTeleconsultationPaymentIntent(intent), teleconsultationId: intent.teleconsultation_id, message: 'Teleconsulta paga e confirmada.' });
+    if (intent.mp_payment_id && isMercadoPagoConfigured()) {
+      const payment = await mercadoPagoRequest(`/v1/payments/${intent.mp_payment_id}`);
+      await query(`UPDATE teleconsultation_payment_intents SET mp_status=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.id, payment.status || '', JSON.stringify(payment || {})]);
+      if (payment.status === 'approved') {
+        await finalizePaidTeleconsultationIntent(intent.id, payment.status, payment);
+        intent = { ...intent, status: 'paid', paid_at: new Date().toISOString(), mp_status: payment.status };
+        return res.json({ paymentIntent: sanitizeTeleconsultationPaymentIntent(intent), teleconsultationId: intent.teleconsultation_id, message: 'Pagamento confirmado. Teleconsulta agendada.' });
+      }
+      intent = { ...intent, mp_status: payment.status || intent.mp_status };
+    }
+    res.json({ paymentIntent: sanitizeTeleconsultationPaymentIntent(intent), message: normalizeAppPaymentType(intent.payment_type) === 'card' ? 'Pagamento por cartão ainda não aprovado.' : 'Pagamento Pix ainda não confirmado.' });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/teleconsultations/payment/:intentId/card', requireClientAuth, async (req, res, next) => {
+  try {
+    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN.' });
+    const intentResult = await query(`SELECT tpi.*, t.name AS tutor_name, t.email AS tutor_email FROM teleconsultation_payment_intents tpi LEFT JOIN tutors t ON t.id=tpi.tutor_id WHERE tpi.id=$1::uuid AND tpi.tutor_id=$2::uuid AND tpi.deleted_at IS NULL LIMIT 1`, [req.params.intentId, req.clientApp.tutor.id]);
+    if (!intentResult.rowCount) return res.status(404).json({ error: 'Pagamento da teleconsulta não encontrado.' });
+    const intent = intentResult.rows[0];
+    if (normalizeAppPaymentType(intent.payment_type || 'pix') !== 'card') return res.status(400).json({ error: 'Este pagamento não foi iniciado como cartão.' });
+    if (intent.status === 'paid') return res.json({ paymentIntent: sanitizeTeleconsultationPaymentIntent(intent), teleconsultationId: intent.teleconsultation_id, message: 'Teleconsulta já estava paga.' });
+    const payment = await createMercadoPagoCardPayment({ intentId: intent.id, amountCents: intent.amount_cents, description: intent.description, payerEmail: intent.tutor_email, payerName: intent.tutor_name, cardData: normalizeMercadoPagoCardData(req.body || {}), kind: 'teleconsultation' });
+    await query(`UPDATE teleconsultation_payment_intents SET mp_payment_id=$2::text, mp_status=$3::text, provider_response=$4::jsonb, last_error=NULL, updated_at=NOW() WHERE id=$1::uuid`, [intent.id, String(payment.id || ''), payment.status || '', JSON.stringify(payment || {})]);
+    if (payment.status === 'approved') {
+      await finalizePaidTeleconsultationIntent(intent.id, payment.status, payment);
+      return res.status(201).json({ paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent, status: 'paid', paid_at: new Date().toISOString(), mp_payment_id: String(payment.id || ''), mp_status: payment.status }), teleconsultationId: intent.teleconsultation_id, message: 'Cartão aprovado. Teleconsulta agendada com sucesso.' });
+    }
+    const message = payment.status === 'rejected' ? `Pagamento recusado pelo Mercado Pago${payment.status_detail ? `: ${payment.status_detail}` : '.'}` : 'Pagamento enviado e aguardando confirmação.';
+    return res.status(payment.status === 'rejected' ? 402 : 202).json({ paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent, mp_payment_id: String(payment.id || ''), mp_status: payment.status, provider_response: payment }), message, mercadoPago: { status: payment.status, statusDetail: payment.status_detail || '' } });
+  } catch (error) { next(error); }
+});
+
+function sanitizeAdminVeterinarian(row = {}) {
+  return { id: row.id, name: row.name || '', crmv: row.crmv || '', crmvUf: row.crmv_uf || '', specialty: row.specialty || '', phone: row.phone || '', whatsapp: row.whatsapp || '', email: row.email || '', bio: row.bio || '', photoUrl: row.photo_url || '', consultationPriceCents: Number(row.consultation_price_cents || 0), returnPriceCents: Number(row.return_price_cents || 0), defaultDurationMinutes: Number(row.default_duration_minutes || 30), isActive: row.is_active !== false, createdAt: row.created_at, updatedAt: row.updated_at };
+}
+function sanitizeAdminTeleSlot(row = {}) {
+  return {
+    id: row.id,
+    veterinarianId: row.veterinarian_id,
+    veterinarianName: row.veterinarian_name || '',
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    status: row.status || 'available',
+    priceCents: Number(row.price_cents || 0),
+    teleconsultationId: row.teleconsultation_id || null,
+    tutorName: row.tutor_name || '',
+    petName: row.pet_name || '',
+    meetingUrl: row.meeting_url || '',
+    createdAt: row.created_at
+  };
+}
+
+app.get('/api/admin/health360/summary', requireAuth, async (req, res, next) => {
+  try {
+    const [vets, slots, triages, teles, finance] = await Promise.all([
+      query(`SELECT COUNT(*)::int total, COUNT(*) FILTER (WHERE is_active AND deleted_at IS NULL)::int active FROM veterinarians WHERE deleted_at IS NULL`),
+      query(`SELECT COUNT(*)::int available FROM teleconsultation_slots WHERE deleted_at IS NULL AND status='available' AND starts_at >= NOW()`),
+      query(`SELECT COUNT(*)::int total, COUNT(*) FILTER (WHERE risk_level='high')::int high FROM pet_health_triages WHERE deleted_at IS NULL`),
+      query(`SELECT COUNT(*)::int total, COUNT(*) FILTER (WHERE status IN ('scheduled','completed'))::int scheduled FROM teleconsultations WHERE deleted_at IS NULL`),
+      query(`SELECT COALESCE(SUM(price_cents) FILTER (WHERE payment_status='paid'),0)::bigint revenue, COUNT(*) FILTER (WHERE payment_status='paid')::int paid_count FROM teleconsultations WHERE deleted_at IS NULL`)
+    ]);
+    res.json({
+      veterinarians: vets.rows[0] || {},
+      slots: slots.rows[0] || {},
+      triages: triages.rows[0] || {},
+      teleconsultations: teles.rows[0] || {},
+      finance: finance.rows[0] || {}
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/health360/veterinarians', requireAuth, async (req, res, next) => {
+  try { const result = await query(`SELECT * FROM veterinarians WHERE deleted_at IS NULL ORDER BY is_active DESC, name ASC`); res.json({ items: result.rows.map(sanitizeAdminVeterinarian) }); } catch (error) { next(error); }
+});
+app.post('/api/admin/health360/veterinarians', requireAuth, async (req, res, next) => {
+  try {
+    const name = cleanText(req.body?.name); if (!name) return res.status(400).json({ error: 'Informe o nome do veterinário.' });
+    const isActive = req.body?.isActive === false || req.body?.is_active === false ? false : true;
+    const result = await query(`INSERT INTO veterinarians (name, crmv, crmv_uf, specialty, phone, whatsapp, email, bio, photo_url, consultation_price_cents, return_price_cents, default_duration_minutes, is_active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`, [name, cleanText(req.body?.crmv), cleanText(req.body?.crmvUf || req.body?.crmv_uf), cleanText(req.body?.specialty) || 'Clínica geral', cleanText(req.body?.phone), cleanText(req.body?.whatsapp), cleanText(req.body?.email), cleanText(req.body?.bio), cleanText(req.body?.photoUrl || req.body?.photo_url), moneyToCents(req.body?.consultationPriceCents || req.body?.consultationPrice || req.body?.price), moneyToCents(req.body?.returnPriceCents || req.body?.returnPrice), Number(req.body?.defaultDurationMinutes || 30), isActive]);
+    res.status(201).json({ veterinarian: sanitizeAdminVeterinarian(result.rows[0]) });
+  } catch (error) { next(error); }
+});
+app.put('/api/admin/health360/veterinarians/:id', requireAuth, async (req, res, next) => {
+  try {
+    const isActive = req.body?.isActive === false || req.body?.is_active === false ? false : true;
+    const result = await query(`UPDATE veterinarians SET name=$2, crmv=$3, crmv_uf=$4, specialty=$5, phone=$6, whatsapp=$7, email=$8, bio=$9, photo_url=$10, consultation_price_cents=$11, return_price_cents=$12, default_duration_minutes=$13, is_active=$14, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING *`, [req.params.id, cleanText(req.body?.name), cleanText(req.body?.crmv), cleanText(req.body?.crmvUf || req.body?.crmv_uf), cleanText(req.body?.specialty) || 'Clínica geral', cleanText(req.body?.phone), cleanText(req.body?.whatsapp), cleanText(req.body?.email), cleanText(req.body?.bio), cleanText(req.body?.photoUrl || req.body?.photo_url), moneyToCents(req.body?.consultationPriceCents || req.body?.consultationPrice || req.body?.price), moneyToCents(req.body?.returnPriceCents || req.body?.returnPrice), Number(req.body?.defaultDurationMinutes || 30), isActive]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Veterinário não encontrado.' });
+    res.json({ veterinarian: sanitizeAdminVeterinarian(result.rows[0]) });
+  } catch (error) { next(error); }
+});
+app.patch('/api/admin/health360/veterinarians/:id/toggle', requireAuth, async (req, res, next) => {
+  try { const result = await query(`UPDATE veterinarians SET is_active=NOT is_active, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING *`, [req.params.id]); res.json({ veterinarian: sanitizeAdminVeterinarian(result.rows[0]) }); } catch (error) { next(error); }
+});
+app.delete('/api/admin/health360/veterinarians/:id', requireAuth, async (req, res, next) => {
+  try { await query(`UPDATE veterinarians SET deleted_at=NOW(), is_active=FALSE, updated_at=NOW() WHERE id=$1::uuid`, [req.params.id]); res.json({ ok: true }); } catch (error) { next(error); }
+});
+
+app.get('/api/admin/health360/slots', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`SELECT s.*, v.name AS veterinarian_name, tc.id AS teleconsultation_id, tc.meeting_url, t.name AS tutor_name, p.name AS pet_name FROM teleconsultation_slots s LEFT JOIN veterinarians v ON v.id=s.veterinarian_id LEFT JOIN teleconsultations tc ON tc.slot_id=s.id AND tc.deleted_at IS NULL LEFT JOIN tutors t ON t.id=tc.tutor_id LEFT JOIN pets p ON p.id=tc.pet_id WHERE s.deleted_at IS NULL ORDER BY s.starts_at DESC LIMIT 500`);
+    res.json({ items: result.rows.map(sanitizeAdminTeleSlot) });
+  } catch (error) { next(error); }
+});
+app.post('/api/admin/health360/slots', requireAuth, async (req, res, next) => {
+  try {
+    const vetId = cleanText(req.body?.veterinarianId); const startsAt = cleanText(req.body?.startsAt); if (!vetId || !startsAt) return res.status(400).json({ error: 'Informe veterinário e início do horário.' });
+    const duration = Number(req.body?.durationMinutes || req.body?.defaultDurationMinutes || 30);
+    const price = moneyToCents(req.body?.priceCents || req.body?.price || req.body?.consultationPrice);
+    const result = await query(`INSERT INTO teleconsultation_slots (veterinarian_id, starts_at, ends_at, status, price_cents) VALUES ($1::uuid,$2::timestamptz,($2::timestamptz + ($3::int || ' minutes')::interval),'available',$4) RETURNING *`, [vetId, startsAt, duration, price || 9900]);
+    res.status(201).json({ slot: sanitizeAdminTeleSlot(result.rows[0]) });
+  } catch (error) { next(error); }
+});
+app.put('/api/admin/health360/slots/:id', requireAuth, async (req, res, next) => {
+  try {
+    const vetId = cleanText(req.body?.veterinarianId);
+    const startsAt = cleanText(req.body?.startsAt);
+    if (!vetId || !startsAt) return res.status(400).json({ error: 'Informe veterinário e início do horário.' });
+    const duration = Math.max(10, Number(req.body?.durationMinutes || 30));
+    const price = moneyToCents(req.body?.priceCents || req.body?.price || req.body?.consultationPrice) || 9900;
+    const status = ['available','reserved','completed','cancelled','blocked'].includes(cleanText(req.body?.status)) ? cleanText(req.body?.status) : 'available';
+    const result = await query(`UPDATE teleconsultation_slots SET veterinarian_id=$2::uuid, starts_at=$3::timestamptz, ends_at=($3::timestamptz + ($4::int || ' minutes')::interval), price_cents=$5, status=$6, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING *`, [req.params.id, vetId, startsAt, duration, price, status]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Horário não encontrado.' });
+    res.json({ slot: sanitizeAdminTeleSlot(result.rows[0]) });
+  } catch (error) { next(error); }
+});
+
+app.patch('/api/admin/health360/slots/:id/status', requireAuth, async (req, res, next) => {
+  try { const status = ['available','reserved','completed','cancelled','blocked'].includes(cleanText(req.body?.status)) ? cleanText(req.body?.status) : 'available'; const result = await query(`UPDATE teleconsultation_slots SET status=$2, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING *`, [req.params.id, status]); res.json({ slot: sanitizeAdminTeleSlot(result.rows[0]) }); } catch (error) { next(error); }
+});
+app.delete('/api/admin/health360/slots/:id', requireAuth, async (req, res, next) => {
+  try { await query(`UPDATE teleconsultation_slots SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1::uuid`, [req.params.id]); res.json({ ok: true }); } catch (error) { next(error); }
+});
+
+app.get('/api/admin/health360/triages', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`SELECT ht.*, t.name AS tutor_name, p.name AS pet_name FROM pet_health_triages ht LEFT JOIN tutors t ON t.id=ht.tutor_id LEFT JOIN pets p ON p.id=ht.pet_id WHERE ht.deleted_at IS NULL ORDER BY ht.created_at DESC LIMIT 200`);
+    res.json({ items: result.rows.map((row) => ({ ...sanitizeHealthTriage(row), tutorName: row.tutor_name || '' })) });
+  } catch (error) { next(error); }
+});
+app.get('/api/admin/health360/teleconsultations', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`SELECT tc.*, t.name AS tutor_name, p.name AS pet_name, v.name AS veterinarian_name, v.crmv AS veterinarian_crmv, v.specialty FROM teleconsultations tc LEFT JOIN tutors t ON t.id=tc.tutor_id LEFT JOIN pets p ON p.id=tc.pet_id LEFT JOIN veterinarians v ON v.id=tc.veterinarian_id WHERE tc.deleted_at IS NULL ORDER BY tc.created_at DESC LIMIT 200`);
+    res.json({ items: result.rows.map(sanitizeTeleconsultation) });
+  } catch (error) { next(error); }
+});
+app.patch('/api/admin/health360/teleconsultations/:id/status', requireAuth, async (req, res, next) => {
+  try { const status = ['pending_payment','scheduled','completed','cancelled','no_show'].includes(cleanText(req.body?.status)) ? cleanText(req.body?.status) : 'scheduled'; const result = await query(`UPDATE teleconsultations SET status=$2, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING *`, [req.params.id, status]); res.json({ teleconsultation: sanitizeTeleconsultation(result.rows[0]) }); } catch (error) { next(error); }
+});
+app.patch('/api/admin/health360/teleconsultations/:id/paid', requireAuth, async (req, res, next) => {
+  try { const result = await query(`UPDATE teleconsultations SET payment_status='paid', status=CASE WHEN status='pending_payment' THEN 'scheduled' ELSE status END, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING *`, [req.params.id]); res.json({ teleconsultation: sanitizeTeleconsultation(result.rows[0]) }); } catch (error) { next(error); }
 });
 
 app.post('/api/app/logout', requireClientAuth, async (req, res) => {
@@ -4821,8 +5681,13 @@ async function createMercadoPagoPixPayment({ intentId, amountCents, description,
 
 function normalizeAppPaymentType(value = '') {
   const raw = String(value || '').toLowerCase().trim();
+  if (['wallet', 'digital_wallet', 'gpay', 'google_pay', 'googlepay', 'carteira', 'carteira_digital'].includes(raw)) return 'wallet';
   if (['credit_card', 'debit_card', 'card', 'cartao', 'cartão', 'credito', 'crédito', 'debito', 'débito'].includes(raw)) return 'card';
   return 'pix';
+}
+
+function isCardLikeAppPaymentType(value = '') {
+  return ['card', 'wallet'].includes(normalizeAppPaymentType(value));
 }
 
 
@@ -4843,7 +5708,9 @@ async function ensurePaymentIntentCompatibility(tableName) {
   }
 }
 function paymentTypeLabel(paymentType = 'pix') {
-  return normalizeAppPaymentType(paymentType) === 'card' ? 'Cartão de crédito/débito' : 'Pix';
+  const normalized = normalizeAppPaymentType(paymentType);
+  if (normalized === 'wallet') return 'Google Pay / carteira digital';
+  return normalized === 'card' ? 'Cartão de crédito/débito' : 'Pix';
 }
 
 function getPublicAppUrl() {
@@ -5031,7 +5898,7 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     const petForPromotion = await query(`SELECT size FROM pets WHERE id=$1::uuid LIMIT 1`, [petId]).catch(() => ({ rows: [] }));
     const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || startsAt, petSize: petForPromotion.rows[0]?.size || 'todos', serviceIds });
     const totals = applyPromotionsToItems(baseItems, activePromotions);
-    const isCardPayment = normalizeAppPaymentType(intent.payment_type || 'pix') === 'card';
+    const isCardPayment = isCardLikeAppPaymentType(intent.payment_type || 'pix');
     const paymentMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE $2) ORDER BY sort_order ASC LIMIT 1`, isCardPayment ? ['%cart%', '%card%'] : ['%pix%', '%pix%']).catch(() => ({ rows: [] }));
     const created = await query(`
       INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id)
@@ -5344,6 +6211,57 @@ app.get('/api/agenda/:id', requireAuth, async (req, res, next) => {
     if (!appointment) return res.status(404).json({ error: 'Agendamento não encontrado.' });
     res.json({ appointment: sanitizeAppointment(appointment) });
   } catch (error) { next(error); }
+});
+
+
+app.post('/api/agenda/historical', requireAuth, async (req, res, next) => {
+  try {
+    const tutorId = cleanText(req.body?.tutorId);
+    const petId = cleanText(req.body?.petId);
+    const date = cleanText(req.body?.date);
+    const time = cleanText(req.body?.time) || '09:00';
+    const description = cleanText(req.body?.description) || 'Atendimento antigo importado';
+    const amountCents = Math.max(0, Number.parseInt(req.body?.amountCents || '0', 10));
+    const paymentStatus = cleanText(req.body?.paymentStatus) || 'paid';
+    const paymentMethodId = cleanText(req.body?.paymentMethodId);
+    const notes = cleanText(req.body?.notes);
+    if (!tutorId) return res.status(400).json({ error: 'Selecione o tutor.' });
+    if (!petId) return res.status(400).json({ error: 'Selecione o pet.' });
+    if (!date) return res.status(400).json({ error: 'Informe a data original do atendimento.' });
+    if (amountCents <= 0) return res.status(400).json({ error: 'Informe o valor final do atendimento antigo.' });
+    if (paymentMethodId) {
+      const methodExists = await query('SELECT id FROM payment_methods WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [paymentMethodId]);
+      if (!methodExists.rowCount) return res.status(400).json({ error: 'Forma de pagamento inválida.' });
+    }
+    const startsAt = toIsoOrNull(`${date}T${time}:00`);
+    if (!startsAt) return res.status(400).json({ error: 'Data e horário inválidos.' });
+    const endsAt = new Date(new Date(startsAt).getTime() + 60 * 60000).toISOString();
+    await query('BEGIN');
+    const created = await query(`
+      INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id, checked_in_at, checked_out_at)
+      VALUES ($1::uuid, $2::uuid, NULL, $3::timestamptz, $4::timestamptz, 'finalizado', 'historical_import', $5::integer, 0, 0, $5::integer, $6::text, $7::text, NULLIF($8::text,'')::uuid, $3::timestamptz, $4::timestamptz)
+      RETURNING id
+    `, [tutorId, petId, startsAt, endsAt, amountCents, [description, notes].filter(Boolean).join(' · '), paymentStatus, paymentMethodId || '']);
+    await query(`
+      INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents)
+      VALUES ($1::uuid, $2::uuid, NULL, $3::text, 1, $4::integer, 0, $4::integer)
+    `, [created.rows[0].id, petId, description, amountCents]);
+    await query(`
+      INSERT INTO financial_transactions (tutor_id, appointment_id, type, category, description, amount_cents, due_date, status, paid_at)
+      VALUES ($1::uuid, $2::uuid, 'income', 'agendamento_antigo', $3::text, $4::integer, $5::date, $6::text, CASE WHEN $6::text='paid' THEN NOW() ELSE NULL END)
+      ON CONFLICT DO NOTHING
+    `, [tutorId, created.rows[0].id, `Agendamento antigo · ${description}`, amountCents, date, paymentStatus === 'paid' ? 'paid' : 'pending']);
+    if (paymentStatus === 'paid') {
+      const tx = await query(`SELECT id, amount_cents FROM financial_transactions WHERE appointment_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`, [created.rows[0].id]);
+      if (tx.rows[0]) {
+        await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, NOW(), 'Pagamento histórico importado') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || amountCents)]);
+      }
+    }
+    await createOrUpdateReceiptForAppointment(created.rows[0].id, null).catch(() => null);
+    await query('COMMIT');
+    const appointment = await getAppointmentById(created.rows[0].id);
+    res.status(201).json({ appointment: sanitizeAppointment(appointment), message: 'Agendamento antigo importado com sucesso.' });
+  } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
 });
 
 app.post('/api/agenda', requireAuth, async (req, res, next) => {
@@ -6104,6 +7022,51 @@ app.delete('/api/pacotes/:id', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+
+app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next) => {
+  try {
+    const tutorId = cleanText(req.body?.tutorId);
+    const petId = cleanText(req.body?.petId);
+    const packageId = cleanText(req.body?.packageId);
+    const startsOn = cleanText(req.body?.startsOn) || new Date().toISOString().slice(0, 10);
+    const totalSessions = Math.max(1, Number.parseInt(req.body?.totalSessions || '0', 10));
+    const usedSessionsRaw = Math.max(0, Number.parseInt(req.body?.usedSessions || '0', 10));
+    const amountCents = Math.max(0, Number.parseInt(req.body?.amountCents || '0', 10));
+    const paymentStatus = cleanText(req.body?.paymentStatus) || 'paid';
+    const paymentMethodId = cleanText(req.body?.paymentMethodId);
+    const notes = cleanText(req.body?.notes);
+    if (!tutorId || !packageId) return res.status(400).json({ error: 'Selecione tutor e pacote.' });
+    const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [packageId]);
+    if (!pack.rowCount) return res.status(404).json({ error: 'Pacote não encontrado.' });
+    if (paymentMethodId) {
+      const methodExists = await query('SELECT id FROM payment_methods WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [paymentMethodId]);
+      if (!methodExists.rowCount) return res.status(400).json({ error: 'Forma de pagamento inválida.' });
+    }
+    const packageRow = pack.rows[0];
+    const sessions = totalSessions || Number(packageRow.sessions_count || 1);
+    const usedSessions = Math.min(usedSessionsRaw, sessions);
+    const finalAmount = amountCents || Number(packageRow.price_cents || 0);
+    const status = usedSessions >= sessions ? 'completed' : 'active';
+    await query('BEGIN');
+    const sold = await query(`
+      INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule)
+      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, $5::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, FALSE, $5::date, jsonb_build_object('historicalImport', true, 'notes', $11::text, 'doNotGenerateFutureAppointments', true))
+      RETURNING *
+    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes]);
+    await query(`
+      INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status, paid_at)
+      VALUES ($1::uuid, $2::uuid, 'income', 'pacote_antigo', $3::text, $4::integer, $5::date, $6::text, CASE WHEN $6::text='paid' THEN NOW() ELSE NULL END)
+      ON CONFLICT DO NOTHING
+    `, [tutorId, sold.rows[0].id, `Pacote antigo · ${packageRow.name} · ${usedSessions}/${sessions} sessões usadas`, finalAmount, startsOn, paymentStatus === 'paid' ? 'paid' : 'pending']);
+    if (paymentStatus === 'paid') {
+      const tx = await query(`SELECT id, amount_cents FROM financial_transactions WHERE customer_package_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`, [sold.rows[0].id]);
+      if (tx.rows[0]) await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, NOW(), 'Pagamento histórico de pacote') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || finalAmount)]);
+    }
+    await query('COMMIT');
+    res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), message: 'Pacote antigo importado com sucesso.' });
+  } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
+});
+
 app.post('/api/pacotes/clientes', requireAuth, async (req, res, next) => {
   try {
     const tutorId = cleanText(req.body?.tutorId);
@@ -6209,6 +7172,56 @@ app.patch('/api/pacotes/clientes/:id/status', requireAuth, async (req, res, next
     if (!result.rowCount) return res.status(404).json({ error: 'Pacote do cliente não encontrado.' });
     res.json({ item: sanitizeCustomerPackage(result.rows[0]), message: 'Status do pacote atualizado.' });
   } catch (error) { next(error); }
+});
+
+
+app.delete('/api/pacotes/clientes/:id', requireAuth, async (req, res, next) => {
+  try {
+    await query('BEGIN');
+    const current = await query(`
+      SELECT cp.*, p.name AS package_name
+      FROM customer_packages cp
+      LEFT JOIN packages p ON p.id = cp.package_id
+      WHERE cp.id=$1::uuid AND cp.deleted_at IS NULL
+      LIMIT 1
+    `, [req.params.id]);
+    if (!current.rowCount) {
+      await query('ROLLBACK');
+      return res.status(404).json({ error: 'Pacote vendido não encontrado.' });
+    }
+    const updated = await query(`
+      UPDATE customer_packages
+      SET status='cancelled',
+          recurring=FALSE,
+          recurrence_rule = COALESCE(recurrence_rule, '{}'::jsonb) || jsonb_build_object('enabled', false, 'deletedAt', NOW()::text, 'deletedBy', 'admin'),
+          deleted_at=NOW(),
+          updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL
+      RETURNING *
+    `, [req.params.id]);
+    await query(`
+      UPDATE appointments
+      SET status = CASE WHEN status IN ('finalizado','completed','paid') THEN status ELSE 'cancelled' END,
+          deleted_at = CASE WHEN status IN ('finalizado','completed','paid') THEN deleted_at ELSE COALESCE(deleted_at, NOW()) END,
+          updated_at=NOW()
+      WHERE customer_package_id=$1::uuid
+        AND deleted_at IS NULL
+        AND COALESCE(starts_at, NOW()) >= (NOW() - INTERVAL '1 day')
+    `, [req.params.id]);
+    await query(`
+      UPDATE financial_transactions
+      SET description = COALESCE(description, 'Pacote vendido') || ' · pacote vendido excluído do operacional',
+          updated_at=NOW()
+      WHERE customer_package_id=$1::uuid AND deleted_at IS NULL AND status='paid'
+    `, [req.params.id]);
+    await query(`
+      UPDATE financial_transactions
+      SET status='cancelled', deleted_at=COALESCE(deleted_at, NOW()), updated_at=NOW()
+      WHERE customer_package_id=$1::uuid AND deleted_at IS NULL AND COALESCE(status,'pending') <> 'paid'
+    `, [req.params.id]);
+    await query('COMMIT');
+    res.json({ item: sanitizeCustomerPackage(updated.rows[0]), message: 'Pacote vendido excluído com sucesso.' });
+  } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
 });
 
 app.get('/api/assinaturas', requireAuth, async (req, res, next) => {
@@ -7858,6 +8871,37 @@ app.post('/api/financeiro/transactions', requireAuth, async (req, res, next) => 
   } catch (error) { next(error); }
 });
 
+app.put('/api/financeiro/transactions/:id', requireAuth, async (req, res, next) => {
+  try {
+    const current = await getFinancialTransactionById(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Lançamento não encontrado.' });
+    const type = cleanText(req.body?.type) || current.type || 'income';
+    const category = cleanText(req.body?.category) || current.category || 'outros';
+    const description = cleanText(req.body?.description) || current.description;
+    const amountCents = moneyToCents(req.body?.amountCents ?? req.body?.amount) || Number(current.amount_cents || current.amountCents || 0);
+    const status = cleanText(req.body?.status) || current.status || 'pending';
+    if (!['income', 'expense'].includes(type)) return res.status(400).json({ error: 'Tipo financeiro inválido.' });
+    if (!['pending','paid','overdue','canceled'].includes(status)) return res.status(400).json({ error: 'Status financeiro inválido.' });
+    if (!description || amountCents <= 0) return res.status(400).json({ error: 'Informe descrição e valor maior que zero.' });
+    const result = await query(`
+      UPDATE financial_transactions
+      SET tutor_id=NULLIF($2::text,'')::uuid,
+          type=$3::text,
+          category=$4::text,
+          description=$5::text,
+          amount_cents=$6::integer,
+          due_date=NULLIF($7::text,'')::date,
+          status=$8::text,
+          updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL
+      RETURNING id
+    `, [req.params.id, cleanText(req.body?.tutorId) || '', type, category, description, amountCents, cleanText(req.body?.dueDate) || '', status]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Lançamento não encontrado.' });
+    const transaction = await getFinancialTransactionById(req.params.id);
+    res.json({ transaction: sanitizeFinancialTransaction(transaction), message: 'Lançamento financeiro atualizado.' });
+  } catch (error) { next(error); }
+});
+
 app.patch('/api/financeiro/transactions/:id/pay', requireAuth, async (req, res, next) => {
   try {
     const current = await getFinancialTransactionById(req.params.id);
@@ -8733,7 +9777,7 @@ app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/l
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
-app.get(['/app', '/app/home', '/app/agenda', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
+app.get(['/app', '/app/home', '/app/agenda', '/app/saude-360', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
 
 const modulePages = {
@@ -8748,6 +9792,7 @@ const modulePages = {
   crm: 'crm',
   promocoes: 'promocoes',
   'bem-estar': 'bem-estar',
+  'saude-360': 'saude-360',
   'roleta-de-mimos': 'roleta-de-mimos',
   relatorios: 'relatorios',
   notificacoes: 'notificacoes',

@@ -759,7 +759,7 @@
         }
       }, true);
 
-      window.addEventListener('scroll', closeDashboardActionMenu, true);
+      // v1.6.19: não fechar o menu dos 3 pontinhos ao rolar; ele tem scroll interno próprio.
       window.addEventListener('resize', closeDashboardActionMenu);
     }
 

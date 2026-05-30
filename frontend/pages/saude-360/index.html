@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saúde 360 · PetFunny OS</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    .health360-page .health360-hero { overflow: visible; }
+    .health360-page .health360-actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .health360-page .health360-kpis { margin-top:18px; }
+    .health360-page .vet-cell { display:flex; gap:12px; align-items:center; min-width:220px; }
+    .health360-page .vet-avatar { width:42px; height:42px; border-radius:50%; flex:0 0 auto; overflow:hidden; display:grid; place-items:center; font-weight:900; color:#fff; background:linear-gradient(135deg,#00a9b7,#12a876); box-shadow:0 10px 26px rgba(15,23,42,.14); }
+    .health360-page .vet-avatar img { width:100%; height:100%; object-fit:cover; display:block; }
+    .health360-page .vet-name { font-weight:900; color:var(--text, #16213e); display:block; }
+    .health360-page .vet-meta { color:var(--muted, #64748b); font-size:.84rem; display:block; margin-top:2px; }
+    .health360-page .status-pill { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:7px 10px; font-weight:900; font-size:.78rem; background:#eefcf8; color:#0f8a6a; }
+    .health360-page .status-pill.inactive, .health360-page .status-pill.blocked, .health360-page .status-pill.cancelled { background:#fff1f2; color:#be123c; }
+    .health360-page .status-pill.pending, .health360-page .status-pill.reserved { background:#fff7ed; color:#c2410c; }
+    .health360-page .row-actions { position:relative; display:flex; justify-content:flex-end; }
+    .health360-page .dots-btn { width:38px; height:38px; border-radius:14px; border:1px solid rgba(15,23,42,.1); background:#fff; box-shadow:0 10px 24px rgba(15,23,42,.08); font-weight:900; cursor:pointer; }
+    .health360-page .action-menu { position:absolute; right:0; top:44px; z-index:30; min-width:188px; background:#fff; border:1px solid rgba(15,23,42,.08); border-radius:18px; box-shadow:0 22px 60px rgba(15,23,42,.18); padding:8px; display:none; }
+    .health360-page .action-menu.open { display:grid; gap:4px; }
+    .health360-page .action-menu button { border:0; background:transparent; text-align:left; padding:10px 12px; border-radius:12px; font-weight:800; cursor:pointer; color:#233347; }
+    .health360-page .action-menu button:hover { background:#f8fafc; }
+    .health360-page .action-menu button.danger { color:#be123c; }
+    .health360-page .health-table-card { margin-top:18px; }
+    .health360-page .empty-row { color:var(--muted, #64748b); font-weight:700; text-align:center; padding:24px !important; }
+    .health360-page .health-tabbar { display:flex; gap:10px; flex-wrap:wrap; margin:18px 0 0; }
+    .health360-page .health-tabbar button { border:1px solid rgba(15,23,42,.1); background:#fff; border-radius:999px; padding:10px 14px; font-weight:900; cursor:pointer; color:#475569; }
+    .health360-page .health-tabbar button.active { background:linear-gradient(135deg,#00a9b7,#12a876); color:#fff; border-color:transparent; box-shadow:0 14px 32px rgba(0,169,183,.22); }
+    .health360-form-photo { display:flex; gap:14px; align-items:center; }
+    .health360-form-photo .vet-avatar { width:70px; height:70px; }
+    .health360-modal-card { max-width:860px; }
+    .health360-modal-card .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .health360-modal-card .form-field.span-2, .health360-modal-card .span-2 { grid-column:1/-1; }
+    .health360-modal-card .modal-footer { justify-content:flex-end; }
+    .health360-page .health360-hero { background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(240,253,250,.92)); border: 1px solid rgba(15,23,42,.08); box-shadow: 0 24px 70px rgba(15,23,42,.08); }
+    .health360-page .health360-kpis { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .health360-page .health360-kpis .health-kpi-card,
+    .health360-page .health-finance-grid .health-kpi-card { min-height: 132px; border-radius: 24px; padding: 18px; background: #fff; border:1px solid rgba(15,23,42,.08); box-shadow:0 18px 45px rgba(15,23,42,.08); display:flex; flex-direction:column; justify-content:space-between; position:relative; overflow:hidden; }
+    .health360-page .health360-kpis .health-kpi-card:before,
+    .health360-page .health-finance-grid .health-kpi-card:before { content:''; position:absolute; right:-34px; top:-34px; width:92px; height:92px; border-radius:50%; background:linear-gradient(135deg,rgba(0,169,183,.16),rgba(18,168,118,.16)); }
+    .health360-page .health-kpi-label { font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; font-weight:900; color:#64748b; }
+    .health360-page .health-kpi-value { display:block; margin-top:10px; color:#0f172a; font-size:2.2rem; line-height:.95; font-weight:1000; letter-spacing:-.06em; }
+    .health360-page .health-kpi-hint { color:#64748b; font-size:.86rem; font-weight:800; margin-top:10px; }
+    .health360-page .health-section-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .health360-page .health-section-header .btn { margin-left:auto; white-space:nowrap; }
+    .health360-page .health-table-wrap { width:100%; overflow-x:auto; overflow-y:visible; padding-bottom:4px; }
+    .health360-page .health-table-wrap table { min-width: 980px; }
+    .health360-page .health-loadmore { display:flex; justify-content:center; padding:18px 0 4px; }
+    .health360-page .health-loadmore .btn { min-width:220px; }
+    .health360-page .tele-link-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .health360-page .tele-link-actions .mini-link { border:1px solid rgba(15,23,42,.1); background:#fff; color:#0f766e; border-radius:999px; padding:7px 10px; font-size:.78rem; font-weight:900; text-decoration:none; }
+    .health360-page .tele-link-empty { color:#94a3b8; font-weight:800; font-size:.84rem; }
+    .health360-page .health-finance-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+    @media (max-width: 1100px){ .health360-page .health360-kpis, .health360-page .health-finance-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 760px){ .health360-modal-card .form-grid { grid-template-columns:1fr; } .health360-page .health360-actions { width:100%; } .health360-page .health360-actions .btn { flex:1; } .health360-page .health360-kpis, .health360-page .health-finance-grid { grid-template-columns:1fr; } .health360-page .health-section-header { flex-direction:column; } .health360-page .health-section-header .btn { width:100%; margin-left:0; } }
+  </style>
+</head>
+<body>
+<script type="module">
+import { buildShell } from '/assets/js/shell.js';
+import { api } from '/assets/js/api.js';
+import { toast } from '/assets/js/toast.js';
+
+const state = { summary:{}, vets:[], slots:[], triages:[], teles:[], activeTab:'vets', visible:{vets:20, slots:20, triages:20, teles:20}, search:'' };
+const money = (c=0) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((Number(c)||0)/100);
+const esc = (v='') => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+const dt = (v) => v ? new Date(v).toLocaleString('pt-BR') : 'Sem data';
+const onlyDigits = (v='') => String(v||'').replace(/\D+/g,'');
+const initials = (name='') => String(name || '?').trim().split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase() || '?';
+const moneyInputToCents = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Math.round(value * 100);
+  const clean = String(value).replace(/R\$|\s/g,'').replace(/\./g,'').replace(',', '.');
+  const parsed = Number(clean);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+};
+function avatar(name, photoUrl){ return `<span class="vet-avatar">${photoUrl ? `<img src="${esc(photoUrl)}" alt="Foto de ${esc(name)}">` : esc(initials(name))}</span>`; }
+function kpi(title, value, hint){ return `<article class="health-kpi-card"><span class="health-kpi-label">${esc(title)}</span><strong class="health-kpi-value">${esc(value)}</strong><small class="health-kpi-hint">${esc(hint||'')}</small></article>`; }
+function pill(text, kind='active'){ return `<span class="status-pill ${esc(kind)}">${esc(text)}</span>`; }
+function rowMenu(id, type, isActive=true){
+  const toggleLabel = isActive ? 'Inativar' : 'Ativar';
+  if(type==='vet') return `<div class="row-actions"><button class="dots-btn" type="button" data-menu="${esc(id)}" aria-label="Ações">⋯</button><div class="action-menu" id="menu-${esc(id)}"><button type="button" data-edit-vet="${esc(id)}">Editar</button><button type="button" data-new-slot-vet="${esc(id)}">Agenda</button><button type="button" data-history-vet="${esc(id)}">Histórico</button><button type="button" data-toggle-vet="${esc(id)}">${toggleLabel}</button><button type="button" class="danger" data-delete-vet="${esc(id)}">Excluir</button></div></div>`;
+  if(type==='slot') return `<div class="row-actions"><button class="dots-btn" type="button" data-menu="${esc(id)}" aria-label="Ações">⋯</button><div class="action-menu" id="menu-${esc(id)}"><button type="button" data-edit-slot="${esc(id)}">Editar</button><button type="button" data-slot-status="${esc(id)}" data-status="available">Disponibilizar</button><button type="button" data-slot-status="${esc(id)}" data-status="blocked">Bloquear</button><button type="button" class="danger" data-delete-slot="${esc(id)}">Excluir</button></div></div>`;
+  return `<div class="row-actions"><button class="dots-btn" type="button" data-menu="${esc(id)}" aria-label="Ações">⋯</button><div class="action-menu" id="menu-${esc(id)}"><button type="button" data-tele-status="${esc(id)}" data-status="completed">Concluir</button><button type="button" data-tele-paid="${esc(id)}">Marcar pago</button><button type="button" class="danger" data-tele-status="${esc(id)}" data-status="cancelled">Cancelar</button></div></div>`;
+}
+function shell(content){
+  buildShell({
+    active:'Saúde 360',
+    eyebrow:'PetFunny Health 360',
+    title:'Saúde 360',
+    subtitle:'Gerencie veterinários, teleconsultas, triagens e indicadores de saúde dos pets.',
+    content:`<div class="health360-page">${content}</div>`
+  });
+}
+function hero(){
+  return `<section class="hero-panel stack-lg health360-hero">
+    <div class="page-heading-row between">
+      <div>
+        <p class="eyebrow">PetFunny Health 360</p>
+        <h1>Saúde 360</h1>
+        <p>Gerencie veterinários parceiros, agenda de teleconsultas, triagens, financeiro saúde e histórico preventivo dos pets.</p>
+      </div>
+      <div class="health360-actions">
+        <button class="btn" type="button" id="new-vet">＋ Novo veterinário</button>
+        <button class="btn btn-secondary" type="button" id="new-slot">＋ Novo horário</button>
+      </div>
+    </div>
+    <div class="kpi-grid health360-kpis">
+      ${kpi('Veterinários ativos', state.summary.veterinarians?.active || 0, `${state.summary.veterinarians?.total || 0} cadastrados`)}
+      ${kpi('Horários disponíveis', state.summary.slots?.available || 0, 'Slots futuros para teleconsulta')}
+      ${kpi('Triagens registradas', state.summary.triages?.total || 0, `${state.summary.triages?.high || 0} urgentes`)}
+      ${kpi('Receita Saúde 360', money(state.summary.finance?.revenue || 0), `${state.summary.finance?.paid_count || 0} teleconsultas pagas`)}
+    </div>
+    <div class="health-tabbar" role="tablist">
+      ${tabButton('vets','Veterinários')}${tabButton('slots','Agenda')}${tabButton('triages','Últimas triagens')}${tabButton('teles','Teleconsultas')}${tabButton('finance','Financeiro Saúde')}
+    </div>
+  </section>`;
+}
+function tabButton(id,label){ return `<button type="button" class="${state.activeTab===id?'active':''}" data-tab="${id}">${esc(label)}</button>`; }
+function currentLimit(key){ return Number(state.visible?.[key] || 20); }
+function resetLimit(key){ state.visible[key] = 20; }
+function increaseLimit(key){ state.visible[key] = currentLimit(key) + 20; render(); }
+function loadMoreButton(key, total){ return total > currentLimit(key) ? `<div class="health-loadmore"><button class="btn btn-secondary" type="button" data-load-more="${esc(key)}">Carregar mais registros</button></div>` : ''; }
+function teleLink(url){
+  if (!url) return `<span class="tele-link-empty">Link será gerado após reserva/pagamento</span>`;
+  return `<div class="tele-link-actions"><a class="mini-link" href="${esc(url)}" target="_blank" rel="noopener">Entrar</a><button class="mini-link" type="button" data-copy-link="${esc(url)}">Copiar</button></div>`;
+}
+
+function vetsSection(){
+  const visibleVets = state.vets.slice(0, currentLimit('vets'));
+  const rows = visibleVets.length ? visibleVets.map(v => `<tr>
+    <td><div class="vet-cell">${avatar(v.name, v.photoUrl)}<div><span class="vet-name">${esc(v.name)}</span><span class="vet-meta">${esc(v.email || v.whatsapp || 'Contato não informado')}</span></div></div></td>
+    <td>${esc(v.crmv || '—')} ${esc(v.crmvUf || '')}</td><td>${esc(v.specialty || 'Clínica geral')}</td><td>${money(v.consultationPriceCents || 0)}</td><td>${pill(v.isActive?'Ativo':'Inativo', v.isActive?'active':'inactive')}</td><td>${rowMenu(v.id,'vet',v.isActive)}</td>
+  </tr>`).join('') : `<tr><td class="empty-row" colspan="6">Nenhum veterinário cadastrado.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card">
+    <div class="section-header health-section-header"><div><p class="eyebrow">Cadastro</p><h3>Veterinários cadastrados</h3><p>Gerencie profissionais, CRMV, especialidades, agenda e valores.</p></div><button class="btn" type="button" id="new-vet-inline">＋ Novo veterinário</button></div>
+    <div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Veterinário</th><th>CRMV</th><th>Especialidade</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('vets', state.vets.length)}
+  </section>`;
+}
+function slotsSection(){
+  const visibleSlots = state.slots.slice(0, currentLimit('slots'));
+  const rows = visibleSlots.length ? visibleSlots.map(s => `<tr><td>${esc(s.veterinarianName || 'Veterinário')}</td><td>${dt(s.startsAt)}</td><td>${dt(s.endsAt)}</td><td>${money(s.priceCents)}</td><td>${pill(statusLabel(s.status), s.status)}</td><td>${teleLink(s.meetingUrl)}</td><td>${rowMenu(s.id,'slot')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="7">Nenhum horário cadastrado.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Agenda</p><h3>Agenda de teleconsultas</h3><p>Controle horários disponíveis, bloqueados, reservados, links de acesso e horários concluídos.</p></div><button class="btn" type="button" id="new-slot-inline">＋ Novo horário</button></div><div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Veterinário</th><th>Início</th><th>Fim</th><th>Valor</th><th>Status</th><th>Link Teleconsulta</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('slots', state.slots.length)}</section>`;
+}
+function triagesSection(){
+  const visibleTriages = state.triages.slice(0, currentLimit('triages'));
+  const rows = visibleTriages.length ? visibleTriages.map(t => `<tr><td>${dt(t.createdAt)}</td><td>${esc(t.tutorName || 'Tutor')}</td><td>${esc(t.petName || 'Pet')}</td><td>${pill(riskLabel(t.riskLevel), riskKind(t.riskLevel))}</td><td>${esc(t.summary || 'Sem resumo')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="5">Nenhuma triagem registrada.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Histórico</p><h3>Últimas triagens</h3><p>Acompanhe risco, tutor, pet, orientação e data.</p></div></div><div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Data</th><th>Tutor</th><th>Pet</th><th>Risco</th><th>Resumo</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('triages', state.triages.length)}</section>`;
+}
+function telesSection(){
+  const visibleTeles = state.teles.slice(0, currentLimit('teles'));
+  const rows = visibleTeles.length ? visibleTeles.map(t => `<tr><td>${dt(t.startsAt || t.createdAt)}</td><td>${esc(t.tutorName || 'Tutor')}</td><td>${esc(t.petName || 'Pet')}</td><td>${esc(t.veterinarianName || 'Veterinário')}</td><td>${money(t.priceCents || 0)}</td><td>${pill(paymentLabel(t.paymentStatus), t.paymentStatus)}</td><td>${pill(statusLabel(t.status), t.status)}</td><td>${teleLink(t.meetingUrl)}</td><td>${rowMenu(t.id,'tele')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="9">Nenhuma teleconsulta solicitada.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Operação</p><h3>Teleconsultas</h3><p>Pagamentos, status, links e histórico de atendimentos remotos.</p></div></div><div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Data</th><th>Tutor</th><th>Pet</th><th>Veterinário</th><th>Valor</th><th>Pagamento</th><th>Status</th><th>Link</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('teles', state.teles.length)}</section>`;
+}
+function financeSection(){
+  const paid = state.teles.filter(t => String(t.paymentStatus || '').toLowerCase()==='paid');
+  const revenue = paid.reduce((sum,t)=>sum + Number(t.priceCents || 0), 0);
+  const avg = paid.length ? Math.round(revenue / paid.length) : 0;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Financeiro Saúde</p><h3>Indicadores de teleconsulta</h3><p>Receita, ticket médio, pagamentos pendentes e operação dos veterinários.</p></div></div><div class="health-finance-grid">${kpi('Receita confirmada', money(revenue), `${paid.length} pagamentos pagos`)}${kpi('Ticket médio', money(avg), 'teleconsultas pagas')}${kpi('Pendentes', state.teles.filter(t=>String(t.paymentStatus||'').toLowerCase()!=='paid').length, 'pagamentos em aberto')}${kpi('Teleconsultas totais', state.teles.length, 'histórico geral')}</div></section>`;
+}
+function currentSection(){ return { vets:vetsSection, slots:slotsSection, triages:triagesSection, teles:telesSection, finance:financeSection }[state.activeTab]?.() || vetsSection(); }
+function render(){ shell(`${hero()}${currentSection()}`); bind(); }
+async function load(){
+  shell('<section class="module-card"><p>Carregando Saúde 360...</p></section>');
+  try{
+    const [summary, vets, slots, triages, teles] = await Promise.all([
+      api.get('/admin/health360/summary'),
+      api.get('/admin/health360/veterinarians'),
+      api.get('/admin/health360/slots'),
+      api.get('/admin/health360/triages'),
+      api.get('/admin/health360/teleconsultations')
+    ]);
+    state.summary = summary || {}; state.vets = vets.items || []; state.slots = slots.items || []; state.triages = triages.items || []; state.teles = teles.items || [];
+    render();
+  } catch(error){ shell(`<section class="module-card"><h3>Não foi possível carregar Saúde 360</h3><p>${esc(error.message || 'Erro inesperado.')}</p><button class="btn" id="retry-health">Tentar novamente</button></section>`); document.getElementById('retry-health')?.addEventListener('click', load); }
+}
+function statusLabel(s){ return ({available:'Disponível',reserved:'Reservado',completed:'Concluído',cancelled:'Cancelado',blocked:'Bloqueado',scheduled:'Agendada',pending_payment:'Pagamento pendente',paid:'Pago'}[String(s||'').toLowerCase()] || s || '—'); }
+function paymentLabel(s){ return ({paid:'Pago',pending:'Pendente',approved:'Aprovado',cancelled:'Cancelado',failed:'Falhou'}[String(s||'').toLowerCase()] || s || 'Pendente'); }
+function riskLabel(r){ return ({low:'Baixo',medium:'Médio',high:'Alto',baixo:'Baixo',medio:'Médio',alto:'Alto'}[String(r||'').toLowerCase()] || r || '—'); }
+function riskKind(r){ const v=String(r||'').toLowerCase(); return (v==='high'||v==='alto')?'cancelled':(v==='medium'||v==='medio')?'pending':'active'; }
+function openDialog(title, eyebrow, body, footer=''){
+  const dialog = document.createElement('dialog'); dialog.className = 'premium-modal';
+  dialog.innerHTML = `<form method="dialog" class="modal-card health360-modal-card"><header class="modal-header"><div><p class="eyebrow">${esc(eyebrow)}</p><h3>${esc(title)}</h3></div><button class="icon-btn" value="cancel" type="button" data-close-dialog>×</button></header><div class="modal-body custom-scroll">${body}</div>${footer || '<footer class="modal-footer"><button class="btn btn-secondary" type="button" data-close-dialog>Cancelar</button><button class="btn" type="submit">Salvar</button></footer>'}</form>`;
+  document.body.appendChild(dialog); dialog.showModal(); dialog.querySelectorAll('[data-close-dialog]').forEach(btn=>btn.addEventListener('click',()=>dialog.close())); dialog.addEventListener('close',()=>dialog.remove()); return dialog;
+}
+function vetForm(v={}){
+  return `<input type="hidden" name="id" value="${esc(v.id||'')}"><div class="form-grid form-row-gap">
+    <div class="form-field span-2"><span>Foto do veterinário</span><div class="health360-form-photo"><div class="health360-photo-preview">${avatar(v.name || 'Veterinário', v.photoUrl)}</div><div class="stack-sm grow"><input class="input" name="photoUrl" value="${esc(v.photoUrl||'')}" placeholder="URL da foto ou upload abaixo"><input class="input" name="photoUpload" type="file" accept="image/*"><small class="muted">Você pode colar uma URL pública ou enviar uma imagem do computador. A foto aparece no App do Tutor.</small></div></div></div>
+    <label class="form-field"><span>Nome completo</span><input class="input" name="name" value="${esc(v.name||'')}" required placeholder="Dra. Mariana Alves"></label>
+    <label class="form-field"><span>CRMV</span><input class="input" name="crmv" value="${esc(v.crmv||'')}" placeholder="12345"></label>
+    <label class="form-field"><span>UF CRMV</span><input class="input" name="crmvUf" value="${esc(v.crmvUf||'SP')}" maxlength="2"></label>
+    <label class="form-field"><span>Especialidade</span><input class="input" name="specialty" value="${esc(v.specialty||'Clínica geral')}" placeholder="Clínica geral"></label>
+    <label class="form-field"><span>WhatsApp</span><input class="input" name="whatsapp" value="${esc(v.whatsapp||'')}" placeholder="(16) 99999-9999"></label>
+    <label class="form-field"><span>E-mail</span><input class="input" name="email" type="email" value="${esc(v.email||'')}" placeholder="vet@email.com"></label>
+    <label class="form-field"><span>Valor consulta</span><input class="input" name="consultationPrice" value="${money(v.consultationPriceCents || 9900)}"></label>
+    <label class="form-field"><span>Valor retorno</span><input class="input" name="returnPrice" value="${money(v.returnPriceCents || 0)}"></label>
+    <label class="form-field"><span>Duração padrão</span><input class="input" name="defaultDurationMinutes" type="number" min="10" step="5" value="${esc(v.defaultDurationMinutes || 30)}"></label>
+    <label class="form-field"><span>Status</span><select class="select" name="isActive"><option value="true" ${v.isActive!==false?'selected':''}>Ativo</option><option value="false" ${v.isActive===false?'selected':''}>Inativo</option></select></label>
+    <label class="form-field span-2"><span>Mini currículo</span><textarea class="textarea" name="bio" rows="4" placeholder="Experiência, atendimento, diferenciais...">${esc(v.bio||'')}</textarea></label>
+  </div>`;
+}
+function toDatetimeLocal(value){
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = n => String(n).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+function durationFromSlot(slot={}){
+  const start = new Date(slot.startsAt || slot.starts_at || '');
+  const end = new Date(slot.endsAt || slot.ends_at || '');
+  if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end > start) return Math.round((end - start) / 60000);
+  return Number(slot.durationMinutes || 30);
+}
+function slotForm(defaultVetId='', slot={}){
+  const selectedVet = slot.veterinarianId || slot.veterinarian_id || defaultVetId;
+  const options = state.vets.map(v=>`<option value="${esc(v.id)}" ${v.id===selectedVet?'selected':''}>${esc(v.name)} · ${money(v.consultationPriceCents)}</option>`).join('');
+  return `<div class="form-grid form-row-gap"><label class="form-field span-2"><span>Veterinário</span><select class="select" name="veterinarianId" required>${options || '<option value="">Cadastre um veterinário primeiro</option>'}</select></label><label class="form-field"><span>Início</span><input class="input" name="startsAt" type="datetime-local" value="${esc(toDatetimeLocal(slot.startsAt || slot.starts_at))}" required></label><label class="form-field"><span>Duração</span><input class="input" name="durationMinutes" type="number" min="10" step="5" value="${esc(durationFromSlot(slot))}"></label><label class="form-field"><span>Valor</span><input class="input" name="price" value="${esc(money(slot.priceCents ?? slot.price_cents ?? 9900))}"></label><label class="form-field span-2"><span>Status</span><select class="select" name="status"><option value="available" ${(slot.status||'available')==='available'?'selected':''}>Disponível</option><option value="blocked" ${slot.status==='blocked'?'selected':''}>Bloqueado</option><option value="reserved" ${slot.status==='reserved'?'selected':''}>Reservado</option><option value="completed" ${slot.status==='completed'?'selected':''}>Concluído</option><option value="cancelled" ${slot.status==='cancelled'?'selected':''}>Cancelado</option></select></label></div>`;
+}
+function normalizeVetPayload(form){
+  const data = Object.fromEntries(new FormData(form).entries());
+  return { name:data.name, crmv:data.crmv, crmvUf:String(data.crmvUf||'SP').toUpperCase(), specialty:data.specialty, whatsapp:onlyDigits(data.whatsapp), email:data.email, bio:data.bio, photoUrl:data.photoUrl, consultationPriceCents:moneyInputToCents(data.consultationPrice), returnPriceCents:moneyInputToCents(data.returnPrice), defaultDurationMinutes:Number(data.defaultDurationMinutes || 30), isActive:data.isActive === 'true' };
+}
+function normalizeSlotPayload(form){
+  const data=Object.fromEntries(new FormData(form).entries());
+  const date = data.startsAt ? new Date(data.startsAt) : null;
+  return { veterinarianId:data.veterinarianId, startsAt:date && !Number.isNaN(date.getTime()) ? date.toISOString() : data.startsAt, durationMinutes:Number(data.durationMinutes || 30), price:moneyInputToCents(data.price), status:data.status || 'available' };
+}
+function openVetModal(v={}){
+  const isEdit = !!v.id; const dialog = openDialog(isEdit?'Editar veterinário':'Cadastro de veterinário', 'Saúde 360', vetForm(v));
+  const form = dialog.querySelector('form');
+  const photoInput = form.querySelector('[name="photoUpload"]');
+  const photoUrl = form.querySelector('[name="photoUrl"]');
+  const preview = form.querySelector('.health360-photo-preview');
+  photoInput?.addEventListener('change', () => {
+    const file = photoInput.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Envie um arquivo de imagem.'); photoInput.value=''; return; }
+    if (file.size > 1024 * 1024 * 2) { toast.error('A imagem deve ter até 2MB.'); photoInput.value=''; return; }
+    const reader = new FileReader();
+    reader.onload = () => { photoUrl.value = String(reader.result || ''); if (preview) preview.innerHTML = `<div class="vet-avatar"><img src="${String(reader.result || '')}" alt="Foto"></div>`; };
+    reader.readAsDataURL(file);
+  });
+  form.addEventListener('submit', async (event)=>{ event.preventDefault(); const payload=normalizeVetPayload(event.currentTarget); try{ if(isEdit){ await api.put(`/admin/health360/veterinarians/${v.id}`, payload); } else { await api.post('/admin/health360/veterinarians', payload); } toast.success('Veterinário salvo.'); dialog.close(); await load(); } catch(error){ toast.error(error.message || 'Não foi possível salvar.'); } });
+}
+function openSlotModal(defaultVetId='', slot=null){
+  const isEdit = !!slot?.id;
+  const dialog = openDialog(isEdit ? 'Editar horário' : 'Novo horário', 'Agenda de teleconsulta', slotForm(defaultVetId, slot || {}));
+  dialog.querySelector('form').addEventListener('submit', async (event)=>{ event.preventDefault(); try{ const payload = normalizeSlotPayload(event.currentTarget); if(isEdit){ await api.put(`/admin/health360/slots/${slot.id}`, payload); toast.success('Horário atualizado.'); } else { await api.post('/admin/health360/slots', payload); toast.success('Horário criado.'); } dialog.close(); await load(); } catch(error){ toast.error(error.message || 'Não foi possível salvar horário.'); } });
+}
+function openVetHistory(vetId){
+  const vet = state.vets.find(v=>v.id===vetId) || {}; const rows = state.teles.filter(t=>t.veterinarianId===vetId || t.veterinarianName===vet.name);
+  const body = `<div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Data</th><th>Tutor</th><th>Pet</th><th>Valor</th><th>Pagamento</th><th>Status</th></tr></thead><tbody>${rows.length ? rows.map(t=>`<tr><td>${dt(t.startsAt||t.createdAt)}</td><td>${esc(t.tutorName)}</td><td>${esc(t.petName)}</td><td>${money(t.priceCents)}</td><td>${paymentLabel(t.paymentStatus)}</td><td>${statusLabel(t.status)}</td></tr>`).join('') : '<tr><td class="empty-row" colspan="6">Nenhuma teleconsulta encontrada para este veterinário.</td></tr>'}</tbody></table></div>`;
+  openDialog(`Histórico · ${vet.name || 'Veterinário'}`, 'Teleconsultas', body, '<footer class="modal-footer"><button class="btn btn-secondary" type="button" data-close-dialog>Fechar</button></footer>');
+}
+function bind(){
+  document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{ state.activeTab=btn.dataset.tab; resetLimit(btn.dataset.tab); render(); }));
+  document.querySelectorAll('[data-load-more]').forEach(btn=>btn.addEventListener('click',()=>increaseLimit(btn.dataset.loadMore)));
+  document.querySelectorAll('[data-copy-link]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await navigator.clipboard.writeText(btn.dataset.copyLink || ''); toast.success('Link copiado.'); } catch(error){ toast.error('Não foi possível copiar o link.'); } }));
+  document.getElementById('new-vet')?.addEventListener('click',()=>openVetModal());
+  document.getElementById('new-vet-inline')?.addEventListener('click',()=>openVetModal());
+  document.getElementById('new-slot')?.addEventListener('click',()=>openSlotModal());
+  document.getElementById('new-slot-inline')?.addEventListener('click',()=>openSlotModal());
+  document.querySelectorAll('[data-menu]').forEach(btn=>btn.addEventListener('click',(e)=>{ e.stopPropagation(); const menu=document.getElementById(`menu-${btn.dataset.menu}`); document.querySelectorAll('.action-menu.open').forEach(m=>{ if(m!==menu) m.classList.remove('open'); }); menu?.classList.toggle('open'); }));
+  document.addEventListener('click',()=>document.querySelectorAll('.action-menu.open').forEach(m=>m.classList.remove('open')), { once:true });
+  document.querySelectorAll('[data-edit-vet]').forEach(btn=>btn.addEventListener('click',()=>openVetModal(state.vets.find(v=>v.id===btn.dataset.editVet)||{})));
+  document.querySelectorAll('[data-new-slot-vet]').forEach(btn=>btn.addEventListener('click',()=>openSlotModal(btn.dataset.newSlotVet)));
+  document.querySelectorAll('[data-history-vet]').forEach(btn=>btn.addEventListener('click',()=>openVetHistory(btn.dataset.historyVet)));
+  document.querySelectorAll('[data-toggle-vet]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/veterinarians/${btn.dataset.toggleVet}/toggle`,{}); toast.success('Status atualizado.'); await load(); } catch(error){ toast.error(error.message); } }));
+  document.querySelectorAll('[data-delete-vet]').forEach(btn=>btn.addEventListener('click',async()=>{ if(!confirm('Excluir este veterinário?')) return; try{ await api.delete(`/admin/health360/veterinarians/${btn.dataset.deleteVet}`); toast.success('Veterinário excluído.'); await load(); } catch(error){ toast.error(error.message); } }));
+  document.querySelectorAll('[data-edit-slot]').forEach(btn=>btn.addEventListener('click',()=>openSlotModal('', state.slots.find(s=>s.id===btn.dataset.editSlot)||{})));
+  document.querySelectorAll('[data-delete-slot]').forEach(btn=>btn.addEventListener('click',async()=>{ if(!confirm('Excluir este horário?')) return; try{ await api.delete(`/admin/health360/slots/${btn.dataset.deleteSlot}`); toast.success('Horário excluído.'); await load(); } catch(error){ toast.error(error.message); } }));
+  document.querySelectorAll('[data-slot-status]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/slots/${btn.dataset.slotStatus}/status`,{status:btn.dataset.status}); toast.success('Horário atualizado.'); await load(); } catch(error){ toast.error(error.message); } }));
+  document.querySelectorAll('[data-tele-status]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/teleconsultations/${btn.dataset.teleStatus}/status`,{status:btn.dataset.status}); toast.success('Teleconsulta atualizada.'); await load(); } catch(error){ toast.error(error.message); } }));
+  document.querySelectorAll('[data-tele-paid]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/teleconsultations/${btn.dataset.telePaid}/paid`,{}); toast.success('Pagamento marcado.'); await load(); } catch(error){ toast.error(error.message); } }));
+}
+load();
+</script>
+</body>
+</html>

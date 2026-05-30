@@ -659,6 +659,9 @@ CREATE INDEX IF NOT EXISTS idx_appointment_statuses_active ON appointment_status
 CREATE INDEX IF NOT EXISTS idx_business_hours_weekday ON business_hours (weekday);
 CREATE INDEX IF NOT EXISTS idx_time_slot_capacities_weekday_time ON time_slot_capacities (weekday, slot_time);
 ALTER TABLE tutors ADD COLUMN IF NOT EXISTS photo_url TEXT;
+ALTER TABLE tutors ADD COLUMN IF NOT EXISTS address_number TEXT;
+ALTER TABLE tutors ADD COLUMN IF NOT EXISTS address_neighborhood TEXT;
+ALTER TABLE tutors ADD COLUMN IF NOT EXISTS address_zipcode TEXT;
 ALTER TABLE pets ADD COLUMN IF NOT EXISTS photo_url TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending';
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS payment_method_id UUID REFERENCES payment_methods(id) ON DELETE SET NULL;
@@ -898,6 +901,177 @@ async function main() {
       ) AS q(code, dimension, question, answer_type, options, weight, sort_order, is_critical)
       ON CONFLICT (code) DO UPDATE SET question=EXCLUDED.question, dimension=EXCLUDED.dimension, options=EXCLUDED.options, weight=EXCLUDED.weight, sort_order=EXCLUDED.sort_order, is_critical=EXCLUDED.is_critical, is_active=TRUE, updated_at=NOW()
     `);
+
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS veterinarians (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        crmv TEXT,
+        specialty TEXT NOT NULL DEFAULT 'Clínica geral',
+        bio TEXT,
+        photo_url TEXT,
+        crmv_uf TEXT DEFAULT 'SP',
+        phone TEXT,
+        whatsapp TEXT,
+        email TEXT,
+        consultation_price_cents INTEGER NOT NULL DEFAULT 9900,
+        return_price_cents INTEGER NOT NULL DEFAULT 0,
+        default_duration_minutes INTEGER NOT NULL DEFAULT 30,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS teleconsultation_slots (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        veterinarian_id UUID REFERENCES veterinarians(id) ON DELETE SET NULL,
+        starts_at TIMESTAMPTZ NOT NULL,
+        ends_at TIMESTAMPTZ NOT NULL,
+        status TEXT NOT NULL DEFAULT 'available',
+        price_cents INTEGER NOT NULL DEFAULT 9900,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS teleconsultations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+        pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+        veterinarian_id UUID REFERENCES veterinarians(id) ON DELETE SET NULL,
+        slot_id UUID REFERENCES teleconsultation_slots(id) ON DELETE SET NULL,
+        reason TEXT NOT NULL,
+        symptoms TEXT,
+        starts_at TIMESTAMPTZ,
+        price_cents INTEGER NOT NULL DEFAULT 9900,
+        payment_method TEXT NOT NULL DEFAULT 'pix',
+        payment_status TEXT NOT NULL DEFAULT 'pending',
+        status TEXT NOT NULL DEFAULT 'pending_payment',
+        meeting_url TEXT,
+        safety_notice_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS teleconsultation_payment_intents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+        client_account_id UUID,
+        pet_id UUID REFERENCES pets(id) ON DELETE SET NULL,
+        teleconsultation_id UUID REFERENCES teleconsultations(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        provider TEXT NOT NULL DEFAULT 'mercado_pago',
+        payment_type TEXT NOT NULL DEFAULT 'pix',
+        amount_cents INTEGER NOT NULL DEFAULT 0,
+        description TEXT,
+        pending_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        mp_payment_id TEXT,
+        mp_status TEXT,
+        qr_code TEXT,
+        qr_code_base64 TEXT,
+        ticket_url TEXT,
+        provider_response JSONB NOT NULL DEFAULT '{}'::jsonb,
+        last_error TEXT,
+        expires_at TIMESTAMPTZ,
+        paid_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS pet_health_triages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+        pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+        symptoms TEXT NOT NULL,
+        duration TEXT,
+        appetite TEXT,
+        water TEXT,
+        behavior TEXT,
+        vomiting TEXT,
+        diarrhea TEXT,
+        breathing TEXT,
+        pain TEXT,
+        bleeding TEXT,
+        seizure TEXT,
+        trauma TEXT,
+        poison TEXT,
+        fever TEXT,
+        other_signs TEXT,
+        risk_level TEXT NOT NULL DEFAULT 'low',
+        summary TEXT,
+        guidance TEXT,
+        red_flags JSONB NOT NULL DEFAULT '[]'::jsonb,
+        recommended_action TEXT,
+        emergency BOOLEAN NOT NULL DEFAULT FALSE,
+        ai_used BOOLEAN NOT NULL DEFAULT FALSE,
+        raw_result JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS pet_medical_records (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+        pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+        type TEXT NOT NULL DEFAULT 'NOTE',
+        title TEXT NOT NULL,
+        description TEXT,
+        source_type TEXT,
+        source_id UUID,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS pet_health_scores (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+        pet_id UUID NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+        score INTEGER NOT NULL DEFAULT 80,
+        label TEXT NOT NULL DEFAULT 'Bom',
+        factors JSONB NOT NULL DEFAULT '{}'::jsonb,
+        calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_health_triages_pet ON pet_health_triages(pet_id, created_at DESC) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_medical_records_pet ON pet_medical_records(pet_id, occurred_at DESC) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_teleconsultations_tutor ON teleconsultations(tutor_id, starts_at DESC) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_teleconsult_payment_tutor ON teleconsultation_payment_intents(tutor_id, created_at DESC) WHERE deleted_at IS NULL;
+    `);
+
+    await query(`ALTER TABLE veterinarians ADD COLUMN IF NOT EXISTS crmv_uf TEXT DEFAULT 'SP'`);
+    await query(`ALTER TABLE veterinarians ADD COLUMN IF NOT EXISTS phone TEXT`);
+    await query(`ALTER TABLE veterinarians ADD COLUMN IF NOT EXISTS whatsapp TEXT`);
+    await query(`ALTER TABLE veterinarians ADD COLUMN IF NOT EXISTS email TEXT`);
+    await query(`ALTER TABLE veterinarians ADD COLUMN IF NOT EXISTS return_price_cents INTEGER NOT NULL DEFAULT 0`);
+    await query(`ALTER TABLE veterinarians ADD COLUMN IF NOT EXISTS default_duration_minutes INTEGER NOT NULL DEFAULT 30`);
+    await query(`ALTER TABLE teleconsultation_slots ADD COLUMN IF NOT EXISTS price_cents INTEGER NOT NULL DEFAULT 9900`);
+    await query(`ALTER TABLE teleconsultations ADD COLUMN IF NOT EXISTS slot_id UUID`);
+    await query(`ALTER TABLE teleconsultations ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'pix'`);
+    await query(`ALTER TABLE teleconsultations ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'pending'`);
+    await query(`ALTER TABLE teleconsultations ADD COLUMN IF NOT EXISTS meeting_url TEXT`);
+    await query(`ALTER TABLE teleconsultation_payment_intents ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT 'pix'`);
+    await query(`ALTER TABLE teleconsultation_payment_intents ADD COLUMN IF NOT EXISTS checkout_url TEXT`);
+    await query(`ALTER TABLE teleconsultation_payment_intents ADD COLUMN IF NOT EXISTS mp_preference_id TEXT`);
+
+
+    await query(`
+      INSERT INTO veterinarians (name, crmv, specialty, bio, consultation_price_cents, is_active)
+      VALUES
+        ('Dra. Marina Alves', 'CRMV-SP 00000', 'Clínica geral e bem-estar preventivo', 'Orientação veterinária preventiva para tutores PetFunny.', 9900, TRUE),
+        ('Dr. Rafael Nogueira', 'CRMV-SP 00001', 'Dermatologia e pele/pelagem', 'Teleorientação para sinais de pele, coceira e rotina de cuidados.', 11900, TRUE)
+      ON CONFLICT DO NOTHING
+    `);
+
+    await query(`
+      INSERT INTO teleconsultation_slots (veterinarian_id, starts_at, ends_at, price_cents, status)
+      SELECT id, NOW() + interval '1 day' + interval '10 hours', NOW() + interval '1 day' + interval '10 hours 30 minutes', consultation_price_cents, 'available'
+      FROM veterinarians WHERE deleted_at IS NULL AND is_active = TRUE
+      ON CONFLICT DO NOTHING
+    `);
+
 
     await query('COMMIT');
     console.log('[db:migrate] concluído com sucesso. Tabelas exclusivas PetFunny criadas/validadas.');

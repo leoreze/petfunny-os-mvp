@@ -20,7 +20,23 @@
 
   showLoading('Carregando tutores...', 'Renderizando dados do banco com segurança.');
 
-  const state = { page: 1, limit: 20, search: '', status: 'active', loading: false, done: false, items: [], sortKey: 'updatedAt', sortDir: 'desc', currentTutor: null, currentHistory: [], currentPets: [], petOptions: { types: [], sizes: [], breeds: [] } };
+  const state = {
+    page: 1,
+    limit: 20,
+    search: '',
+    status: 'active',
+    loading: false,
+    done: false,
+    items: [],
+    total: 0,
+    stats: { totalTutors: 0, activeTutors: 0, petsCount: 0, lastAppointmentAt: null },
+    sortKey: 'updatedAt',
+    sortDir: 'desc',
+    currentTutor: null,
+    currentHistory: [],
+    currentPets: [],
+    petOptions: { types: [], sizes: [], breeds: [] }
+  };
   const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
   const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
   const formatWhatsapp = (value = '') => {
@@ -43,6 +59,24 @@
     reader.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
     reader.readAsDataURL(file);
   });
+
+  const appUrl = 'https://agendapetfunny.com.br/app';
+  const crmProfiles = {
+    novo_lead: { label: 'Novo lead', tone: 'info', hint: 'sem agendamentos' },
+    ativo: { label: 'Ativo', tone: 'ok', hint: 'até 30 dias' },
+    recorrente: { label: 'Recorrente', tone: 'success', hint: 'cliente fiel' },
+    em_atencao: { label: 'Em atenção', tone: 'warning', hint: '46 a 60 dias' },
+    em_risco: { label: 'Em risco', tone: 'danger', hint: '61 a 90 dias' },
+    perdido: { label: 'Perdido', tone: 'muted', hint: '90+ dias' }
+  };
+  function crmProfile(status = '') { return crmProfiles[status] || crmProfiles.novo_lead; }
+  function formatDateBR(value) { if (!value) return '—'; const d = new Date(value); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR'); }
+  function daysWithoutLabel(value) { return value === null || value === undefined || value === '' ? '—' : `${Number(value)} dia${Number(value) === 1 ? '' : 's'}`; }
+  function crmBadge(status) {
+    const profile = crmProfile(status);
+    const toneClass = profile.tone === 'danger' ? 'danger' : profile.tone === 'warning' ? 'warning' : profile.tone === 'muted' ? 'muted-pill' : 'ok';
+    return `<span class="status-pill ${toneClass}">${esc(profile.label)}</span><small>${esc(profile.hint)}</small>`;
+  }
 
   buildShell({
     active: 'Tutores',
@@ -78,13 +112,17 @@
               <th><button class="th-sort" type="button" data-sort="name">Tutor <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="whatsapp">Contato <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="petsCount">Pets <span class="sort-arrow">↕</span></button></th>
-              <th>Tags</th>
+              <th><button class="th-sort" type="button" data-sort="appointmentsCount">Agendamentos <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="lastAppointmentAt">Último agendamento <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="daysWithoutAppointment">Sem agendar <span class="sort-arrow">↕</span></button></th>
+              <th>Status CRM</th>
               <th><button class="th-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th>
               <th>Ações</th>
             </tr></thead>
-            <tbody id="tutors-body"><tr><td colspan="6">Preparando tudo...</td></tr></tbody>
+            <tbody id="tutors-body"><tr><td colspan="10">Preparando tudo...</td></tr></tbody>
           </table>
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais tutores...</div>
+          <div class="list-load-status" id="tutors-load-status">0/0 tutores carregados</div>
         </div>
       </section>
 
@@ -183,6 +221,7 @@
   const body = document.getElementById('tutors-body');
   const scrollBox = document.getElementById('tutors-scroll');
   const loader = document.getElementById('infinite-loader');
+  const loadStatus = document.getElementById('tutors-load-status');
   const modal = document.getElementById('tutor-modal');
   const historyModal = document.getElementById('history-modal');
   const historyContent = document.getElementById('history-content');
@@ -199,12 +238,16 @@
   }
 
   function rowTemplate(item) {
-    const tags = (item.tags || []).map(tag => `<span class="mini-badge">${esc(tag)}</span>`).join('') || '<span class="muted">sem tags</span>';
+    const lastAppointment = formatDateBR(item.lastAppointmentAt);
+    const days = daysWithoutLabel(item.daysWithoutAppointment);
     return `<tr data-id="${item.id}">
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(item.city || 'Ribeirão Preto')} / ${esc(item.state || 'SP')}</small></div></div></td>
       <td><strong>${formatWhatsapp(item.whatsapp)}</strong><small>${esc(item.email || 'sem e-mail')}</small></td>
       <td><strong>${item.petsCount || 0}</strong><small>pet(s) vinculados</small></td>
-      <td><div class="tag-wrap">${tags}</div></td>
+      <td><strong>${item.appointmentsCount || 0}</strong><small>agendamento(s)</small></td>
+      <td><strong>${esc(lastAppointment)}</strong><small>${item.lastAppointmentAt ? 'último registro' : 'sem histórico'}</small></td>
+      <td><strong>${esc(days)}</strong><small>${item.daysWithoutAppointment === null || item.daysWithoutAppointment === undefined ? 'aguardando 1º agendamento' : 'desde o último'}</small></td>
+      <td>${crmBadge(item.crmStatus)}</td>
       <td><span class="status-pill ${item.status === 'active' ? 'ok' : 'muted-pill'}">${item.status === 'active' ? 'Ativo' : 'Inativo'}</span></td>
       <td>
         <div class="row-actions tutor-actions-menu-wrap">
@@ -214,6 +257,11 @@
             <button type="button" class="pets-btn" data-id="${item.id}">🐾 Pets</button>
             <button type="button" class="schedule-btn" data-id="${item.id}">＋ Agendar</button>
             <button type="button" class="app-message-btn" data-id="${item.id}">📱 Mensagem do app</button>
+            <button type="button" class="crm-message-btn" data-kind="auto" data-id="${item.id}">🤖 Mensagem CRM sugerida</button>
+            <button type="button" class="crm-message-btn" data-kind="lead" data-id="${item.id}">🌱 Convite 1º agendamento</button>
+            <button type="button" class="crm-message-btn" data-kind="active" data-id="${item.id}">💚 Retorno ativo</button>
+            <button type="button" class="crm-message-btn" data-kind="risk" data-id="${item.id}">⚠️ Reativação/saudade</button>
+            <button type="button" class="crm-message-btn" data-kind="vip" data-id="${item.id}">⭐ VIP recorrente</button>
             <button type="button" class="edit-btn" data-id="${item.id}">✎ Editar tutor</button>
             <button type="button" class="delete-btn danger" data-id="${item.id}">🗑 Inativar</button>
           </div>
@@ -222,24 +270,34 @@
     </tr>`;
   }
 
+
+  function updateLoadStatus() {
+    if (!loadStatus) return;
+    const loaded = state.items.length;
+    const total = Number(state.total || loaded || 0);
+    loadStatus.textContent = total > 0 ? `${loaded}/${total} tutores carregados` : '0/0 tutores carregados';
+  }
+
   function updateMetrics() {
-    const active = state.items.filter(item => item.status === 'active').length;
-    const pets = state.items.reduce((sum, item) => sum + Number(item.petsCount || 0), 0);
-    const last = state.items
-      .map(item => item.lastAppointmentAt ? new Date(item.lastAppointmentAt) : null)
-      .filter(Boolean)
-      .sort((a, b) => b - a)[0];
+    const stats = state.stats || {};
+    const totalTutors = Number(stats.totalTutors ?? state.total ?? state.items.length ?? 0);
+    const active = Number(stats.activeTutors ?? 0);
+    const pets = Number(stats.petsCount ?? 0);
+    const last = stats.lastAppointmentAt ? new Date(stats.lastAppointmentAt) : null;
     const lastLabel = last ? last.toLocaleDateString('pt-BR') : 'sem histórico';
     document.getElementById('tutor-metrics').innerHTML = bigNumberGrid([
-      ['Tutores carregados', String(state.items.length), `${active} ativos nesta consulta`],
-      ['Pets vinculados', String(pets), 'base de relacionamento'],
+      ['Tutores cadastrados', String(totalTutors), `${active} ativos no resultado`],
+      ['Pets vinculados', String(pets), 'base de relacionamento total'],
+      ['Em risco/perdidos', String(Number(stats.atRiskTutors || 0) + Number(stats.lostTutors || 0)), 'precisam de reativação'],
       ['Último atendimento', lastLabel, 'referência para retorno']
     ]);
+    updateLoadStatus();
   }
 
   function sortValue(item, key) {
-    if (key === 'petsCount') return Number(item.petsCount || 0);
-    if (key === 'updatedAt') return item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+    if (key === 'petsCount' || key === 'appointmentsCount') return Number(item[key] || 0);
+    if (key === 'daysWithoutAppointment') return item.daysWithoutAppointment === null || item.daysWithoutAppointment === undefined ? -1 : Number(item.daysWithoutAppointment || 0);
+    if (key === 'updatedAt' || key === 'lastAppointmentAt') return item[key] ? new Date(item[key]).getTime() : 0;
     return String(item[key] || '').toLowerCase();
   }
 
@@ -256,7 +314,7 @@
 
   function renderTutores() {
     const rows = sortedItems();
-    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="6">Nenhum tutor encontrado.</td></tr>';
+    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="10">Nenhum tutor encontrado.</td></tr>';
     document.querySelectorAll('.th-sort').forEach((button) => {
       const active = button.dataset.sort === state.sortKey;
       button.classList.toggle('active', active);
@@ -269,20 +327,23 @@
     if (state.loading || (state.done && !reset)) return;
     state.loading = true;
     loader.hidden = false;
-    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="6">Preparando tudo...</td></tr>'; }
+    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="10">Preparando tudo...</td></tr>'; }
     try {
       const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status });
       if (state.search) params.set('search', state.search);
       const data = await api.get(`/tutores?${params.toString()}`);
       if (reset) state.items = [];
-      state.items.push(...data.items);
-      state.done = state.items.length >= data.total || data.items.length === 0;
+      state.items.push(...(data.items || []));
+      state.total = Number(data.total || 0);
+      state.stats = data.stats || state.stats;
+      state.done = state.items.length >= Number(data.total || 0) || (data.items || []).length === 0;
       state.page += 1;
       renderTutores();
       updateMetrics();
     } catch (error) {
-      body.innerHTML = `<tr><td colspan="6">${esc(error.message)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="10">${esc(error.message)}</td></tr>`;
       toast(error.message, 'error');
+      updateLoadStatus();
     } finally {
       loader.hidden = true;
       state.loading = false;
@@ -357,9 +418,27 @@
     }
   }
   function appAccessMessage(tutor) {
-    const appUrl = `${window.location.origin}/app/primeiro-acesso`;
+    const appUrl = 'https://agendapetfunny.com.br/app';
     return `Oi, ${tutor?.name || 'tudo bem'}! Tudo bem? Aqui é do PetFunny - Banho e Tosa.\n\nAgora você pode acompanhar informações do seu pet pelo nosso aplicativo do cliente. Para fazer o primeiro acesso, entre pelo link abaixo usando seu WhatsApp:\n\n${appUrl}\n\nSe precisar, é só me chamar por aqui que eu ajudo no acesso.`;
   }
+  function crmMessageForTutor(tutor, kind = 'auto') {
+    const name = tutor?.name || 'tudo bem';
+    const days = tutor?.daysWithoutAppointment;
+    const daysText = days === null || days === undefined ? '' : ` Já faz ${days} dia${Number(days) === 1 ? '' : 's'} desde o último agendamento.`;
+    const status = tutor?.crmStatus || 'novo_lead';
+    const resolved = kind === 'auto'
+      ? (status === 'novo_lead' ? 'lead' : status === 'recorrente' ? 'vip' : (status === 'em_risco' || status === 'perdido' || status === 'em_atencao') ? 'risk' : 'active')
+      : kind;
+    const base = `${appUrl}`;
+    const messages = {
+      lead: `Oi, ${name}! Tudo bem? Aqui é da PetFunny 🐶✨ Vi que você já está cadastrado no nosso sistema, mas ainda não agendou o primeiro cuidado. Quer que eu te ajude a escolher o melhor horário para banho, tosa ou avaliação de bem-estar? Acesse: ${base}`,
+      active: `Oi, ${name}! Tudo bem? Passando para lembrar que seu pet já pode agendar o próximo cuidado na PetFunny 🛁✨ Manter a rotina em dia ajuda no bem-estar, higiene e conforto. Agende aqui: ${base}`,
+      risk: `Oi, ${name}! Sentimos falta de vocês por aqui 🐾${daysText} Pode ser um bom momento para renovar banho, tosa, hidratação ou fazer uma avaliação Saúde 360. Veja os horários disponíveis: ${base}`,
+      vip: `Oi, ${name}! Seu pet já faz parte da rotina PetFunny 💚 Queremos manter tudo em dia: banho, tosa, mimos e bem-estar. Escolha o próximo horário aqui: ${base}`
+    };
+    return messages[resolved] || messages.active;
+  }
+
   function openWhatsappToTutor(tutor, message) {
     const phone = onlyDigits(tutor?.whatsapp || '');
     if (!phone) return toast('Este tutor não possui WhatsApp cadastrado.', 'warning');
@@ -548,6 +627,7 @@
     const pets = event.target.closest('.pets-btn');
     const schedule = event.target.closest('.schedule-btn');
     const appMessage = event.target.closest('.app-message-btn');
+    const crmMessage = event.target.closest('.crm-message-btn');
     const del = event.target.closest('.delete-btn');
     if (menuBtn) { event.preventDefault(); event.stopPropagation(); openTutorMenu(menuBtn); return; }
     if (history) { closeTutorMenus(); await openHistory(history.dataset.id); return; }
@@ -557,6 +637,12 @@
       closeTutorMenus();
       const tutor = tutorById(appMessage.dataset.id);
       openWhatsappToTutor(tutor, appAccessMessage(tutor));
+      return;
+    }
+    if (crmMessage) {
+      closeTutorMenus();
+      const tutor = tutorById(crmMessage.dataset.id);
+      openWhatsappToTutor(tutor, crmMessageForTutor(tutor, crmMessage.dataset.kind || 'auto'));
       return;
     }
     if (edit) {
@@ -577,7 +663,7 @@
   document.addEventListener('click', (event) => {
     if (!event.target.closest('.tutor-actions-menu-wrap')) closeTutorMenus();
   });
-  window.addEventListener('scroll', closeTutorMenus, { passive: true });
+  // v1.6.19: não fechar o menu dos 3 pontinhos ao rolar; ele tem scroll interno próprio.
   window.addEventListener('resize', closeTutorMenus);
 
   quickPetForm.addEventListener('submit', async (event) => {

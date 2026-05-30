@@ -9523,3 +9523,765 @@ body.franchise-body .pf-franchise-ambiences {
   .roleta-page .roleta-gifts-table-wrap { overflow-x: auto; }
   .roleta-page .roleta-gifts-table { min-width: 850px; }
 }
+
+/* v1.5.141 · App Tutor: fotos de perfil/pets, endereço e footer 4 itens */
+.client-photo-upload-row { display:flex; align-items:center; gap:14px; width:100%; }
+.client-photo-preview { width:76px; height:76px; flex:0 0 76px; border-radius:24px; display:grid; place-items:center; overflow:hidden; background:linear-gradient(135deg, rgba(38,185,199,.16), rgba(248,161,152,.20)); border:1px solid rgba(13,57,94,.10); box-shadow:0 12px 28px rgba(7,27,44,.08); }
+.client-photo-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+.client-photo-preview strong { font-size:1.75rem; }
+.client-photo-upload input[type="file"] { width:100%; border:1px dashed rgba(13,57,94,.18); background:rgba(255,255,255,.72); border-radius:16px; padding:12px; font-weight:800; color:var(--pf-blue-900); }
+.client-photo-upload small { display:block; margin-top:7px; color:var(--pf-muted); font-size:.78rem; font-weight:750; line-height:1.35; }
+.client-form-subtitle { grid-column:1/-1; margin:4px 0 -2px; padding-top:10px; border-top:1px solid rgba(13,57,94,.08); color:var(--pf-blue-900); font-weight:950; letter-spacing:-.01em; }
+.client-avatar-btn span img { width:100%; height:100%; object-fit:cover; display:block; border-radius:inherit; }
+.client-bottom-nav { grid-template-columns:repeat(5, minmax(0,1fr)); }
+.client-bottom-more-menu a { text-decoration:none; }
+@media (max-width: 520px) {
+  .client-photo-upload-row { align-items:flex-start; }
+  .client-photo-preview { width:66px; height:66px; flex-basis:66px; border-radius:21px; }
+}
+
+
+/* v1.5.142 — App tutor: avatar circular e footer principal com 5 itens */
+.client-avatar-btn {
+  border-radius: 999px !important;
+  overflow: hidden;
+  transform: none;
+}
+.client-avatar-btn span {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.client-avatar-btn span img,
+.client-avatar-btn img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+  border-radius: 999px !important;
+}
+.client-avatar-btn:hover,
+.client-avatar-btn.is-active {
+  transform: translateY(-2px);
+}
+.client-app-shell.mobile-first .client-bottom-nav {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+}
+.client-app-shell.mobile-first .client-bottom-nav a[data-nav-key="home"],
+.client-app-shell.mobile-first .client-bottom-nav a[data-nav-key="agenda"],
+.client-app-shell.mobile-first .client-bottom-nav a[data-nav-key="roleta"],
+.client-app-shell.mobile-first .client-bottom-nav a[data-nav-key="pets"],
+.client-app-shell.mobile-first .client-bottom-nav a[data-nav-key="historico"] {
+  display: inline-flex;
+}
+.client-bottom-more-menu a[href="/app/pacotes"],
+.client-bottom-more-menu a[href="/app/promocoes"],
+.client-bottom-more-menu a[href="/app/bem-estar"] {
+  display: flex;
+}
+@media (max-width: 390px) {
+  .client-app-shell.mobile-first .client-bottom-nav { gap: 2px; padding-inline: 6px; }
+  .client-app-shell.mobile-first .client-bottom-nav a small,
+  .client-app-shell.mobile-first .client-bottom-more small { font-size: 8px !important; }
+  .client-app-shell.mobile-first .client-bottom-nav a span,
+  .client-app-shell.mobile-first .client-bottom-more span { font-size: .95rem !important; }
+}
+
+
+/* v1.5.145 — App Tutor: melhoria visual do footer mantendo estrutura v1.5.143 */
+.client-app-shell.mobile-first .client-bottom-nav {
+  min-height: 82px !important;
+  padding: 9px 10px calc(9px + env(safe-area-inset-bottom, 0px)) !important;
+  gap: 6px !important;
+  align-items: center !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a,
+.client-app-shell.mobile-first .client-bottom-more {
+  min-height: 62px !important;
+  min-width: 54px !important;
+  padding: 10px 6px !important;
+  border-radius: 20px !important;
+  gap: 5px !important;
+  touch-action: manipulation;
+}
+.client-app-shell.mobile-first .client-bottom-nav a span,
+.client-app-shell.mobile-first .client-bottom-more span {
+  font-size: 1.22rem !important;
+  line-height: 1 !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a small,
+.client-app-shell.mobile-first .client-bottom-more small {
+  font-size: .72rem !important;
+  line-height: 1.05 !important;
+  font-weight: 950 !important;
+  letter-spacing: -.025em !important;
+}
+.client-app-shell.mobile-first .client-mobile-content {
+  padding-bottom: 118px !important;
+}
+@media (max-width: 390px) {
+  .client-app-shell.mobile-first .client-bottom-nav {
+    min-height: 78px !important;
+    gap: 4px !important;
+    padding-inline: 7px !important;
+  }
+  .client-app-shell.mobile-first .client-bottom-nav a,
+  .client-app-shell.mobile-first .client-bottom-more {
+    min-height: 58px !important;
+    min-width: 48px !important;
+    padding: 9px 4px !important;
+  }
+  .client-app-shell.mobile-first .client-bottom-nav a span,
+  .client-app-shell.mobile-first .client-bottom-more span {
+    font-size: 1.12rem !important;
+  }
+  .client-app-shell.mobile-first .client-bottom-nav a small,
+  .client-app-shell.mobile-first .client-bottom-more small {
+    font-size: .66rem !important;
+  }
+}
+
+/* REV146 - busca de tutor por WhatsApp no modal de pets */
+.input-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.success-text { color: #15803d !important; font-weight: 700; }
+.danger-text { color: #b42318 !important; font-weight: 700; }
+@media (max-width: 560px) {
+  .input-action-row { grid-template-columns: 1fr; }
+  .input-action-row .btn { width: 100%; }
+}
+
+/* v1.5.147 — App Tutor: Saúde 360, triagem e teleconsulta */
+.client-health360-hero .client-alert-soft { margin: 12px 0 16px; }
+.client-health360-dynamic { display: grid; gap: 18px; }
+
+/* v1.6.5 — Health Score Visual Alignment Fix
+   Mantém o card no mesmo padrão visual dos botões principais do App do Tutor. */
+.client-health-score-card {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 30px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 96% 0%, rgba(255,255,255,.26), transparent 28%),
+    linear-gradient(135deg, #F79B96 0%, #13B8C8 100%);
+  box-shadow: 0 24px 48px rgba(19, 184, 200, .18), 0 18px 34px rgba(247, 155, 150, .16);
+  isolation: isolate;
+}
+.client-health-score-card::before {
+  content: '';
+  position: absolute;
+  inset: -74px -64px auto auto;
+  width: 190px;
+  height: 190px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  z-index: -1;
+}
+.client-health-score-card::after {
+  content: '';
+  position: absolute;
+  left: -80px;
+  bottom: -96px;
+  width: 210px;
+  height: 210px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  z-index: -1;
+}
+.client-health-score-card.score-excellent,
+.client-health-score-card.score-good,
+.client-health-score-card.score-attention,
+.client-health-score-card.score-risk,
+.client-health-score-card.score-empty {
+  background:
+    radial-gradient(circle at 96% 0%, rgba(255,255,255,.26), transparent 28%),
+    linear-gradient(135deg, #F79B96 0%, #13B8C8 100%);
+}
+.client-health-score-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.client-health-score-top .eyebrow { color: rgba(255,255,255,.78); letter-spacing: .08em; }
+.client-health-score-top h3 { margin: 4px 0 0; font-size: 1.14rem; color: #fff; letter-spacing: -.02em; text-shadow: 0 2px 10px rgba(15,23,42,.16); }
+.client-health-score-mark {
+  display:grid;
+  place-items:center;
+  flex: 0 0 auto;
+  width:48px;
+  height:48px;
+  border-radius:17px;
+  background: rgba(255,255,255,.20);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.34), 0 12px 26px rgba(15,23,42,.12);
+}
+.client-health-score-body { display:grid; grid-template-columns: 138px minmax(0, 1fr); gap: 22px; align-items:center; }
+.client-health-score-ring {
+  --health-score: 0;
+  position: relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap: 5px;
+  width:138px;
+  height:138px;
+  border-radius:999px;
+  background: conic-gradient(#ffffff calc(var(--health-score) * 1%), rgba(255,255,255,.28) 0);
+  box-shadow: 0 18px 34px rgba(15,23,42,.20), inset 0 0 0 1px rgba(255,255,255,.30);
+}
+.client-health-score-ring::before {
+  content:'';
+  position:absolute;
+  inset:7px;
+  border-radius:inherit;
+  background: rgba(255,255,255,.18);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
+}
+.client-health-score-ring::after {
+  content:'';
+  position:absolute;
+  inset:14px;
+  border-radius:inherit;
+  background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(255,255,255,.78));
+  box-shadow: inset 0 0 18px rgba(19,184,200,.13), 0 8px 22px rgba(15,23,42,.08);
+}
+.client-health-score-ring strong,
+.client-health-score-ring span {
+  position:relative;
+  z-index:1;
+  text-align:center;
+}
+.client-health-score-ring strong {
+  display:block;
+  font-size:3.28rem;
+  font-weight:950;
+  line-height:.88;
+  letter-spacing:-.08em;
+  color:#ffffff;
+  transform: translateX(-2px);
+  text-shadow: 0 4px 16px rgba(15,23,42,.34), 0 1px 0 rgba(15,23,42,.12);
+}
+.client-health-score-ring span {
+  display:block;
+  margin: 0;
+  font-size:.72rem;
+  font-weight:950;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:rgba(255,255,255,.96);
+  text-shadow: 0 3px 10px rgba(15,23,42,.26);
+}
+.client-health-score-insights p { margin: 0 0 6px; font-size: 1.22rem; font-weight: 950; color:#fff; text-shadow: 0 2px 10px rgba(15,23,42,.16); }
+.client-health-score-insights small { display:block; color: rgba(255,255,255,.90); font-weight: 850; line-height: 1.45; }
+.client-health-score-insights ul { list-style:none; margin: 12px 0 0; padding:0; display:grid; gap:5px; font-size:.86rem; font-weight:900; color: rgba(255,255,255,.96); }
+.client-health-score-card footer { color: rgba(255,255,255,.88); font-weight:850; font-size:.80rem; }
+.client-health-actions { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.client-health-actions .btn { min-height: 56px; border-radius: 18px; }
+.client-badge.success { background: rgba(34,197,94,.14); color: #047857; }
+.client-badge.warning { background: rgba(245,158,11,.16); color: #92400e; }
+.client-badge.danger { background: rgba(239,68,68,.15); color: #b91c1c; }
+@media (max-width: 520px) {
+  .client-health-actions { grid-template-columns: 1fr; }
+  .client-health-score-card { padding: 22px; }
+  .client-health-score-body { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  .client-health-score-ring { width: 128px; height: 128px; }
+  .client-health-score-ring strong { font-size: 3.08rem; }
+  .client-health-score-insights ul { text-align: left; justify-self: stretch; }
+}
+
+
+/* v1.6.3 — Health 360 Teleconsulta: cards de veterinários e horários */
+.health360-vet-grid,
+.health360-slot-grid {
+  display: grid;
+  gap: 12px;
+  margin: 10px 0 16px;
+}
+.health360-vet-card {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid rgba(15, 23, 42, .1);
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fffc 100%);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .06);
+}
+.health360-vet-card.selected {
+  border-color: rgba(18, 168, 118, .55);
+  box-shadow: 0 16px 38px rgba(18, 168, 118, .16);
+}
+.health360-vet-avatar {
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #00a9b7, #12a876);
+  color: #fff;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .16);
+}
+.health360-vet-avatar.large {
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 12px;
+}
+.health360-vet-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.health360-vet-info h3 { margin: 0; font-size: 1rem; color: var(--text, #14213d); }
+.health360-vet-info p { margin: 3px 0; color: var(--muted, #64748b); font-weight: 700; }
+.health360-vet-info small { color: var(--muted, #64748b); }
+.health360-vet-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.health360-slot-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(15, 23, 42, .1);
+  border-radius: 18px;
+  background: #fff;
+  padding: 13px 14px;
+  display: grid;
+  gap: 4px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .05);
+  cursor: pointer;
+}
+.health360-slot-card.selected {
+  border-color: rgba(255, 122, 24, .65);
+  background: linear-gradient(135deg, rgba(255, 122, 24, .11), rgba(18, 168, 118, .09));
+}
+.health360-slot-card strong { color: var(--text, #14213d); font-size: .98rem; }
+.health360-slot-card span,
+.health360-slot-card small { color: var(--muted, #64748b); font-weight: 700; }
+.client-section-title.compact { margin-top: 8px; }
+.client-section-title.compact h2 { font-size: 1.05rem; }
+.health360-vet-detail { display: grid; gap: 12px; text-align: center; }
+.health360-vet-detail p { color: var(--muted, #64748b); line-height: 1.55; }
+.health360-photo-preview { flex: 0 0 auto; }
+.health360-vet-detail-panel {
+  border: 1px solid rgba(18, 168, 118, .22);
+  border-radius: 22px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(18,168,118,.08), rgba(255,122,24,.06));
+  margin: 4px 0 16px;
+}
+
+
+/* v1.6.6 Health Score Typography Fix */
+.client-health-score-ring strong,
+.client-health-score-ring span{
+  color:#0F172A !important;
+  text-shadow:none !important;
+}
+.client-health-score-ring{
+  display:flex !important;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+
+/* v1.6.7 · Admin Pets/Tutores infinite-scroll totals */
+.list-load-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #64748b;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: .01em;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+body.theme-dark .list-load-status,
+.dark .list-load-status {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.packages-page .sale-card-menu button.danger-menu-action,
+.packages-page .floating-sale-menu button.danger-menu-action { color:#b91c1c; font-weight:950; }
+.packages-page .sale-card-menu button.danger-menu-action:hover,
+.packages-page .floating-sale-menu button.danger-menu-action:hover { background:rgba(239,68,68,.10); color:#991b1b; }
+
+/* v1.6.13 — Financeiro: modais e menus de ações padronizados */
+.finance-admin-page .modal-backdrop,
+#finance-modal,
+#pay-modal,
+#message-modal {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99990 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 24px !important;
+  background: rgba(7, 27, 44, .48) !important;
+  backdrop-filter: blur(8px) !important;
+}
+.finance-admin-page .modal-backdrop[hidden],
+#finance-modal[hidden],
+#pay-modal[hidden],
+#message-modal[hidden] {
+  display: none !important;
+}
+#finance-modal .finance-modal-card,
+#pay-modal .finance-modal-card,
+#message-modal .finance-modal-card {
+  width: min(94vw, 840px) !important;
+  max-height: min(88vh, 840px) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-radius: 28px !important;
+  background: rgba(255,255,255,.98) !important;
+  border: 1px solid rgba(13,57,94,.12) !important;
+  box-shadow: 0 30px 110px rgba(7,27,44,.22) !important;
+}
+#pay-modal .finance-modal-card,
+#message-modal .finance-modal-card {
+  width: min(94vw, 620px) !important;
+}
+.finance-action-menu .danger-menu-item {
+  color: #b42318 !important;
+}
+.finance-action-menu .danger-menu-item:hover {
+  background: rgba(239,68,68,.10) !important;
+}
+@media (max-width: 720px) {
+  .finance-admin-page .modal-backdrop,
+  #finance-modal,
+  #pay-modal,
+  #message-modal { padding: 10px !important; align-items: flex-end !important; }
+  #finance-modal .finance-modal-card,
+  #pay-modal .finance-modal-card,
+  #message-modal .finance-modal-card { width: 100% !important; border-radius: 24px 24px 18px 18px !important; }
+}
+
+
+/* v1.6.16 — App Agenda: descrição do serviço entre título e valor */
+.client-service-description {
+  display: block;
+  margin: 4px 0 5px;
+  color: #6e6172;
+  font-size: .82rem;
+  line-height: 1.32;
+  font-weight: 650;
+}
+.client-service-description.muted {
+  color: #8a7d8b;
+  font-weight: 600;
+}
+.client-check-list label span small {
+  margin-top: 3px;
+}
+
+
+/* v1.6.17 — Agenda persistente: slots lotados visíveis + cards paralelos */
+.slot-events-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.slot-events-row > small {
+  width: 100%;
+}
+.calendar-day .slot-events-row {
+  flex-direction: column;
+}
+.slot-cell .slot-events-row .cal-event {
+  width: min(220px, 100%);
+  min-width: 168px;
+  flex: 1 1 168px;
+  margin-bottom: 0 !important;
+}
+.calendar-day-view .slot-cell .slot-events-row .cal-event {
+  flex: 0 1 min(260px, 48%);
+}
+.calendar-week-view .slot-cell .slot-events-row .cal-event {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.slot-mini-tag.warning {
+  background: rgba(245, 158, 11, .14);
+  border-color: rgba(245, 158, 11, .32);
+  color: #925700;
+}
+.slot-mini-tag.full {
+  background: rgba(239, 68, 68, .13);
+  border-color: rgba(239, 68, 68, .28);
+  color: #991b1b;
+}
+.slot-cell:has(.slot-mini-tag.full) {
+  background: linear-gradient(135deg, rgba(255,255,255,.82), rgba(239,68,68,.045));
+}
+@media (max-width: 860px) {
+  .calendar-day-view .slot-cell .slot-events-row .cal-event { flex-basis: 100%; }
+}
+
+/* v1.6.19 — Menus de 3 pontinhos: altura controlada e rolagem interna segura */
+.card-menu,
+.card-menu.open,
+.card-menu.is-open-floating,
+.tutor-row-menu,
+.tutor-row-menu.open,
+.sale-card-menu,
+.sale-card-menu.open,
+.sale-card-menu.is-open-floating,
+.floating-sale-menu,
+.agenda-global-action-menu,
+.dashboard-global-action-menu,
+.admin-wellbeing-actions-menu,
+.finance-action-menu,
+.row-action-menu,
+.actions-dropdown,
+.dropdown-menu {
+  max-height: min(420px, calc(100vh - 96px)) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(13,57,94,.28) transparent;
+}
+.card-menu::-webkit-scrollbar,
+.tutor-row-menu::-webkit-scrollbar,
+.sale-card-menu::-webkit-scrollbar,
+.floating-sale-menu::-webkit-scrollbar,
+.agenda-global-action-menu::-webkit-scrollbar,
+.dashboard-global-action-menu::-webkit-scrollbar,
+.admin-wellbeing-actions-menu::-webkit-scrollbar,
+.finance-action-menu::-webkit-scrollbar,
+.row-action-menu::-webkit-scrollbar,
+.actions-dropdown::-webkit-scrollbar,
+.dropdown-menu::-webkit-scrollbar { width: 8px; }
+.card-menu::-webkit-scrollbar-thumb,
+.tutor-row-menu::-webkit-scrollbar-thumb,
+.sale-card-menu::-webkit-scrollbar-thumb,
+.floating-sale-menu::-webkit-scrollbar-thumb,
+.agenda-global-action-menu::-webkit-scrollbar-thumb,
+.dashboard-global-action-menu::-webkit-scrollbar-thumb,
+.admin-wellbeing-actions-menu::-webkit-scrollbar-thumb,
+.finance-action-menu::-webkit-scrollbar-thumb,
+.row-action-menu::-webkit-scrollbar-thumb,
+.actions-dropdown::-webkit-scrollbar-thumb,
+.dropdown-menu::-webkit-scrollbar-thumb {
+  background: rgba(13,57,94,.22);
+  border-radius: 999px;
+}
+.tutor-row-menu.open,
+.card-menu.open,
+.sale-card-menu.open { gap: 4px; }
+@media (max-width: 720px) {
+  .card-menu,
+  .card-menu.open,
+  .card-menu.is-open-floating,
+  .tutor-row-menu,
+  .tutor-row-menu.open,
+  .sale-card-menu,
+  .sale-card-menu.open,
+  .sale-card-menu.is-open-floating,
+  .floating-sale-menu,
+  .agenda-global-action-menu,
+  .dashboard-global-action-menu,
+  .admin-wellbeing-actions-menu,
+  .finance-action-menu,
+  .row-action-menu,
+  .actions-dropdown,
+  .dropdown-menu {
+    max-height: min(360px, calc(100vh - 84px)) !important;
+  }
+}
+
+/* v1.6.20 - helper de busca por WhatsApp no modal de agendamento antigo */
+.form-grid .full-width { grid-column: 1 / -1; }
+.form-helper {
+  margin-top: -8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, .04);
+  color: var(--pf-muted, #64748b);
+  font-size: .86rem;
+  font-weight: 700;
+}
+.form-helper[data-type="success"] { background: rgba(34, 197, 94, .11); color: #047857; }
+.form-helper[data-type="warning"] { background: rgba(245, 158, 11, .14); color: #92400e; }
+.form-helper[data-type="error"] { background: rgba(239, 68, 68, .12); color: #b91c1c; }
+.form-helper[data-type="loading"] { background: rgba(19, 184, 200, .12); color: #0e7490; }
+
+/* v1.6.21 — Triagem diária inteligente Saúde 360 */
+.client-daily-triage-card {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(247,155,150,.16), rgba(19,184,200,.14));
+  border: 1px solid rgba(19,184,200,.18);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, .08);
+  margin: 14px 0;
+}
+.client-daily-triage-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  background: linear-gradient(135deg, #F79B96, #13B8C8);
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(19,184,200,.22);
+}
+.client-daily-triage-body h3 {
+  margin: 3px 0 6px;
+  color: #0F172A;
+  font-size: 18px;
+  line-height: 1.16;
+}
+.client-daily-triage-body p {
+  margin: 0 0 8px;
+  color: #475569;
+  line-height: 1.45;
+}
+.client-daily-triage-body small {
+  display: block;
+  color: #0F766E;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+@media (max-width: 420px) {
+  .client-daily-triage-card { grid-template-columns: 46px 1fr; padding: 14px; gap: 12px; }
+  .client-daily-triage-icon { width: 46px; height: 46px; border-radius: 16px; font-size: 22px; }
+}
+
+/* v1.6.22 — Health 360 Daily Triage Complete */
+.health360-dashboard-block{display:grid;gap:14px;margin:14px 0 18px;}
+.health360-kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.health360-kpi{border:1px solid rgba(15,23,42,.08);border-radius:20px;background:#fff;box-shadow:0 14px 35px rgba(15,23,42,.08);padding:14px;display:grid;gap:4px;}
+.health360-kpi span{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#64748b;font-weight:800;}
+.health360-kpi strong{font-size:1.45rem;color:#0f172a;line-height:1;}
+.health360-kpi small{font-size:.78rem;color:#64748b;font-weight:700;}
+.health360-alert-list{border-color:rgba(239,68,68,.16)!important;background:rgba(254,242,242,.92)!important;}
+.health360-alert-list p{margin:.45rem 0 0;color:#7f1d1d;}
+.health360-insight-card{border:1px solid rgba(19,184,200,.22);background:linear-gradient(180deg,#fff,#f8feff);}
+.health360-insight-card ul{margin:.35rem 0 .7rem;padding-left:1.1rem;display:grid;gap:.25rem;}
+.health360-insight-card li{color:#0f172a;font-weight:700;}
+@media (max-width:420px){.health360-kpi-grid{grid-template-columns:1fr 1fr}.health360-kpi{padding:12px}.health360-kpi strong{font-size:1.25rem}}
+
+/* v1.6.22/v1.6.23 — Health Thermometer + Predictive Health Engine */
+.health360-thermometer-block,
+.health360-risk-block {
+  margin: 18px 0;
+}
+.health360-thermo-grid,
+.health360-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+.health360-thermo-card,
+.health360-risk-card {
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 22px;
+  background: #fff;
+  padding: 14px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, .07);
+}
+.health360-thermo-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.health360-thermo-head > span {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(247,155,150,.18), rgba(19,184,200,.18));
+  font-size: 20px;
+  flex: 0 0 auto;
+}
+.health360-thermo-head div {
+  flex: 1;
+  min-width: 0;
+}
+.health360-thermo-head strong,
+.health360-risk-card strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.2;
+}
+.health360-thermo-head small,
+.health360-risk-card small {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.health360-thermo-head b,
+.health360-risk-card > b {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.health360-thermo-track {
+  width: 100%;
+  height: 11px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .08);
+  overflow: hidden;
+  margin: 12px 0 7px;
+}
+.health360-thermo-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ef4444 0%, #f59e0b 45%, #22c55e 100%);
+  min-width: 8px;
+}
+.health360-thermo-card footer {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.health360-thermo-card.thermo-excellent .health360-thermo-track i { background: linear-gradient(90deg, #13b8c8, #22c55e); }
+.health360-thermo-card.thermo-good .health360-thermo-track i { background: linear-gradient(90deg, #f79b96, #13b8c8); }
+.health360-thermo-card.thermo-attention .health360-thermo-track i { background: linear-gradient(90deg, #f59e0b, #f79b96); }
+.health360-thermo-card.thermo-risk .health360-thermo-track i { background: linear-gradient(90deg, #ef4444, #f97316); }
+.health360-risk-card {
+  display: grid;
+  gap: 10px;
+}
+.health360-risk-card .btn {
+  justify-self: start;
+}
+.health360-insight-card .health360-thermo-card,
+.client-list-card .health360-thermo-card {
+  box-shadow: none;
+  background: rgba(248, 250, 252, .9);
+  margin: 10px 0;
+}

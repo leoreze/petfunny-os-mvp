@@ -4,10 +4,14 @@ import { finishPageLoading } from './loading.js';
 const navItems = [
   { key: 'home', label: 'Timeline', icon: '✨', href: '/app/home', priority: 1 },
   { key: 'agenda', label: 'Agenda', icon: '📅', href: '/app/agenda', priority: 2 },
-  { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets', priority: 3 },
-  { key: 'historico', label: 'Histórico', icon: '📄', href: '/app/historico', priority: 4 },
-  { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 5 },
+  { key: 'saude', label: 'Saúde 360', icon: '🩺', href: '/app/saude-360', priority: 3 },
+  { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets', priority: 4 },
+  { key: 'historico', label: 'Histórico', icon: '📄', href: '/app/historico', priority: 5 }
+];
+
+const overflowNavItems = [
   { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta', priority: 6 },
+  { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 6 },
   { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes', priority: 7 },
   { key: 'bemestar', label: '360 IA', icon: '🧠', href: '/app/bem-estar', priority: 8 }
 ];
@@ -20,6 +24,7 @@ const sectionHeroMeta = {
   pacotes: { icon: '📦', tag: 'Recorrência sem complicação', actionLabel: 'Agendar horário', href: '/app/agenda' },
   mimos: { icon: '🎁', tag: 'Benefícios para tutores', actionLabel: 'Girar roleta', href: '/app/roleta' },
   roleta: { icon: '🎁', tag: 'Mimos e recompensas', actionLabel: 'Ver agenda', href: '/app/agenda' },
+  saude: { icon: '🩺', tag: 'Health 360 e teleconsulta', actionLabel: 'Meu pet está estranho', href: '/app/saude-360' },
   promocoes: { icon: '🏷️', tag: 'Condições especiais', actionLabel: 'Agendar com desconto', href: '/app/agenda' },
   bemestar: { icon: '🧠', tag: 'PetFunny 360 IA', actionLabel: 'Avaliar pet', href: '/app/bem-estar' },
   perfil: { icon: '👤', tag: 'Seus dados protegidos', actionLabel: 'Meus pets', href: '/app/pets' },
@@ -33,6 +38,7 @@ export function currentClientSection() {
   if (path.includes('/historico')) return 'historico';
   if (path.includes('/pacotes')) return 'pacotes';
   if (path.includes('/mimos')) return 'mimos';
+  if (path.includes('/saude-360')) return 'saude';
   if (path.includes('/roleta')) return 'roleta';
   if (path.includes('/promocoes')) return 'promocoes';
   if (path.includes('/bem-estar')) return 'bemestar';
@@ -146,15 +152,9 @@ function applyClientInputMasks(scope = document) {
 function setupClientBottomNavOverflow() {
   const nav = document.querySelector('.client-bottom-nav');
   if (!nav) return;
-  const items = [...nav.querySelectorAll('[data-client-nav-item]')];
   const moreButton = nav.querySelector('.client-bottom-more');
   const moreMenu = nav.querySelector('.client-bottom-more-menu');
-  if (!items.length || !moreButton || !moreMenu) return;
-
-  // Mantém o rodapé sempre limpo: os 3 últimos itens ficam no menu "Mais".
-  const fixedOverflowKeys = new Set(['roleta', 'promocoes', 'bemestar']);
-
-  const itemKey = (item) => item.dataset.navKey || item.getAttribute('href')?.split('/').pop() || '';
+  if (!moreButton || !moreMenu) return;
 
   const closeMoreMenu = () => {
     moreMenu.hidden = true;
@@ -162,65 +162,12 @@ function setupClientBottomNavOverflow() {
     moreButton.classList.remove('is-open');
   };
 
-  const moveToOverflow = (item) => {
-    item.hidden = true;
-    item.classList.add('is-overflowed');
-  };
-
-  const rebuild = () => {
-    closeMoreMenu();
-    moreMenu.innerHTML = '';
-    items.forEach((item) => {
-      item.hidden = false;
-      item.classList.remove('is-overflowed');
-    });
-
-    moreButton.hidden = false;
-    fixedOverflowKeys.forEach((key) => {
-      const item = items.find((entry) => itemKey(entry) === key);
-      if (item) moveToOverflow(item);
-    });
-
-    const navStyles = window.getComputedStyle(nav);
-    const gap = Number.parseFloat(navStyles.columnGap || navStyles.gap || '4') || 4;
-    const available = nav.clientWidth - 10;
-    const moreWidth = Math.max(moreButton.offsetWidth, 58);
-    const protectedKeys = new Set(['home', 'agenda', 'pets']);
-    const sorted = [...items]
-      .filter((item) => !item.hidden)
-      .sort((a, b) => Number(b.dataset.priority || 0) - Number(a.dataset.priority || 0));
-
-    const visibleWidth = () => {
-      const visible = items.filter((item) => !item.hidden);
-      return visible.reduce((sum, item) => sum + item.offsetWidth, 0) + moreWidth + gap * Math.max(0, visible.length);
-    };
-
-    let current = visibleWidth();
-    sorted.forEach((item) => {
-      if (current <= available || protectedKeys.has(itemKey(item))) return;
-      current -= item.offsetWidth + gap;
-      moveToOverflow(item);
-    });
-
-    // Se ainda não couber em telas muito estreitas, preserva Timeline, Agenda, Pets e Mais.
-    if (current > available) {
-      [...items].reverse().forEach((item) => {
-        if (current <= available || item.hidden || protectedKeys.has(itemKey(item))) return;
-        current -= item.offsetWidth + gap;
-        moveToOverflow(item);
-      });
-    }
-
-    const overflowed = items.filter((item) => item.hidden);
-    moreButton.hidden = overflowed.length === 0;
-    overflowed.forEach((item) => {
-      const link = document.createElement('a');
-      link.href = item.getAttribute('href') || '#';
-      link.className = item.classList.contains('is-active') ? 'is-active' : '';
-      link.innerHTML = item.innerHTML;
-      moreMenu.appendChild(link);
-    });
-  };
+  moreButton.hidden = overflowNavItems.length === 0;
+  moreMenu.innerHTML = overflowNavItems.map((item) => `
+    <a class="${item.key === currentClientSection() ? 'is-active' : ''}" href="${item.href}" data-nav-key="${item.key}">
+      <span>${item.icon}</span><small>${item.label}</small>
+    </a>
+  `).join('');
 
   moreButton.onclick = (event) => {
     event.preventDefault();
@@ -229,11 +176,10 @@ function setupClientBottomNavOverflow() {
     moreButton.setAttribute('aria-expanded', String(willOpen));
     moreButton.classList.toggle('is-open', willOpen);
   };
+
   document.addEventListener('click', (event) => {
     if (!nav.contains(event.target)) closeMoreMenu();
   }, { passive: true });
-  window.addEventListener('resize', () => window.requestAnimationFrame(rebuild), { passive: true });
-  window.requestAnimationFrame(rebuild);
 }
 
 export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do seu pet dentro do PetFunny.', content = '', active = currentClientSection() } = {}) {
@@ -246,7 +192,7 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
         <a class="client-mobile-brand" href="/app/home" aria-label="PetFunny"><img src="/assets/img/logo-petfunny-full.png" alt="PetFunny"></a>
         <div class="client-top-actions">
           <a class="client-icon-btn" href="https://wa.me/5516981535338" aria-label="WhatsApp">💬</a>
-          <a class="client-avatar-btn ${active === 'perfil' ? 'is-active' : ''}" href="/app/perfil" aria-label="Abrir perfil do tutor"><span>${escapeHtml(tutorInitials(tutor.name))}</span></a>
+          <a class="client-avatar-btn ${active === 'perfil' ? 'is-active' : ''}" href="/app/perfil" aria-label="Abrir perfil do tutor"><span>${tutor.photoUrl ? `<img src="${escapeHtml(tutor.photoUrl)}" alt="${escapeHtml(tutor.name || 'Tutor')}">` : escapeHtml(tutorInitials(tutor.name))}</span></a>
           <button class="client-icon-btn" id="client-logout" type="button" aria-label="Sair">↪</button>
         </div>
       </header>

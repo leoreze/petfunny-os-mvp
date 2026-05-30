@@ -93,6 +93,7 @@
       <section class="agenda-floating-actions">
         <div class="actions">
           <button class="btn" id="new-appointment-btn" type="button">＋ Novo agendamento</button>
+          <button class="btn btn-secondary" id="historical-appointment-btn" type="button">↶ Agendamento antigo</button>
           <button class="btn btn-secondary" id="today-btn" type="button">Hoje</button>
         </div>
         <div class="actions calendar-views agenda-view-tabs" id="view-buttons">
@@ -211,6 +212,36 @@
           </div>
           <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-modal">Cancelar</button><button class="btn" type="submit">Salvar agendamento</button></footer>
         </form>
+      
+</dialog>
+
+      <dialog class="modal-shell agenda-appointment-modal" id="historical-appointment-modal">
+        <form method="dialog" class="modal-card agenda-appointment-modal-card" id="historical-appointment-form">
+          <header class="modal-header agenda-modal-header">
+            <div class="modal-title-block">
+              <p class="eyebrow">Importação histórica</p>
+              <h2>Agendamento antigo</h2>
+              <p class="modal-subtitle">Cadastre atendimentos já realizados, com valor final e pagamento, sem enviar notificações ao tutor.</p>
+            </div>
+            <button class="icon-btn modal-close-btn" type="button" id="close-historical-appointment-modal" aria-label="Fechar modal">✕</button>
+          </header>
+          <div class="modal-body custom-scroll">
+            <div class="form-grid form-row-gap">
+              <label class="form-field full-width"><span>WhatsApp do tutor</span><input class="input" id="hist-whatsapp" inputmode="tel" placeholder="Digite o WhatsApp para localizar o tutor"></label>
+              <div class="form-helper full-width" id="hist-whatsapp-feedback">Digite o WhatsApp para preencher automaticamente tutor e pets vinculados.</div>
+              <label class="form-field"><span>Tutor</span><select class="select" id="hist-tutor-id" required></select></label>
+              <label class="form-field"><span>Pet</span><select class="select" id="hist-pet-id" required><option value="">Selecione o tutor</option></select></label>
+              <label class="form-field"><span>Data original</span><input class="input" type="date" id="hist-date" required></label>
+              <label class="form-field"><span>Horário aproximado</span><input class="input" type="time" id="hist-time" value="09:00"></label>
+              <label class="form-field"><span>Descrição do atendimento</span><input class="input" id="hist-description" placeholder="Banho, tosa, pacote antigo..."></label>
+              <label class="form-field"><span>Valor final</span><input class="input" id="hist-amount" inputmode="decimal" placeholder="0,00" required></label>
+              <label class="form-field"><span>Status do pagamento</span><select class="select" id="hist-payment-status"></select></label>
+              <label class="form-field"><span>Forma de pagamento</span><select class="select" id="hist-payment-method"><option value="">A definir</option></select></label>
+            </div>
+            <label class="form-field appointment-notes-field"><span>Observações internas</span><textarea class="textarea" id="hist-notes" rows="4" placeholder="Observações sobre a importação. Não dispara WhatsApp/push."></textarea></label>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-appointment-modal">Cancelar</button><button class="btn" type="submit">Salvar antigo</button></footer>
+        </form>
       </dialog>
     `
   });
@@ -253,6 +284,24 @@
   };
   const appointmentServiceCard = document.getElementById('appointment-service-card');
 
+  const historicalFields = {
+    modal: document.getElementById('historical-appointment-modal'),
+    form: document.getElementById('historical-appointment-form'),
+    whatsapp: document.getElementById('hist-whatsapp'),
+    whatsappFeedback: document.getElementById('hist-whatsapp-feedback'),
+    tutorId: document.getElementById('hist-tutor-id'),
+    petId: document.getElementById('hist-pet-id'),
+    date: document.getElementById('hist-date'),
+    time: document.getElementById('hist-time'),
+    description: document.getElementById('hist-description'),
+    amount: document.getElementById('hist-amount'),
+    paymentStatus: document.getElementById('hist-payment-status'),
+    paymentMethod: document.getElementById('hist-payment-method'),
+    notes: document.getElementById('hist-notes')
+  };
+  const centsFromMoneyInput = (value = '') => Math.round(Number(String(value).replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '') || 0) * 100);
+
+
   const messageModal = {
     modal: document.getElementById('agenda-status-message-modal'),
     eyebrow: document.getElementById('status-message-eyebrow'),
@@ -278,12 +327,20 @@
 
   function slotTimesForDate(date) {
     const weekday = new Date(`${date}T12:00:00`).getDay();
-    if (!date || date < localToday()) return [];
-    return state.slots
+    if (!date) return [];
+    return [...new Set(state.slots
       .filter(s => Number(s.weekday) === weekday && Number(s.capacity) > 0)
-      .map(s => String(s.slotTime).slice(0,5))
-      .filter(t => !isPastSlot(date, t))
-      .filter(t => Math.max(0, slotCapacity(date, t) - slotUsed(date, t)) > 0);
+      .map(s => String(s.slotTime).slice(0,5)))]
+      .sort();
+  }
+
+  function calendarTimesForDate(date) {
+    const configured = slotTimesForDate(date);
+    const booked = filteredItems()
+      .filter(a => String(a.startsAt).slice(0,10) === date)
+      .map(a => hm(a.startsAt))
+      .filter(Boolean);
+    return [...new Set([...configured, ...booked])].sort();
   }
 
   function slotCapacity(date, time) {
@@ -308,10 +365,14 @@
       const used = slotUsed(date, time);
       const capacity = slotCapacity(date, time);
       const available = Math.max(0, capacity - used);
-      return `<span class="slot-mini-tag ${available > 0 ? 'available' : 'full'}">${used}/${capacity || 0} slots</span>`;
+      const statusClass = capacity && used >= capacity ? 'full' : (capacity && used >= Math.max(1, capacity - 1) ? 'warning' : 'available');
+      const label = capacity && used >= capacity ? 'Lotado' : (capacity ? 'ocupados' : 'sem limite');
+      return `<span class="slot-mini-tag ${statusClass}">${used}/${capacity || 0} ${label}</span>`;
     }
     const stats = daySlotStats(date);
-    return `<span class="slot-mini-tag ${stats.available > 0 ? 'available' : 'full'}">${stats.used}/${stats.capacity || 0} slots</span>`;
+    const statusClass = stats.capacity && stats.used >= stats.capacity ? 'full' : (stats.capacity && stats.used >= Math.max(1, stats.capacity - 1) ? 'warning' : 'available');
+    const label = stats.capacity && stats.used >= stats.capacity ? 'Lotado' : 'ocupados';
+    return `<span class="slot-mini-tag ${statusClass}">${stats.used}/${stats.capacity || 0} ${label}</span>`;
   }
 
   function quickScheduleButton(date, time = '') {
@@ -328,6 +389,9 @@
     fields.tutorId.innerHTML = '<option value="">Selecione</option>' + state.tutors.map(t => `<option value="${esc(t.id)}">${esc(t.name)} · ${esc(t.whatsapp || '')}</option>`).join('');
     fields.paymentStatus.innerHTML = (state.paymentStatuses || []).map(p => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('') || '<option value="pending">Pendente</option><option value="paid">Pago</option>';
     fields.paymentMethod.innerHTML = '<option value="">A definir</option>' + (state.paymentMethods || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    if (historicalFields.tutorId) historicalFields.tutorId.innerHTML = '<option value="">Selecione</option>' + state.tutors.map(t => `<option value="${esc(t.id)}">${esc(t.name)} · ${esc(t.whatsapp || '')}</option>`).join('');
+    if (historicalFields.paymentStatus) historicalFields.paymentStatus.innerHTML = (state.paymentStatuses || []).map(p => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('') || '<option value="pending">Pendente</option><option value="paid" selected>Pago</option>';
+    if (historicalFields.paymentMethod) historicalFields.paymentMethod.innerHTML = '<option value="">A definir</option>' + (state.paymentMethods || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
     renderTimes();
   }
 
@@ -543,6 +607,7 @@
     menu.innerHTML = `
       <button class="edit-appointment" data-id="${esc(id)}" type="button">✏️ Editar</button>
       <button class="status-action" data-id="${esc(id)}" data-status="cancelado" type="button">🚫 Cancelar</button>
+      <button class="delete-appointment-action danger" data-id="${esc(id)}" type="button">🗑️ Excluir agendamento</button>
       <button class="view-command-modal" data-id="${esc(id)}" type="button">📋 Comanda</button>
       ${receiptButton}
       <button class="ai-status-message-action" data-id="${esc(id)}" type="button">✨ Enviar mensagem</button>
@@ -766,20 +831,23 @@
   }
 
   function renderDay() {
-    const times = slotTimesForDate(state.date);
+    const times = calendarTimesForDate(state.date);
     nodes.day.innerHTML = times.length ? times.map(t => {
       const hourItems = filteredItems().filter(a => hm(a.startsAt) === t);
-      return `<div class="time-cell"><strong>${esc(t)}</strong></div><div class="slot-cell calendar-drop-target" data-date="${esc(state.date)}" data-slot="${esc(t)}"><div class="slot-cell-head"><div class="slot-actions-inline">${quickScheduleButton(state.date, t)}${slotTag(state.date, t)}</div></div>${hourItems.map(a => calendarEvent(a)).join('') || '<small>Horário livre</small>'}</div>`;
+      return `<div class="time-cell"><strong>${esc(t)}</strong></div><div class="slot-cell calendar-drop-target" data-date="${esc(state.date)}" data-slot="${esc(t)}"><div class="slot-cell-head"><div class="slot-actions-inline">${quickScheduleButton(state.date, t)}${slotTag(state.date, t)}</div></div><div class="slot-events-row">${hourItems.map(a => calendarEvent(a)).join('') || '<small>Horário livre</small>'}</div></div>`;
     }).join('') : '<div class="time-cell">--</div><div class="slot-cell">Sem slots configurados para este dia.</div>';
   }
 
   function renderWeek() {
     const start = dateAdd(state.date, -new Date(`${state.date}T12:00:00`).getDay());
     const days = Array.from({ length:7 }, (_, i) => dateAdd(start, i));
-    const times = [...new Set(state.slots.map(s => s.slotTime))].sort();
+    const times = [...new Set([
+      ...state.slots.map(s => String(s.slotTime).slice(0,5)),
+      ...filteredItems().filter(a => days.includes(String(a.startsAt).slice(0,10))).map(a => hm(a.startsAt))
+    ])].filter(Boolean).sort();
     nodes.week.innerHTML = '<div class="time-cell">Hora</div>' + days.map(d => `<div class="time-cell day-heading"><strong>${new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</strong></div>`).join('') + times.map(t => `<div class="time-cell"><strong>${esc(t)}</strong></div>${days.map(d => {
       const items = filteredItems().filter(a => String(a.startsAt).slice(0,10) === d && hm(a.startsAt) === t);
-      return `<div class="slot-cell calendar-drop-target" data-date="${esc(d)}" data-slot="${esc(t)}"><div class="slot-cell-head"><div class="slot-actions-inline">${quickScheduleButton(d, t)}${slotTag(d, t)}</div></div>${items.map(a => calendarEvent(a)).join('')}</div>`;
+      return `<div class="slot-cell calendar-drop-target" data-date="${esc(d)}" data-slot="${esc(t)}"><div class="slot-cell-head"><div class="slot-actions-inline">${quickScheduleButton(d, t)}${slotTag(d, t)}</div></div><div class="slot-events-row">${items.map(a => calendarEvent(a)).join('') || '<small>Horário livre</small>'}</div></div>`;
     }).join('')}`).join('');
   }
 
@@ -867,6 +935,98 @@
     nodes.modal.showModal();
   }
 
+
+  function renderHistoricalPets({ autoSelectSingle = false } = {}) {
+    const tutorId = historicalFields.tutorId?.value || '';
+    const pets = state.pets.filter(p => !tutorId || p.tutorId === tutorId);
+    if (historicalFields.petId) {
+      historicalFields.petId.innerHTML = '<option value="">Selecione o pet</option>' + pets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.sizeName || p.size || 'sem porte')}</option>`).join('');
+      if (autoSelectSingle && pets.length === 1) historicalFields.petId.value = pets[0].id;
+    }
+    return pets;
+  }
+
+  function setHistoricalWhatsappFeedback(message = '', type = 'muted') {
+    if (!historicalFields.whatsappFeedback) return;
+    historicalFields.whatsappFeedback.textContent = message || 'Digite o WhatsApp para preencher automaticamente tutor e pets vinculados.';
+    historicalFields.whatsappFeedback.dataset.type = type;
+  }
+
+  async function lookupHistoricalTutorByWhatsapp() {
+    const raw = historicalFields.whatsapp?.value || '';
+    const whatsapp = raw.replace(/\D/g, '');
+    if (!historicalFields.whatsapp || whatsapp.length < 10) {
+      setHistoricalWhatsappFeedback('Digite o WhatsApp com DDD para localizar o tutor.', 'muted');
+      return;
+    }
+    try {
+      setHistoricalWhatsappFeedback('Buscando tutor pelo WhatsApp...', 'loading');
+      const data = await api.get(`/agenda/client-lookup?whatsapp=${encodeURIComponent(whatsapp)}`);
+      if (!data.found || !data.tutor) {
+        historicalFields.tutorId.value = '';
+        renderHistoricalPets();
+        setHistoricalWhatsappFeedback('Tutor não encontrado. Cadastre o tutor antes de importar o agendamento antigo.', 'warning');
+        toast('Tutor não encontrado pelo WhatsApp.', 'warning');
+        return;
+      }
+      if (!state.tutors.some(t => t.id === data.tutor.id)) state.tutors.push(data.tutor);
+      (data.pets || []).forEach(pet => { if (!state.pets.some(p => p.id === pet.id)) state.pets.push(pet); });
+      populateSelects();
+      historicalFields.whatsapp.value = data.tutor.whatsapp || raw;
+      historicalFields.tutorId.value = data.tutor.id;
+      const pets = renderHistoricalPets({ autoSelectSingle: (data.pets || []).length === 1 });
+      setHistoricalWhatsappFeedback(`${data.tutor.name || 'Tutor'} encontrado · ${pets.length} pet(s) carregado(s).`, 'success');
+      toast('Tutor localizado. Dados preenchidos automaticamente.', 'success');
+    } catch (error) {
+      setHistoricalWhatsappFeedback(error.message || 'Não foi possível buscar o tutor agora.', 'error');
+      toast(error.message || 'Erro ao buscar tutor.', 'error');
+    }
+  }
+
+  function openHistoricalAppointment() {
+    if (!historicalFields.modal) return;
+    historicalFields.date.value = state.date || localToday();
+    historicalFields.time.value = '09:00';
+    historicalFields.description.value = 'Atendimento antigo';
+    historicalFields.amount.value = '';
+    historicalFields.notes.value = '';
+    if (historicalFields.whatsapp) historicalFields.whatsapp.value = '';
+    setHistoricalWhatsappFeedback();
+    historicalFields.tutorId.value = '';
+    renderHistoricalPets();
+    const paidOption = [...(historicalFields.paymentStatus?.options || [])].find(o => o.value === 'paid');
+    if (paidOption) historicalFields.paymentStatus.value = 'paid';
+    setupPremiumInteractions(historicalFields.modal);
+    historicalFields.modal.showModal();
+  }
+
+  async function saveHistoricalAppointment(event) {
+    event.preventDefault();
+    const payload = {
+      tutorId: historicalFields.tutorId.value,
+      petId: historicalFields.petId.value,
+      date: historicalFields.date.value,
+      time: historicalFields.time.value || '09:00',
+      description: historicalFields.description.value || 'Atendimento antigo importado',
+      amountCents: centsFromMoneyInput(historicalFields.amount.value),
+      paymentStatus: historicalFields.paymentStatus.value || 'paid',
+      paymentMethodId: historicalFields.paymentMethod.value || '',
+      notes: historicalFields.notes.value || ''
+    };
+    if (!payload.tutorId || !payload.petId || !payload.date || payload.amountCents <= 0) {
+      await showResultModal({ type: 'error', title: 'Dados obrigatórios', message: 'Preencha tutor, pet, data original e valor final.', okText: 'OK' });
+      return;
+    }
+    try {
+      await api.post('/agenda/historical', payload);
+      historicalFields.modal.close();
+      await loadAgenda({ silent: true });
+      await showSuccessModal('Agendamento antigo importado', 'O atendimento foi registrado como finalizado, sem disparar notificações ao tutor.');
+    } catch (error) {
+      await showResultModal({ type: 'error', title: 'Não foi possível importar', message: error.message || 'Revise os dados e tente novamente.', okText: 'OK' });
+    }
+  }
+
   async function saveAppointment(event) {
     event.preventDefault();
     const serviceIds = Array.from(fields.services.querySelectorAll('input:checked')).map(i => i.value);
@@ -939,6 +1099,22 @@
   document.getElementById('next-btn').addEventListener('click', async () => { state.date = dateAdd(state.date, state.view === 'month' ? 30 : state.view === 'week' ? 7 : 1); nodes.date.value = state.date; await loadAgenda(); });
   document.getElementById('view-buttons').addEventListener('click', async e => { const b = e.target.closest('button[data-view]'); if (!b) return; state.view = b.dataset.view; document.querySelectorAll('#view-buttons button').forEach(x => x.classList.toggle('active', x === b)); await loadAgenda(); });
   document.getElementById('new-appointment-btn').addEventListener('click', () => openForm());
+  document.getElementById('historical-appointment-btn')?.addEventListener('click', openHistoricalAppointment);
+  document.getElementById('close-historical-appointment-modal')?.addEventListener('click', () => historicalFields.modal?.close());
+  document.getElementById('cancel-historical-appointment-modal')?.addEventListener('click', () => historicalFields.modal?.close());
+  historicalFields.tutorId?.addEventListener('change', () => {
+    const tutor = state.tutors.find(t => t.id === historicalFields.tutorId.value);
+    if (tutor?.whatsapp && historicalFields.whatsapp) historicalFields.whatsapp.value = tutor.whatsapp;
+    const pets = renderHistoricalPets();
+    setHistoricalWhatsappFeedback(tutor ? `${tutor.name || 'Tutor'} selecionado · ${pets.length} pet(s) vinculado(s).` : '', tutor ? 'success' : 'muted');
+  });
+  let historicalWhatsappTimer;
+  historicalFields.whatsapp?.addEventListener('input', () => {
+    clearTimeout(historicalWhatsappTimer);
+    historicalWhatsappTimer = setTimeout(lookupHistoricalTutorByWhatsapp, 450);
+  });
+  historicalFields.whatsapp?.addEventListener('blur', lookupHistoricalTutorByWhatsapp);
+  historicalFields.form?.addEventListener('submit', saveHistoricalAppointment);
   document.getElementById('close-modal').addEventListener('click', () => nodes.modal.close());
   document.getElementById('cancel-modal').addEventListener('click', () => nodes.modal.close());
   document.getElementById('close-document-modal')?.addEventListener('click', () => document.getElementById('agenda-document-modal')?.close());
@@ -964,7 +1140,7 @@
   fields.services?.addEventListener('change', updateTotal);
   fields.discount?.addEventListener('input', updateTotal);
   nodes.form?.addEventListener('submit', saveAppointment);
-  window.addEventListener('scroll', closeFloatingMenus, true);
+  // v1.6.19: não fechar o menu dos 3 pontinhos ao rolar; ele tem scroll interno próprio.
   window.addEventListener('resize', closeFloatingMenus);
   document.addEventListener('pointerdown', e => {
     const kebabButton = e.target.closest('[data-agenda-menu-button="true"], .agenda-kebab-btn, .kebab-btn');
@@ -1034,6 +1210,27 @@
       closeFloatingMenus();
       try { await api.patch(`/agenda/${status.dataset.id}/status`, { status: status.dataset.status }); await loadAgenda({ silent: true }); await openStatusMessageModal(status.dataset.id, status.dataset.status); }
       catch (error) { toast(error.message, 'error'); }
+      return;
+    }
+    const deleteAppointment = e.target.closest('.delete-appointment-action');
+    if (deleteAppointment) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = deleteAppointment.dataset.id || deleteAppointment.closest('[data-id]')?.dataset.id;
+      closeFloatingMenus();
+      if (!id) return;
+      const appointment = state.items.find(item => item.id === id) || {};
+      const petName = appointment.petName || 'este pet';
+      const timeLabel = appointment.startsAt ? `${hm(appointment.startsAt)} · ${petName}` : petName;
+      const confirmed = window.confirm(`Excluir o agendamento de ${timeLabel}?\n\nEssa ação remove o atendimento da agenda sem disparar notificações ao tutor.`);
+      if (!confirmed) return;
+      try {
+        await api.delete(`/agenda/${id}`);
+        toast('Agendamento excluído da agenda.', 'success');
+        await loadAgenda({ silent: true });
+      } catch (error) {
+        toast(error.message || 'Não foi possível excluir o agendamento.', 'error');
+      }
       return;
     }
     const edit = e.target.closest('.edit-appointment');

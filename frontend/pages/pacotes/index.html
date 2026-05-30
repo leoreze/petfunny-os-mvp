@@ -55,6 +55,7 @@
         </div>
         <div class="actions packages-hero-actions">
           <button class="btn btn-secondary" id="sell-package" type="button">🎁 Vender pacote</button>
+          <button class="btn btn-secondary" id="historical-package" type="button">↶ Pacote antigo</button>
         </div>
       </div>
       <div id="package-metrics">${bigNumberGrid([
@@ -209,6 +210,36 @@
       </form>
     </dialog>
 
+
+    <dialog class="premium-modal" id="historical-package-modal">
+      <form method="dialog" class="modal-card" id="historical-package-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Importação histórica</p>
+            <h3>Pacote antigo</h3>
+            <p>Cadastre pacotes vendidos antes do sistema, registre sessões usadas e pagamento sem gerar agenda futura.</p>
+          </div>
+          <button class="icon-btn" type="button" id="close-historical-package-modal">×</button>
+        </header>
+        <div class="modal-body custom-scroll">
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Tutor</span><select class="select" id="hist-package-tutor" required></select></label>
+            <label class="form-field"><span>Pet</span><select class="select" id="hist-package-pet"><option value="">Selecione o tutor</option></select></label>
+            <label class="form-field"><span>Pacote</span><select class="select" id="hist-package-id" required></select></label>
+            <label class="form-field"><span>Data original da venda</span><input class="input" id="hist-package-starts" type="date" value="${today}" required></label>
+            <label class="form-field"><span>Total de sessões</span><input class="input" id="hist-package-total-sessions" type="number" min="1" value="4" required></label>
+            <label class="form-field"><span>Sessões já usadas</span><input class="input" id="hist-package-used-sessions" type="number" min="0" value="0"></label>
+            <label class="form-field"><span>Valor final pago</span><input class="input" id="hist-package-amount" inputmode="decimal" placeholder="0,00" required></label>
+            <label class="form-field"><span>Status do pagamento</span><select class="select" id="hist-package-payment"><option value="pending">Pendente</option><option value="paid" selected>Pago</option></select></label>
+            <label class="form-field"><span>Forma de pagamento</span><select class="select" id="hist-package-payment-method"></select></label>
+          </div>
+          <label class="form-field mt-20"><span>Observações internas</span><textarea class="textarea" id="hist-package-notes" rows="4" placeholder="Ex.: pacote vendido no balcão, sessões usadas antes da implantação..."></textarea></label>
+          <p class="muted mt-20">Este cadastro não gera agenda futura automaticamente e não dispara notificações para o tutor.</p>
+        </div>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-package-modal">Cancelar</button><button class="btn" type="submit">Salvar pacote antigo</button></footer>
+      </form>
+    </dialog>
+
     <dialog class="premium-modal" id="sale-view-modal">
       <div class="modal-card">
         <header class="modal-header">
@@ -269,6 +300,11 @@
   });
 
   const ids = (id) => document.getElementById(id);
+
+  function histCentsFromInput(v) {
+    const s = String(v || '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
+    return Math.round(Number(s || 0) * 100);
+  }
 
   function centsFromInput(v) {
     const s = String(v || '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
@@ -404,10 +440,30 @@
     ids('sell-package-id').innerHTML = optionHtml('', 'Selecione o pacote') + state.options.packages.map((p) => optionHtml(p.id, `${p.name} · ${money(p.priceCents)} · ${p.sessionsCount} sessões`)).join('');
     const paymentMethodOptions = optionHtml('', 'Selecione a forma') + (state.options.paymentMethods || []).map((m) => optionHtml(m.id, m.name)).join('');
     if (ids('sell-payment-method')) ids('sell-payment-method').innerHTML = paymentMethodOptions;
+    if (ids('hist-package-tutor')) ids('hist-package-tutor').innerHTML = optionHtml('', 'Selecione o tutor') + state.options.tutors.map((t) => optionHtml(t.id, `${t.name} · ${t.whatsapp || 'sem WhatsApp'}`)).join('');
+    if (ids('hist-package-id')) ids('hist-package-id').innerHTML = optionHtml('', 'Selecione o pacote') + state.options.packages.map((p) => optionHtml(p.id, `${p.name} · ${money(p.priceCents)} · ${p.sessionsCount} sessões`)).join('');
+    if (ids('hist-package-payment-method')) ids('hist-package-payment-method').innerHTML = paymentMethodOptions;
     const statusOptions = (state.options.paymentStatuses || []).length ? (state.options.paymentStatuses || []).map((st) => optionHtml(st.code, st.name || st.code)).join('') : optionHtml('pending', 'Pendente') + optionHtml('paid', 'Pago');
     if (ids('sale-payment-status')) ids('sale-payment-status').innerHTML = statusOptions;
     if (ids('sale-payment-method')) ids('sale-payment-method').innerHTML = paymentMethodOptions;
     renderSellPets();
+  }
+
+
+  function renderHistoricalPackagePets() {
+    const tutorId = ids('hist-package-tutor')?.value || '';
+    const selectedPackage = state.options.packages.find((p) => p.id === ids('hist-package-id')?.value);
+    if (selectedPackage) {
+      ids('hist-package-total-sessions').value = selectedPackage.sessionsCount || 4;
+      ids('hist-package-amount').value = (Number(selectedPackage.priceCents || 0) / 100).toFixed(2).replace('.', ',');
+    }
+    const packageSize = selectedPackage?.petSize || 'todos';
+    const pets = state.options.pets.filter((p) => {
+      const tutorOk = !tutorId || p.tutorId === tutorId;
+      const sizeOk = packageSize === 'todos' || !packageSize || p.size === packageSize;
+      return tutorOk && sizeOk;
+    });
+    if (ids('hist-package-pet')) ids('hist-package-pet').innerHTML = optionHtml('', 'Selecione o pet') + pets.map((p) => optionHtml(p.id, `${p.name} · ${p.sizeName || p.size || 'sem porte'}`)).join('');
   }
 
   function renderSellPets() {
@@ -610,6 +666,40 @@
     }
   }
 
+
+  function openHistoricalPackageModal() {
+    ids('historical-package-form')?.reset();
+    if (ids('hist-package-starts')) ids('hist-package-starts').value = today;
+    renderHistoricalPackagePets();
+    ids('historical-package-modal')?.showModal();
+  }
+
+  async function saveHistoricalPackage(ev) {
+    ev.preventDefault();
+    const payload = {
+      tutorId: ids('hist-package-tutor').value,
+      petId: ids('hist-package-pet').value,
+      packageId: ids('hist-package-id').value,
+      startsOn: ids('hist-package-starts').value,
+      totalSessions: ids('hist-package-total-sessions').value,
+      usedSessions: ids('hist-package-used-sessions').value,
+      amountCents: histCentsFromInput(ids('hist-package-amount').value),
+      paymentStatus: ids('hist-package-payment').value,
+      paymentMethodId: ids('hist-package-payment-method')?.value || '',
+      notes: ids('hist-package-notes')?.value || ''
+    };
+    if (!payload.tutorId || !payload.packageId || !payload.startsOn || payload.amountCents <= 0) {
+      showPackageError(new Error('Preencha tutor, pacote, data original e valor final.'));
+      return;
+    }
+    await withLoading(async () => {
+      await api.post('/api/pacotes/clientes/historical', payload);
+      ids('historical-package-modal').close();
+      await loadPackages();
+      toast.success('Pacote antigo importado com sucesso.');
+    }, 'Importando pacote antigo...');
+  }
+
   async function sellPackage(ev) {
     ev.preventDefault();
     const payload = {
@@ -676,6 +766,7 @@
           <a href="${esc(item.packageCommandUrl || '#')}" target="_blank" rel="noopener">🧾 Comanda do pacote</a>
           <a href="${esc(item.packageReceiptUrl || '#')}" target="_blank" rel="noopener">✅ Recibo do pacote</a>
           ${item.status === 'cancelled' ? '' : `<button type="button" data-sale-action="cancel" data-id="${esc(id)}">⛔ Cancelar pacote</button>`}
+          <button type="button" data-sale-action="delete" data-id="${esc(id)}" class="danger-menu-action">🗑️ Excluir pacote</button>
         `;
         btn.setAttribute('aria-expanded', 'true');
         positionSaleFloatingMenu(btn, floating);
@@ -687,7 +778,7 @@
     if (!event.target.closest('.floating-sale-menu') && !event.target.closest('.sale-menu-btn')) closeSaleFloatingMenu();
   });
   window.addEventListener('resize', closeSaleFloatingMenu);
-  window.addEventListener('scroll', closeSaleFloatingMenu, true);
+  // v1.6.19: não fechar o menu dos 3 pontinhos ao rolar; ele tem scroll interno próprio.
   document.addEventListener('click', async (event) => {
     const actionButton = event.target.closest('[data-sale-action]');
     if (!actionButton) return;
@@ -704,6 +795,16 @@
         await loadPackages();
         toast.success('Pacote cancelado e recorrência interrompida.');
       }, 'Cancelando pacote...');
+    }
+    if (action === 'delete') {
+      const item = state.customerPackages.find((cp) => String(cp.id) === String(id)) || {};
+      const label = item.packageName || item.tutorName || 'este pacote vendido';
+      if (!confirm(`Excluir ${label}? O pacote sairá da listagem e sessões futuras vinculadas serão canceladas. Histórico financeiro já pago será preservado.`)) return;
+      await withLoading(async () => {
+        await api.delete(`/api/pacotes/clientes/${id}`);
+        await loadPackages();
+        toast.success('Pacote vendido excluído da listagem.');
+      }, 'Excluindo pacote vendido...');
     }
   });
 
@@ -765,6 +866,12 @@
   function bindEvents() {
     ids('new-package').addEventListener('click', () => openPackage());
     ids('sell-package').addEventListener('click', () => ids('sell-modal').showModal());
+    ids('historical-package')?.addEventListener('click', openHistoricalPackageModal);
+    ids('close-historical-package-modal')?.addEventListener('click', () => ids('historical-package-modal')?.close());
+    ids('cancel-historical-package-modal')?.addEventListener('click', () => ids('historical-package-modal')?.close());
+    ids('historical-package-form')?.addEventListener('submit', saveHistoricalPackage);
+    ids('hist-package-tutor')?.addEventListener('change', renderHistoricalPackagePets);
+    ids('hist-package-id')?.addEventListener('change', renderHistoricalPackagePets);
     ids('sell-package-secondary').addEventListener('click', () => ids('sell-modal').showModal());
     ids('close-package-modal').addEventListener('click', () => ids('package-modal').close());
     ids('cancel-package-modal').addEventListener('click', () => ids('package-modal').close());
@@ -803,7 +910,7 @@
       state.salePage = 1;
       renderCustomerPackages();
     }));
-    document.addEventListener('click', () => document.querySelectorAll('.sale-card-menu.open').forEach((m) => { m.classList.remove('open'); m.classList.remove('is-open-floating'); }));
+    document.addEventListener('click', (event) => { if (!event.target.closest('.sale-card-menu, .row-menu-wrap, .sale-menu-btn')) document.querySelectorAll('.sale-card-menu.open').forEach((m) => { m.classList.remove('open'); m.classList.remove('is-open-floating'); }); });
     window.addEventListener('scroll', maybeLoadMore, { passive: true });
   }
 

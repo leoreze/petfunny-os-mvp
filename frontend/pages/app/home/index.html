@@ -108,6 +108,7 @@
     pacotes: ['Contratar pacotes', 'Escolha o pet, o pacote, a data inicial e acompanhe as sessões.'],
     mimos: ['Mimos PetFunny', 'Campanhas, benefícios e recompensas para tutores recorrentes.'],
     roleta: ['Roleta de Mimos', 'Gire a roleta, descubra benefícios e acompanhe suas recompensas.'],
+    saude: ['Saúde 360', 'Health Score, triagem preventiva e teleconsulta veterinária dentro do App do Tutor.'],
     perfil: ['Meu perfil', 'Atualize seus dados de cadastro. O WhatsApp fica protegido e não pode ser alterado pelo app.'],
     promocoes: ['Promoções PetFunny', 'Descontos ativos entram automaticamente no agendamento quando o serviço, porte e dia combinarem.'],
     bemestar: ['PetFunny 360 IA', 'Avaliação de bem-estar, comportamento, rotina e cuidado do pet com linguagem responsável.']
@@ -189,6 +190,10 @@
 
   function selectField(label, name, items = [], selected = '', placeholder = 'Selecione') {
     return `<label class="client-field"><span>${label}</span><select name="${name}"><option value="">${placeholder}</option>${items.map((item) => `<option value="${escapeHtml(item.value)}" ${String(item.value) === String(selected || '') ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}</select></label>`;
+  }
+
+  function photoUploadField(label, name, currentUrl = '', fallback = '🐾') {
+    return `<label class="client-field client-photo-upload"><span>${label}</span><div class="client-photo-upload-row"><div class="client-photo-preview" data-photo-preview="${escapeHtml(name)}">${currentUrl ? `<img src="${escapeHtml(currentUrl)}" alt="Foto cadastrada">` : `<strong>${escapeHtml(fallback)}</strong>`}</div><div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-photo-input="${escapeHtml(name)}"><input type="hidden" name="${escapeHtml(name)}" value=""><small>PNG, JPG ou WebP. A imagem será exibida no app e no cadastro.</small></div></div></label>`;
   }
 
   function serviceOptionsForPet(petId) {
@@ -383,13 +388,14 @@
   function aiTimelinePosts() {
     const petName = data.pets?.[0]?.name || 'seu pet';
     const templates = [
-      { icon: '🤖', label: 'IA PetFunny', title: `Dica rápida para ${petName}`, text: 'Manter uma rotina de banho ajuda a preservar pele, pelagem e bem-estar. Quando precisar, agende pelo app em poucos toques.', url: '/app/agenda', ctaLabel: 'Agendar cuidado' },
-      { icon: '🧴', label: 'IA de cuidados', title: 'Atenção à pelagem', text: 'Pets com pelagem longa costumam se beneficiar de escovação e hidratação. A equipe PetFunny pode orientar no próximo atendimento.', url: '/app/agenda', ctaLabel: 'Ver horários' },
-      { icon: '🎁', label: 'IA PetFunny', title: 'Olho nos mimos', text: 'Promoções e roleta aparecem no app quando estiverem ativas. Vale conferir antes de agendar.', url: '/app/promocoes', ctaLabel: 'Ver promoções' },
-      { icon: '📦', label: 'Sugestão inteligente', title: 'Recorrência sem esquecer', text: 'Pacotes ajudam a manter o banho e tosa em dia e deixam os próximos horários mais previsíveis.', url: '/app/pacotes', ctaLabel: 'Ver pacotes' },
-      { icon: '🔔', label: 'Lembrete inteligente', title: 'Ative notificações', text: 'Com o app instalado, o PetFunny pode avisar sobre confirmação, pagamento, recibo e lembretes do atendimento.', url: '/app/perfil', ctaLabel: 'Ativar no perfil' },
-      { icon: '🐾', label: 'IA PetFunny', title: 'Cadastro completo melhora o atendimento', text: 'Preferências, restrições e observações do pet ajudam a equipe a personalizar cada cuidado.', url: '/app/pets', ctaLabel: 'Atualizar pets' },
-      { icon: '🧠', label: 'PetFunny 360 IA', title: 'Como seu pet está se sentindo?', text: 'Responda uma avaliação rápida de comportamento, rotina e bem-estar para gerar insights responsáveis.', url: '/app/bem-estar', ctaLabel: 'Avaliar pet' }
+      { icon: '🩺', label: 'Saúde 360 IA', title: `Como está a saúde de ${petName}?`, text: 'Acompanhe apetite, água, energia, sono, pele, respiração, dor e sinais de alerta. A leitura preventiva ajuda a decidir o próximo cuidado com segurança.', url: '/app/saude-360', ctaLabel: 'Abrir Saúde 360' },
+      { icon: '🚑', label: 'TeleVet PetFunny', title: 'Precisa falar com veterinário?', text: 'Se notar vômitos, diarreia, dor, apatia ou qualquer mudança importante, agende uma teleconsulta com veterinário parceiro pelo app.', url: '/app/saude-360', ctaLabel: 'Agendar teleconsulta' },
+      { icon: '🧠', label: 'PetFunny 360 IA', title: 'Bem-estar também é comportamento', text: 'Responda a avaliação 360 para cruzar rotina, socialização, sinais emocionais e saúde percebida do pet.', url: '/app/bem-estar', ctaLabel: 'Avaliar 360 IA' },
+      { icon: '🧴', label: 'IA de cuidados', title: 'Banho, pele e pelagem em dia', text: 'Coceira, oleosidade, nós, odor forte ou queda de pelo podem indicar necessidade de cuidado estético e atenção preventiva.', url: '/app/agenda', ctaLabel: 'Agendar banho/tosa' },
+      { icon: '📅', label: 'Sugestão Health 360', title: 'Rotina previsível reduz esquecimentos', text: 'Intercale banho, tosa, hidratação e acompanhamento preventivo para manter histórico completo no app.', url: '/app/agenda', ctaLabel: 'Agendar cuidado' },
+      { icon: '📋', label: 'Prontuário PetFunny', title: 'Registre sinais e acompanhe evolução', text: 'Triagens, teleconsultas, banhos, tosas e observações ficam na linha do tempo para facilitar decisões futuras.', url: '/app/saude-360', ctaLabel: 'Ver prontuário' },
+      { icon: '📦', label: 'Recorrência inteligente', title: 'Pacotes ajudam a manter a rotina', text: 'Pacotes de banho e tosa ajudam a manter cuidados frequentes, previsibilidade e acompanhamento da evolução do pet.', url: '/app/pacotes', ctaLabel: 'Ver pacotes' },
+      { icon: '🎁', label: 'IA PetFunny', title: 'Confira promoções e mimos', text: 'Antes de agendar, veja se existem promoções ou mimos ativos para o cuidado do seu pet.', url: '/app/promocoes', ctaLabel: 'Ver promoções' }
     ];
     const now = new Date();
     return Array.from({ length: 30 }).map((_, index) => {
@@ -403,6 +409,20 @@
 
   function timelinePosts() {
     const posts = [];
+    if ((data.pets || []).length) {
+      const pet = data.pets[0];
+      const theme = getDailyHealthTheme(new Date(), pet.id || '');
+      posts.push({
+        id: `daily-triage-${timelineDateKey(new Date())}-${pet.id || 'pet'}`,
+        type: 'daily_health_triage',
+        createdAt: new Date().toISOString(),
+        icon: theme.icon || '🩺',
+        label: 'Triagem diária Saúde 360',
+        title: `${theme.title} de ${pet.name || 'seu pet'}`,
+        text: `${theme.prompt} A devolutiva entra no prontuário e ajuda a IA a sugerir teleconsulta, banho, tosa ou cuidado preventivo quando fizer sentido.`,
+        cta: `<button class="btn btn-sm" type="button" data-open-daily-triage="${escapeHtml(pet.id || '')}">Responder hoje</button><a class="btn btn-secondary btn-sm" href="/app/saude-360">Ver Saúde 360</a>`
+      });
+    }
     (data.timelineEvents || []).forEach((event) => {
       posts.push({
         id: event.id || `event-${posts.length}`,
@@ -420,6 +440,19 @@
     } else {
       posts.push({ id: 'empty-appointment', createdAt: new Date().toISOString(), icon: '✨', label: 'IA PetFunny', title: 'Seu pet ainda não tem horário futuro', text: 'Agende banho, tosa ou hidratação pelo app e acompanhe tudo pela timeline.', cta: '<a class="btn btn-sm" href="/app/agenda">Agendar agora</a>' });
     }
+    (data.health360Timeline || []).forEach((event, index) => {
+      posts.push({
+        id: event.id || `health360-${index}`,
+        createdAt: event.createdAt || new Date().toISOString(),
+        icon: event.icon || '🩺',
+        label: event.label || 'Saúde 360',
+        title: event.title || 'Atualização de saúde do pet',
+        text: event.text || 'Acompanhe a evolução pelo Saúde 360.',
+        cta: event.url ? `<a class="btn btn-sm btn-secondary" href="${escapeHtml(event.url)}">${escapeHtml(event.ctaLabel || 'Ver Saúde 360')}</a>` : '<a class="btn btn-sm btn-secondary" href="/app/saude-360">Ver Saúde 360</a>'
+      });
+    });
+    posts.push({ id: 'timeline-teleconsulta-cta', createdAt: new Date().toISOString(), icon: '🩺', label: 'Teleconsulta veterinária', title: 'Fale com um veterinário parceiro', text: 'Quando houver dúvida sobre sintomas, comportamento ou evolução do pet, agende uma teleconsulta pelo Saúde 360.', cta: '<a class="btn btn-sm" href="/app/saude-360">Agendar teleconsulta</a>' });
+    posts.push({ id: 'timeline-cuidados-cta', createdAt: new Date().toISOString(), icon: '🛁', label: 'Cuidados PetFunny', title: 'Banho, tosa e rotina preventiva', text: 'Mantenha os cuidados de banho, tosa, hidratação e pelagem atualizados para alimentar o histórico do pet.', cta: '<a class="btn btn-sm btn-secondary" href="/app/agenda">Agendar cuidado</a>' });
     if ((data.packages || []).length) {
       const pkg = data.packages[0];
       posts.push({ id: `package-${pkg.id}`, createdAt: pkg.startsOn || new Date().toISOString(), icon: '📦', label: 'Pacote ativo', title: `${pkg.name} · ${pkg.usedSessions} de ${pkg.totalSessions}`, text: `Restam ${pkg.remainingSessions} sessão(ões) para ${pkg.petName}. ${pkg.recurring ? 'Recorrência automática ativa.' : 'Recorrência não ativada.'}`, cta: '<a class="btn btn-sm btn-secondary" href="/app/pacotes">Acompanhar</a>' });
@@ -483,7 +516,7 @@
         <label class="client-field"><span>Horário disponível</span><select name="appointmentTime" id="appointment-time"><option value="">Carregando horários...</option></select><small class="client-field-hint" id="appointment-time-hint">Os horários seguem as Configurações do admin.</small></label>
         <div class="client-field"><span>Serviços</span><div class="client-check-list" id="services-list">${renderServiceChecks(serviceList)}</div></div>
         ${textArea('Observações para a equipe', 'notes', roletaNote)}
-        <div class="client-field"><span>Forma de pagamento</span><div class="client-check-list client-payment-method-list"><label><input type="radio" name="paymentType" value="pix" checked><span><strong>Pix Mercado Pago</strong><small>QR Code e copia e cola.</small></span></label><label><input type="radio" name="paymentType" value="card"><span><strong>Cartão de crédito ou débito</strong><small>Checkout seguro Mercado Pago.</small></span></label></div></div>
+        ${paymentMethodChoicesHtml({ fieldName: 'paymentType', selected: 'pix' })}
         <button class="btn" type="submit">Criar agendamento</button>
       </form>
     </section>
@@ -504,12 +537,56 @@
         ${items.map((service) => {
           const promo = activePromotionForService(service, document.querySelector('[name="petId"]')?.value || data.pets?.[0]?.id || '', document.querySelector('[name="appointmentDate"]')?.value || today());
           const promoLabel = promo ? `<em class="client-promo-inline">🏷️ ${Number(promo.discountPercent || 0)}% OFF automático</em>` : '';
-          return `<label><input type="checkbox" name="serviceIds" value="${service.id}"><span><strong>${escapeHtml(service.name)}</strong><small>${money(service.priceCents)} ${promoLabel}</small></span></label>`;
+          const serviceDescription = String(service.description || service.shortDescription || service.summary || service.notes || '').trim();
+          const descriptionHtml = serviceDescription ? `<span class="client-service-description">${escapeHtml(serviceDescription)}</span>` : `<span class="client-service-description muted">Cuidado PetFunny com padrão premium para o bem-estar do seu pet.</span>`;
+          return `<label><input type="checkbox" name="serviceIds" value="${service.id}"><span><strong>${escapeHtml(service.name)}</strong>${descriptionHtml}<small>${money(service.priceCents)} ${promoLabel}</small></span></label>`;
         }).join('')}
       </div>
     </section>`).join('');
   }
 
+
+
+
+  function appDigitalWalletSupported() {
+    const ua = navigator.userAgent || '';
+    const hasPaymentRequest = typeof window.PaymentRequest === 'function';
+    const isLikelyGooglePayBrowser = /Android|Chrome|CriOS|Edg/i.test(ua);
+    return Boolean(window.isSecureContext && hasPaymentRequest && isLikelyGooglePayBrowser);
+  }
+
+  function paymentMethodChoicesHtml({ fieldName = 'paymentType', selected = 'pix', selectMode = false } = {}) {
+    const walletSelected = selected === 'wallet';
+    const walletHidden = appDigitalWalletSupported() ? '' : ' hidden';
+    if (selectMode) {
+      return `<label class="client-field"><span>Pagamento</span><select name="${fieldName}">
+        <option value="pix" ${selected === 'pix' ? 'selected' : ''}>Pix</option>
+        <option value="card" ${selected === 'card' ? 'selected' : ''}>Cartão</option>
+        ${appDigitalWalletSupported() ? `<option value="wallet" ${walletSelected ? 'selected' : ''}>Google Pay / carteira digital</option>` : ''}
+      </select><small class="client-field-hint">Google Pay aparece somente quando o navegador/dispositivo oferece suporte.</small></label>`;
+    }
+    return `<div class="client-field"><span>Forma de pagamento</span><div class="client-check-list client-payment-method-list">
+      <label><input type="radio" name="${fieldName}" value="pix" ${selected === 'pix' ? 'checked' : ''}><span><strong>Pix Mercado Pago</strong><small>QR Code e copia e cola.</small></span></label>
+      <label><input type="radio" name="${fieldName}" value="card" ${selected === 'card' ? 'checked' : ''}><span><strong>Cartão de crédito ou débito</strong><small>Payment Brick seguro Mercado Pago.</small></span></label>
+      <label class="client-wallet-option" data-wallet-payment-option${walletHidden}><input type="radio" name="${fieldName}" value="wallet" ${walletSelected ? 'checked' : ''}><span><strong>Google Pay / carteira digital</strong><small>Aparece somente quando disponível neste aparelho.</small></span></label>
+    </div><small class="client-field-hint" data-wallet-payment-hint${walletHidden}>Carteira digital detectada neste navegador. Se o Mercado Pago não habilitar a carteira na conta, use cartão ou Pix.</small></div>`;
+  }
+
+  function syncDigitalWalletPaymentOptions(root = document) {
+    const supported = appDigitalWalletSupported();
+    root.querySelectorAll('[data-wallet-payment-option], [data-wallet-payment-hint]').forEach((el) => {
+      if (supported) el.removeAttribute('hidden');
+      else {
+        el.setAttribute('hidden', 'hidden');
+        const input = el.querySelector?.('input[value="wallet"]');
+        if (input?.checked) {
+          const form = input.closest('form');
+          const fallback = form?.querySelector('input[name="paymentType"][value="pix"], input[name="paymentMethod"][value="pix"]');
+          if (fallback) fallback.checked = true;
+        }
+      }
+    });
+  }
 
   function breedDatalistHtml() {
     return `<datalist id="app-pet-breed-list">${(options.petBreeds || []).map((breed) => `<option value="${escapeHtml(breed.name)}" data-size="${escapeHtml(breed.suggestedSizeCode || '')}" data-coat="${escapeHtml(breed.coatType || '')}"></option>`).join('')}</datalist>`;
@@ -544,6 +621,7 @@
   function petForm(pet = {}) {
     const sizeOpts = (options.petSizes || []).map((s) => ({ value: s.code, label: s.name }));
     return `<form class="client-form-grid" id="pet-form" data-pet-id="${escapeHtml(pet.id || '')}">
+      ${photoUploadField('Foto do pet', 'photoDataUrl', pet.photoUrl || '', '🐶')}
       ${field('Nome do pet', 'name', pet.name || '')}
       <label class="client-field"><span>Raça</span><input name="breed" value="${escapeHtml(pet.breed || '')}" list="app-pet-breed-list" placeholder="Selecione ou digite a raça"></label>${breedDatalistHtml()}
       ${selectField('Porte', 'size', sizeOpts, pet.size || sizeOpts[0]?.value || 'pequeno', 'Escolha o porte')}
@@ -576,7 +654,7 @@
         ${field('Data inicial', 'startsOn', today(), `type="date" min="${today()}"`)}
         ${field('Primeiro horário', 'firstTime', '09:00', 'type="time"')}
         <label class="client-switch"><input type="checkbox" name="recurring"><span>Ativar recorrência automática ao acabar as sessões</span></label>
-        <div class="client-field"><span>Forma de pagamento</span><div class="client-check-list client-payment-method-list"><label><input type="radio" name="paymentType" value="pix" checked><span><strong>Pix Mercado Pago</strong><small>QR Code e copia e cola.</small></span></label><label><input type="radio" name="paymentType" value="card"><span><strong>Cartão de crédito ou débito</strong><small>Checkout seguro Mercado Pago.</small></span></label></div></div>
+        ${paymentMethodChoicesHtml({ fieldName: 'paymentType', selected: 'pix' })}
         <button class="btn" type="submit">Contratar pacote</button>
       </form>
     </section>
@@ -609,15 +687,388 @@
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Promoções ativas</h2><p>Escolha um serviço em um dia contemplado e o desconto entra sozinho no Pix do agendamento.</p></div>${renderPromotionsList()}</section>`;
   }
 
+
+
+  function riskBadgeHealth(level = 'low') {
+    const map = { low: ['Baixo', 'success'], medium: ['Atenção', 'warning'], high: ['Urgente', 'danger'] };
+    const item = map[level] || map.low;
+    return `<span class="client-badge ${item[1]}">${item[0]}</span>`;
+  }
+
+  const dailyHealthThemes = [
+    { day: 1, key: 'apetite', icon: '🍽️', title: 'Apetite', prompt: 'Dia 1: vamos avaliar se o pet manteve interesse por comida e se houve recusa alimentar.', questions: [
+      { label: 'Como foi o apetite nas últimas 24h?', name: 'appetite', options: [['normal','Apetite normal'], ['menos','Comeu menos'], ['nao','Não quis comer'], ['muito','Comeu mais que o normal']] },
+      { label: 'Teve vômito ou enjoo?', name: 'vomiting', options: [['nao','Não'], ['sim','Sim'], ['repetido','Vômitos repetidos'], ['sangue','Com sangue']] }
+    ], actionHint: '3 dias seguidos sem apetite geram alerta e recomendação de teleconsulta.' },
+    { day: 2, key: 'agua', icon: '💧', title: 'Consumo de água', prompt: 'Dia 2: vamos observar hidratação, sede e ingestão de água.', questions: [
+      { label: 'Bebeu água normalmente?', name: 'water', options: [['normal','Normal'], ['menos','Menos que o normal'], ['muito','Muito mais que o normal'], ['nao','Não bebeu']] },
+      { label: 'Como está a urina?', name: 'urination', options: [['normal','Normal'], ['pouca','Pouca'], ['muita','Muita'], ['dificuldade','Dificuldade para urinar'], ['sangue','Sangue']] }
+    ], actionHint: 'Mudanças em água e urina podem indicar necessidade de orientação.' },
+    { day: 3, key: 'energia', icon: '⚡', title: 'Energia/disposição', prompt: 'Dia 3: vamos medir disposição, brincadeiras, interesse e alerta.', questions: [
+      { label: 'Como está a energia?', name: 'energy', options: [['normal','Normal'], ['baixo','Mais quieto'], ['muito_baixo','Muito baixo/prostrado'], ['agitado','Agitado/inquieto']] },
+      { label: 'Comportamento percebido', name: 'behavior', text: true, placeholder: 'Ex.: brincou, ficou escondido, está apático...' }
+    ], actionHint: 'Redução de atividade repetida alimenta o motor de alertas.' },
+    { day: 4, key: 'fezes', icon: '💩', title: 'Fezes', prompt: 'Dia 4: vamos avaliar fezes, diarreia, sangue ou ausência de evacuação.', questions: [
+      { label: 'Como estão as fezes?', name: 'stool', options: [['normal','Normal'], ['mole','Mole'], ['liquida','Líquida'], ['sangue','Com sangue'], ['nao_fez','Não fez']] },
+      { label: 'Teve diarreia?', name: 'diarrhea', options: [['nao','Não'], ['sim','Sim'], ['persistente','Persistente'], ['sangue','Com sangue']] }
+    ], actionHint: 'Diarreia persistente ou sangue pede avaliação veterinária.' },
+    { day: 5, key: 'urina', icon: '🚽', title: 'Urina', prompt: 'Dia 5: vamos observar frequência, cor, esforço e sinais de dor ao urinar.', questions: [
+      { label: 'Como está a urina?', name: 'urination', options: [['normal','Normal'], ['pouca','Pouca'], ['muita','Muita'], ['dificuldade','Dificuldade para urinar'], ['sangue','Sangue']] },
+      { label: 'Percebeu dor ou esforço?', name: 'pain', options: [['nao','Não'], ['leve','Leve'], ['moderada','Moderada'], ['intensa','Intensa']] }
+    ], actionHint: 'Dificuldade para urinar é sinal de atenção importante.' },
+    { day: 6, key: 'sono', icon: '🌙', title: 'Sono', prompt: 'Dia 6: vamos entender descanso, inquietação e sonolência excessiva.', questions: [
+      { label: 'Como foi o sono?', name: 'sleep', options: [['normal','Normal'], ['menos','Dormiu menos'], ['muito','Dormiu muito'], ['inquieto','Sono inquieto']] },
+      { label: 'Notou desconforto?', name: 'pain', options: [['nao','Não'], ['leve','Leve'], ['moderada','Moderada'], ['intensa','Intensa']] }
+    ], actionHint: 'Sono alterado pode indicar dor, ansiedade ou desconforto.' },
+    { day: 7, key: 'pele', icon: '🧴', title: 'Pele e coceiras', prompt: 'Dia 7: vamos avaliar coceira, vermelhidão, feridas, odor e pelagem.', questions: [
+      { label: 'Como está pele/pelagem?', name: 'skinCoat', options: [['normal','Normal'], ['coceira','Coceira'], ['vermelhidao','Vermelhidão'], ['ferida','Feridas'], ['queda_pelo','Queda de pelo']] },
+      { label: 'Odor, oleosidade ou nós?', name: 'otherSigns', text: true, placeholder: 'Ex.: odor forte, pelo embolado, pele oleosa...' }
+    ], actionHint: 'Pode sugerir banho, tosa, hidratação ou teleconsulta dermatológica.' },
+    { day: 8, key: 'mobilidade', icon: '🐾', title: 'Mobilidade', prompt: 'Dia 8: vamos observar marcha, pulos, dor, mancar e dificuldade de levantar.', questions: [
+      { label: 'Como está a mobilidade?', name: 'mobility', options: [['normal','Normal'], ['mancando','Mancando'], ['dificuldade','Dificuldade para levantar/subir'], ['dor','Parece sentir dor']] },
+      { label: 'Dor aparente?', name: 'pain', options: [['nao','Não'], ['leve','Leve'], ['moderada','Moderada'], ['intensa','Intensa']] }
+    ], actionHint: 'Dor ou dificuldade de locomoção merece acompanhamento.' },
+    { day: 9, key: 'comportamento', icon: '🧠', title: 'Comportamento', prompt: 'Dia 9: vamos observar mudanças de humor, interação e rotina.', questions: [
+      { label: 'Como está o comportamento?', name: 'behavior', options: [['normal','Normal'], ['quieto','Mais quieto'], ['agitado','Agitado'], ['escondido','Se escondendo'], ['agressivo','Mais agressivo']] },
+      { label: 'Mudou algo na rotina?', name: 'otherSigns', text: true, placeholder: 'Mudança de casa, passeio, alimentação, visita...' }
+    ], actionHint: 'Mudanças comportamentais ajudam a antecipar problemas.' },
+    { day: 10, key: 'ansiedade', icon: '💚', title: 'Ansiedade', prompt: 'Dia 10: vamos entender sinais de estresse, lambedura, medo ou inquietação.', questions: [
+      { label: 'Sinais de ansiedade?', name: 'anxiety', options: [['nao','Não'], ['leve','Leve'], ['moderada','Moderada'], ['intensa','Intensa']] },
+      { label: 'O que percebeu?', name: 'behavior', text: true, placeholder: 'Ex.: lambe muito, late, chora, destrói objetos...' }
+    ], actionHint: 'Ansiedade recorrente pode pedir orientação veterinária/comportamental.' },
+    { day: 11, key: 'peso', icon: '⚖️', title: 'Peso corporal', prompt: 'Dia 11: vamos acompanhar percepção de peso, apetite e condição corporal.', questions: [
+      { label: 'Percebeu mudança de peso?', name: 'weightTrend', options: [['normal','Sem mudança'], ['ganhou','Ganhou peso'], ['perdeu','Perdeu peso'], ['nao_sei','Não sei']] },
+      { label: 'Peso atual, se souber', name: 'otherSigns', text: true, placeholder: 'Ex.: 8,5 kg ou ainda não pesei' }
+    ], actionHint: 'Registrar peso melhora o Health Score e o prontuário.' },
+    { day: 12, key: 'bucal', icon: '🦷', title: 'Saúde bucal', prompt: 'Dia 12: vamos avaliar hálito, gengiva, dor ao mastigar e tártaro.', questions: [
+      { label: 'Como está o hálito/boca?', name: 'oralHealth', options: [['normal','Normal'], ['mau_halito','Mau hálito'], ['tartaro','Tártaro visível'], ['dor','Dor ao mastigar'], ['sangramento','Sangramento']] },
+      { label: 'Observações bucais', name: 'otherSigns', text: true, placeholder: 'Ex.: gengiva vermelha, baba, não mastiga...' }
+    ], actionHint: 'Saúde bucal impacta bem-estar e pode exigir avaliação.' },
+    { day: 13, key: 'ouvidos', icon: '👂', title: 'Ouvidos', prompt: 'Dia 13: vamos observar odor, coceira, secreção e vermelhidão nos ouvidos.', questions: [
+      { label: 'Como estão ouvidos/olhos?', name: 'eyesEars', options: [['normal','Normal'], ['secrecao','Secreção'], ['vermelho','Vermelhidão'], ['odor','Odor forte'], ['coçando','Coçando muito']] },
+      { label: 'Sacode a cabeça ou sente dor?', name: 'pain', options: [['nao','Não'], ['leve','Leve'], ['moderada','Moderada'], ['intensa','Intensa']] }
+    ], actionHint: 'Ouvidos com odor/secreção podem pedir teleconsulta.' },
+    { day: 14, key: 'higiene', icon: '🛁', title: 'Rotina de higiene', prompt: 'Dia 14: vamos avaliar banho, tosa, odor, nós e conforto do pet.', questions: [
+      { label: 'Como está a higiene?', name: 'hygiene', options: [['ok','Em dia'], ['odor','Com odor'], ['nos','Com nós/embolo'], ['pele','Pele sensível'], ['precisa','Precisa de cuidado']] },
+      { label: 'Qual cuidado parece necessário?', name: 'otherSigns', text: true, placeholder: 'Ex.: banho, tosa higiênica, hidratação, desembolo...' }
+    ], actionHint: 'A IA pode sugerir banho, tosa ou cuidado PetFunny.' }
+  ];
+
+  function getDailyHealthTheme(date = new Date(), petId = '') {
+    const base = Math.floor(date.getTime() / 86400000);
+    return dailyHealthThemes[base % dailyHealthThemes.length];
+  }
+
+  function dailyHealthCard(pet = data.pets?.[0] || {}) {
+    const theme = getDailyHealthTheme(new Date(), pet.id || '');
+    const petName = pet.name || 'seu pet';
+    return `<article class="client-daily-triage-card">
+      <div class="client-daily-triage-icon">${theme.icon}</div>
+      <div class="client-daily-triage-body">
+        <span class="eyebrow">Triagem diária Saúde 360</span>
+        <h3>${escapeHtml(theme.title)}</h3>
+        <p>${escapeHtml(theme.prompt)} Acompanhar ${escapeHtml(petName)} todos os dias ajuda a interpretar mudanças cedo e alimentar o prontuário.</p>
+        <small>${escapeHtml(theme.actionHint)}</small>
+        <div class="client-card-actions"><button class="btn btn-sm" type="button" data-open-daily-triage="${escapeHtml(pet.id || '')}">Responder triagem de hoje</button><a class="btn btn-secondary btn-sm" href="/app/saude-360">Ver Saúde 360</a></div>
+      </div>
+    </article>`;
+  }
+
+  function dailyTriageForm(petId = '') {
+    const selectedPetId = petId || window.__health360SelectedPet || document.querySelector('[name="healthPetId"]')?.value || data.pets?.[0]?.id || '';
+    const pet = (data.pets || []).find((item) => String(item.id) === String(selectedPetId)) || data.pets?.[0] || {};
+    const theme = getDailyHealthTheme(new Date(), selectedPetId);
+    const questionHtml = theme.questions.map((q) => {
+      if (q.text) return field(q.label, q.name, '', `placeholder="${escapeHtml(q.placeholder || '')}"`);
+      return selectField(q.label, q.name, q.options.map(([value,label]) => ({ value, label })), '', 'Selecione');
+    }).join('');
+    return `<form id="health-daily-triage-form" class="client-form-card health360-triage-rich" data-pet-id="${escapeHtml(selectedPetId)}">
+      <input type="hidden" name="petId" value="${escapeHtml(selectedPetId)}">
+      <input type="hidden" name="dailyTheme" value="${escapeHtml(theme.key)}">
+      <input type="hidden" name="symptoms" value="Triagem diária Saúde 360: ${escapeHtml(theme.title)}">
+      <input type="hidden" name="duration" value="últimas 24 horas">
+      <article class="client-alert-soft"><strong>${theme.icon} ${escapeHtml(theme.title)}</strong><br>${escapeHtml(theme.prompt)} Esta resposta será interpretada pela IA e salva no prontuário de ${escapeHtml(pet.name || 'seu pet')}.</article>
+      ${questionHtml}
+      ${field('Observações livres', 'otherSigns', '', 'placeholder="Conte algo diferente que tenha percebido hoje"')}
+      <div class="client-card-actions"><button class="btn" type="submit">Gerar devolutiva diária</button><a class="btn btn-secondary" href="/app/agenda">Agendar banho/tosa</a></div>
+    </form>`;
+  }
+
+  function renderHealth360Score(score = {}) {
+    const value = Math.max(0, Math.min(100, Number(score.score || 0)));
+    const label = score.label || (value >= 90 ? 'Excelente' : value >= 70 ? 'Bom' : value >= 50 ? 'Atenção' : value > 0 ? 'Risco' : 'Sem dados');
+    const level = value >= 90 ? 'excellent' : value >= 70 ? 'good' : value >= 50 ? 'attention' : value > 0 ? 'risk' : 'empty';
+    const factors = (score.factors || []).filter(Boolean);
+    const updatedAt = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const ringStyle = `--health-score:${value};`;
+    return `<article class="client-health-score-card score-${level}">
+      <div class="client-health-score-top">
+        <div>
+          <span class="eyebrow">PetFunny Health Score™</span>
+          <h3>Bem-estar preventivo</h3>
+        </div>
+        <span class="client-health-score-mark">🩺</span>
+      </div>
+      <div class="client-health-score-body">
+        <div class="client-health-score-ring" style="${ringStyle}"><strong>${value || '--'}</strong><span>${escapeHtml(label)}</span></div>
+        <div class="client-health-score-insights">
+          <p>${escapeHtml(label)} agora</p>
+          <small>${factors.length ? escapeHtml(factors.slice(0, 3).join(' · ')) : 'Complete dados, triagens e histórico para melhorar a leitura.'}</small>
+          <ul>
+            <li>✓ Rotina PetFunny acompanhada</li>
+            <li>✓ Prontuário ativo</li>
+            <li>✓ Alertas preventivos</li>
+          </ul>
+        </div>
+      </div>
+      <footer>Atualizado hoje às ${updatedAt}</footer>
+    </article>`;
+  }
+
+
+
+  function renderHealth360Dashboard(dashboard = {}, alerts = [], daily = {}) {
+    const cards = [
+      ['Health Score', `${dashboard.healthScore ?? '--'}`, dashboard.healthLabel || 'Bem-estar'],
+      ['Última triagem', dashboard.lastTriageLabel || 'Nenhuma', daily.status === 'completed' ? 'Triagem concluída hoje' : 'Triagem disponível'],
+      ['Dias monitorados', `${dashboard.monitoredDays || 0}`, 'registros no prontuário'],
+      ['Alertas ativos', `${dashboard.activeAlerts || 0}`, alerts.length ? 'exigem atenção' : 'sem alertas críticos']
+    ];
+    return `<section class="health360-dashboard-block">
+      <div class="client-section-title compact"><h2>Dashboard Saúde 360</h2><p>Leitura diária de bem-estar, rotina e alertas preventivos.</p></div>
+      <div class="health360-kpi-grid">${cards.map(([label, value, hint]) => `<article class="health360-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong><small>${escapeHtml(hint)}</small></article>`).join('')}</div>
+      ${alerts.length ? `<div class="client-alert-soft health360-alert-list"><strong>🔴 Atenção</strong>${alerts.map((a) => `<p><b>${escapeHtml(a.title)}</b><br>${escapeHtml(a.message)}</p>`).join('')}</div>` : ''}
+    </section>`;
+  }
+
+
+  function renderHealth360Thermometer(item = {}) {
+    const score = Math.max(0, Math.min(100, Number(item.score || 0)));
+    const label = item.label || (score >= 85 ? 'Excelente' : score >= 70 ? 'Bom' : score >= 50 ? 'Atenção' : 'Risco');
+    const level = item.level || (score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 50 ? 'attention' : 'risk');
+    const trend = Number(item.trend || 0);
+    return `<article class="health360-thermo-card thermo-${escapeHtml(level)}">
+      <div class="health360-thermo-head"><span>${escapeHtml(item.icon || '🩺')}</span><div><strong>${escapeHtml(item.title || 'Dimensão')}</strong><small>${trend ? `${trend > 0 ? '+' : ''}${trend} desde a última leitura` : 'Leitura atual'}</small></div><b>${score}/100</b></div>
+      <div class="health360-thermo-track"><i style="width:${score}%"></i></div>
+      <footer>${escapeHtml(label)}</footer>
+    </article>`;
+  }
+
+  function renderHealth360ThemeScores(themeScores = []) {
+    if (!themeScores.length) return `<section class="health360-thermometer-block"><div class="client-section-title compact"><h2>Health Thermometer™</h2><p>Responda triagens diárias para formar scores por tema.</p></div>${empty('🌡️','Sem termômetros ainda','A próxima triagem diária criará o primeiro score por tema.')}</section>`;
+    return `<section class="health360-thermometer-block"><div class="client-section-title compact"><h2>Health Thermometer™</h2><p>Scores por tema gerados pelas triagens diárias.</p></div><div class="health360-thermo-grid">${themeScores.map(renderHealth360Thermometer).join('')}</div></section>`;
+  }
+
+  function renderHealth360PredictiveRisks(risks = []) {
+    if (!risks.length) return `<section class="health360-risk-block"><div class="client-section-title compact"><h2>Predictive Health Engine™</h2><p>Nenhum risco preventivo relevante detectado até agora.</p></div></section>`;
+    return `<section class="health360-risk-block"><div class="client-section-title compact"><h2>Predictive Health Engine™</h2><p>Leitura preventiva baseada no histórico das triagens.</p></div><div class="health360-risk-grid">${risks.map((risk) => `<article class="health360-risk-card"><div><strong>${escapeHtml(risk.title || 'Risco preventivo')}</strong><small>${escapeHtml(risk.reason || '')}</small></div><b>${escapeHtml(String(risk.percent || 0))}%</b><div class="health360-thermo-track"><i style="width:${Number(risk.percent || 0)}%"></i></div>${risk.cta ? `<a class="btn btn-sm btn-secondary" href="${escapeHtml(risk.cta.href || '/app/saude-360')}">${escapeHtml(risk.cta.label || 'Agir agora')}</a>` : ''}</article>`).join('')}</div></section>`;
+  }
+
+  function renderHealth360InsightModal(response = {}) {
+    const insight = response.insight || response.triage?.insight || {};
+    const triage = response.triage || {};
+    const positives = (insight.positives || []).map((item) => `<li>✔ ${escapeHtml(item)}</li>`).join('');
+    const attention = (insight.attention || []).map((item) => `<li>⚠ ${escapeHtml(item)}</li>`).join('');
+    const cta = insight.cta || { label: triage.recommendedAction || 'Agendar Teleconsulta', href: '/app/saude-360' };
+    return `<article class="client-list-card health360-insight-card"><div class="client-list-icon">🩺</div><div class="client-list-body">
+      <span class="eyebrow">PetFunny Health Insight™</span>
+      <h3>${escapeHtml(triage.summary || 'Triagem concluída')}</h3>
+      ${riskBadgeHealth(triage.riskLevel)}
+      <p><strong>${escapeHtml(insight.petName || 'Pet')} apresentou:</strong></p>
+      <ul>${positives}${attention}</ul>
+      ${insight.thermometer ? renderHealth360Thermometer(insight.thermometer) : ''}
+      <p><strong>Recomendação:</strong><br>${escapeHtml(insight.recommendation || triage.guidance || '')}</p>
+      <p><strong>Health Score:</strong> ${escapeHtml(insight.scoreText || '')}</p>
+      <div class="client-card-actions"><a class="btn btn-sm" href="${escapeHtml(cta.href || '/app/saude-360')}">${escapeHtml(cta.label || 'Agendar Teleconsulta')}</a><a class="btn btn-secondary btn-sm" href="/app/agenda">Agendar banho/tosa</a></div>
+    </div></article>`;
+  }
+
+  function health360Initials(name = 'Vet') {
+    return String(name || 'Vet').trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase() || 'VT';
+  }
+
+  function health360VetAvatar(vet = {}, extraClass = '') {
+    const url = vet.photoUrl || vet.veterinarianPhotoUrl || '';
+    const name = vet.name || vet.veterinarianName || 'Veterinário';
+    return `<div class="health360-vet-avatar ${extraClass}">${url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}">` : `<span>${escapeHtml(health360Initials(name))}</span>`}</div>`;
+  }
+
+  function health360VetCards(vets = [], selectedId = '') {
+    if (!vets.length) return empty('🩺', 'Nenhum veterinário disponível', 'Cadastre veterinários e horários no Admin Saúde 360.');
+    return vets.map((vet) => `<article class="health360-vet-card ${String(vet.id) === String(selectedId) ? 'selected' : ''}" data-vet-card="${escapeHtml(vet.id)}">
+      ${health360VetAvatar(vet)}
+      <div class="health360-vet-info">
+        <h3>${escapeHtml(vet.name || 'Veterinário parceiro')}</h3>
+        <p>${escapeHtml(vet.specialty || 'Clínica geral')}</p>
+        <small>CRMV ${escapeHtml(vet.crmv || '—')}${vet.crmvUf ? `/${escapeHtml(vet.crmvUf)}` : ''} · ${money(vet.consultationPriceCents || 0)}</small>
+      </div>
+      <div class="health360-vet-actions">
+        <button class="btn btn-sm" type="button" data-select-vet="${escapeHtml(vet.id)}">Selecionar</button>
+        <button class="btn btn-sm btn-secondary" type="button" data-view-vet="${escapeHtml(vet.id)}">Ver dados</button>
+      </div>
+    </article>`).join('');
+  }
+
+  function health360SlotCards(slots = [], selectedId = '') {
+    if (!slots.length) return empty('📅', 'Nenhum horário disponível', 'Escolha outro veterinário ou cadastre novos horários no Admin Saúde 360.');
+    return slots.map((slot) => `<button class="health360-slot-card ${String(slot.id) === String(selectedId) ? 'selected' : ''}" type="button" data-select-slot="${escapeHtml(slot.id)}">
+      <strong>${dateTime(slot.startsAt)}</strong>
+      <span>${escapeHtml(slot.veterinarianName || '')}</span>
+      <small>${money(slot.priceCents || 0)}</small>
+    </button>`).join('');
+  }
+
+  function selectedHealth360Vet() {
+    const id = document.querySelector('#teleconsultation-form [name="veterinarianId"]')?.value || '';
+    return (window.__health360Vets || []).find((vet) => String(vet.id) === String(id));
+  }
+
+  function syncHealth360TeleSlots() {
+    const form = document.getElementById('teleconsultation-form');
+    if (!form) return;
+    const vetId = form.veterinarianId?.value || '';
+    const slotId = form.slotId?.value || '';
+    const slots = (window.__health360Slots || []).filter((slot) => !vetId || String(slot.veterinarianId) === String(vetId));
+    const slotGrid = document.getElementById('health360-slot-grid');
+    if (slotGrid) slotGrid.innerHTML = health360SlotCards(slots, slotId);
+    const vetGrid = document.getElementById('health360-vet-grid');
+    if (vetGrid) vetGrid.innerHTML = health360VetCards(window.__health360Vets || [], vetId);
+  }
+
+  function showHealth360VetDetails(vetId) {
+    const vet = (window.__health360Vets || []).find((item) => String(item.id) === String(vetId));
+    if (!vet) return;
+    const html = `<section class="health360-vet-detail">
+      ${health360VetAvatar(vet, 'large')}
+      <div><h3>${escapeHtml(vet.name || 'Veterinário')}</h3><p>${escapeHtml(vet.specialty || 'Clínica geral')}</p><small>CRMV ${escapeHtml(vet.crmv || '—')}${vet.crmvUf ? `/${escapeHtml(vet.crmvUf)}` : ''}</small></div>
+      <article class="client-alert-soft"><strong>Valor da teleconsulta:</strong> ${money(vet.consultationPriceCents || 0)} · Duração média: ${escapeHtml(String(vet.defaultDurationMinutes || 30))} min</article>
+      <p>${escapeHtml(vet.bio || 'Profissional parceiro disponível para orientação veterinária responsável.')}</p>
+    </section>`;
+    const panel = document.getElementById('health360-vet-detail-panel');
+    if (panel) { panel.innerHTML = html; panel.hidden = false; panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+    openModal('Dados do veterinário', html, '<button class="btn" data-close-modal>OK</button>');
+  }
+
+  function renderHealth360() {
+    const pets = data.pets || [];
+    const petOptions = pets.map((pet) => ({ value: pet.id, label: pet.name }));
+    return `<section class="client-mobile-section client-health360-hero">
+      <div class="client-section-title"><h2>Saúde 360</h2><p>Monitore bem-estar, sinais de atenção, prontuário e teleconsulta veterinária.</p></div>
+      <article class="client-alert-soft"><strong>Aviso importante:</strong> a triagem IA não dá diagnóstico, não prescreve remédios e não substitui atendimento veterinário. Em emergência, procure atendimento presencial imediatamente.</article>
+      ${selectField('Pet monitorado', 'healthPetId', petOptions, petOptions[0]?.value || '', 'Selecione um pet')}
+      <div id="health360-dynamic" class="client-health360-dynamic"><article class="client-empty"><span>🩺</span><h3>Carregando Saúde 360...</h3><p>Buscando score, triagens, prontuário e teleconsultas.</p></article></div>
+    </section>`;
+  }
+
+  async function loadHealth360Panel(petId = '') {
+    const root = document.getElementById('health360-dynamic');
+    if (!root) return;
+    const selectedPetId = petId || document.querySelector('[name="healthPetId"]')?.value || data.pets?.[0]?.id || '';
+    if (!selectedPetId) {
+      root.innerHTML = empty('🐶', 'Cadastre um pet primeiro', 'O Saúde 360 precisa de um pet cadastrado para iniciar.');
+      return;
+    }
+    root.innerHTML = '<article class="client-empty"><span>🩺</span><h3>Atualizando Saúde 360...</h3><p>Organizando dados preventivos do pet.</p></article>';
+    try {
+      const payload = await clientApi.get(`/app/health360/summary?petId=${encodeURIComponent(selectedPetId)}`);
+      const vets = payload.veterinarians || [];
+      const triages = payload.triages || [];
+      const records = payload.records || [];
+      const teles = payload.teleconsultations || [];
+      root.innerHTML = `
+        ${renderHealth360Score(payload.score || {})}
+        ${renderHealth360Dashboard(payload.dashboard || {}, payload.alerts || [], payload.dailyTriage || {})}
+        ${renderHealth360ThemeScores(payload.themeScores || [])}
+        ${renderHealth360PredictiveRisks(payload.predictiveRisks || [])}
+        ${dailyHealthCard((payload.pets || data.pets || []).find((p) => String(p.id) === String(selectedPetId)) || data.pets?.[0] || {})}
+        <div class="client-health-actions">
+          <button class="btn" type="button" id="open-health-triage">Meu pet está estranho</button>
+          <button class="btn btn-secondary" type="button" id="open-teleconsultation">Agendar teleconsulta</button>
+        </div>
+        <section class="client-mobile-section"><div class="client-section-title"><h2>Últimas triagens</h2><p>Classificação segura e histórico preventivo.</p></div>
+          <div class="client-list-stack">${triages.length ? triages.map((t) => `<article class="client-list-card"><div class="client-list-icon">🧠</div><div class="client-list-body"><div class="client-list-title-row"><h3>${escapeHtml(t.summary || 'Triagem registrada')}</h3>${riskBadgeHealth(t.riskLevel)}</div>${t.thermometer ? renderHealth360Thermometer(t.thermometer) : ''}<p>${escapeHtml(t.guidance || '')}</p><small>${shortDate(t.createdAt)} · ${escapeHtml(t.recommendedAction || '')}</small></div></article>`).join('') : empty('🧠', 'Nenhuma triagem ainda', 'Use o botão “Meu pet está estranho” para registrar sinais.')}</div>
+        </section>
+        <section class="client-mobile-section"><div class="client-section-title"><h2>Teleconsultas</h2><p>Orientação veterinária parceira por vídeo/WhatsApp/Meet.</p></div>
+          <div class="client-list-stack">${teles.length ? teles.map((t) => `<article class="client-list-card"><div class="client-list-icon">🩺</div><div class="client-list-body"><div class="client-list-title-row"><h3>${escapeHtml(t.veterinarianName || 'Veterinário parceiro')}</h3><span class="client-badge light">${escapeHtml(t.status || 'solicitada')}</span></div><p>${escapeHtml(t.reason || '')}</p><small>${dateTime(t.startsAt)} · ${money(t.priceCents || 0)}</small>${t.meetingUrl ? `<div class="client-card-actions"><a class="btn btn-sm btn-secondary" href="${escapeHtml(t.meetingUrl)}" target="_blank" rel="noopener">Abrir chamada</a></div>` : ''}</div></article>`).join('') : empty('🩺', 'Nenhuma teleconsulta', 'Agende uma orientação preventiva com veterinário parceiro.')}</div>
+        </section>
+        <section class="client-mobile-section"><div class="client-section-title"><h2>Prontuário básico</h2><p>Triagens, teleconsultas e registros preventivos do pet.</p></div>
+          <div class="client-list-stack">${records.length ? records.map((r) => `<article class="client-list-card"><div class="client-list-icon">📋</div><div class="client-list-body"><div class="client-list-title-row"><h3>${escapeHtml(r.title || r.type || 'Registro')}</h3><span class="client-badge light">${escapeHtml(r.type || 'NOTE')}</span></div><p>${escapeHtml(r.description || '')}</p><small>${shortDate(r.occurredAt || r.createdAt)}</small></div></article>`).join('') : empty('📋', 'Prontuário vazio', 'Triagens e teleconsultas aparecerão aqui automaticamente.')}</div>
+        </section>`;
+      window.__health360Vets = vets;
+      window.__health360Slots = payload.slots || [];
+      window.__health360SelectedPet = selectedPetId;
+    } catch (error) {
+      root.innerHTML = `<article class="client-empty"><span>⚠️</span><h3>Erro ao carregar Saúde 360</h3><p>${escapeHtml(error.message)}</p></article>`;
+    }
+  }
+
+  function healthTriageForm() {
+    const petId = window.__health360SelectedPet || document.querySelector('[name="healthPetId"]')?.value || '';
+    return `<form id="health-triage-form" class="client-form-card health360-triage-rich" data-pet-id="${escapeHtml(petId)}">
+      <input type="hidden" name="petId" value="${escapeHtml(petId)}">
+      <article class="client-alert-soft"><strong>Saúde 360 IA</strong><br>Quanto mais detalhes você informar, melhor será a orientação preventiva. A IA não diagnostica e não prescreve medicamentos.</article>
+      ${field('O que aconteceu?', 'symptoms', '', 'placeholder="Ex.: vomitou, está quieto, não quis comer, está se coçando" required')}
+      ${field('Há quanto tempo?', 'duration', '', 'placeholder="Ex.: desde ontem, 2 horas, há 3 dias"')}
+      ${selectField('Nível de energia', 'energy', [{value:'normal',label:'Normal'}, {value:'baixo',label:'Baixo / mais quieto'}, {value:'muito_baixo',label:'Muito baixo / prostrado'}, {value:'agitado',label:'Agitado / inquieto'}], '', 'Selecione')}
+      ${selectField('Sono nas últimas 24h', 'sleep', [{value:'normal',label:'Normal'}, {value:'menos',label:'Dormiu menos'}, {value:'muito',label:'Dormiu muito'}, {value:'inquieto',label:'Sono inquieto'}], '', 'Selecione')}
+      ${selectField('Está comendo?', 'appetite', [{value:'normal',label:'Normal'}, {value:'menos',label:'Menos que o normal'}, {value:'nao',label:'Não quis comer'}, {value:'muito',label:'Comeu mais que o normal'}], '', 'Selecione')}
+      ${selectField('Está bebendo água?', 'water', [{value:'normal',label:'Normal'}, {value:'menos',label:'Menos'}, {value:'muito',label:'Muito mais que o normal'}, {value:'nao',label:'Não bebeu'}], '', 'Selecione')}
+      ${field('Comportamento', 'behavior', '', 'placeholder="Ex.: apático, agitado, assustado, escondido, agressivo"')}
+      ${selectField('Vômito?', 'vomiting', [{value:'nao',label:'Não'}, {value:'sim',label:'Sim'}, {value:'repetido',label:'Sim, repetidas vezes'}, {value:'sangue',label:'Com sangue'}], '', 'Selecione')}
+      ${selectField('Diarreia?', 'diarrhea', [{value:'nao',label:'Não'}, {value:'sim',label:'Sim'}, {value:'sangue',label:'Com sangue'}, {value:'persistente',label:'Persistente'}], '', 'Selecione')}
+      ${selectField('Respiração', 'breathing', [{value:'normal',label:'Normal'}, {value:'ofegante',label:'Ofegante'}, {value:'dificuldade',label:'Dificuldade para respirar'}, {value:'tosse',label:'Tosse / engasgos'}], '', 'Selecione')}
+      ${selectField('Dor aparente?', 'pain', [{value:'nao',label:'Não'}, {value:'leve',label:'Leve'}, {value:'moderada',label:'Moderada'}, {value:'intensa',label:'Intensa'}], '', 'Selecione')}
+      ${selectField('Pele, pelos ou coceira', 'skinCoat', [{value:'normal',label:'Normal'}, {value:'coceira',label:'Coceira'}, {value:'vermelhidao',label:'Vermelhidão'}, {value:'ferida',label:'Feridas'}, {value:'queda_pelo',label:'Queda de pelo'}], '', 'Selecione')}
+      ${selectField('Olhos ou ouvidos', 'eyesEars', [{value:'normal',label:'Normal'}, {value:'secrecao',label:'Secreção'}, {value:'vermelho',label:'Vermelhidão'}, {value:'odor',label:'Odor forte'}, {value:'coçando',label:'Coçando muito'}], '', 'Selecione')}
+      ${selectField('Urina', 'urination', [{value:'normal',label:'Normal'}, {value:'pouca',label:'Pouca'}, {value:'muita',label:'Muita'}, {value:'dificuldade',label:'Dificuldade para urinar'}, {value:'sangue',label:'Sangue'}], '', 'Selecione')}
+      ${selectField('Fezes', 'stool', [{value:'normal',label:'Normal'}, {value:'mole',label:'Mole'}, {value:'liquida',label:'Líquida'}, {value:'sangue',label:'Com sangue'}, {value:'nao_fez',label:'Não fez'}], '', 'Selecione')}
+      ${selectField('Vacinas / preventivos', 'preventiveStatus', [{value:'em_dia',label:'Em dia'}, {value:'atrasado',label:'Atrasado'}, {value:'nao_sei',label:'Não sei'}, {value:'nao_informado',label:'Não informado'}], '', 'Selecione')}
+      ${selectField('Sinais críticos?', 'poison', [{value:'nao',label:'Não'}, {value:'sim',label:'Suspeita de veneno/produto tóxico'}], '', 'Selecione')}
+      ${selectField('Convulsão, desmaio ou trauma?', 'criticalEvent', [{value:'nao',label:'Não'}, {value:'convulsao',label:'Convulsão'}, {value:'desmaio',label:'Desmaio'}, {value:'trauma',label:'Trauma / queda / atropelamento'}], '', 'Selecione')}
+      ${field('Medicamentos ou histórico importante', 'medications', '', 'placeholder="Ex.: usa remédio contínuo, alergia, doença conhecida"')}
+      ${field('Outros sinais', 'otherSigns', '', 'placeholder="Sangramento, febre, mudança de peso, mucosa pálida..."')}
+      <div class="client-card-actions"><button class="btn" type="submit">Gerar análise Saúde 360 IA</button><a class="btn btn-secondary" href="/app/saude-360">Agendar teleconsulta</a></div>
+    </form>`;
+  }
+
+  function teleconsultationForm() {
+    const petId = window.__health360SelectedPet || document.querySelector('[name="healthPetId"]')?.value || '';
+    const vets = window.__health360Vets || [];
+    const firstVetId = vets[0]?.id || '';
+    const slots = window.__health360Slots || [];
+    const initialSlots = slots.filter((slot) => !firstVetId || String(slot.veterinarianId) === String(firstVetId));
+    return `<form id="teleconsultation-form" class="client-form-card health360-tele-form" data-pet-id="${escapeHtml(petId)}">
+      <input type="hidden" name="petId" value="${escapeHtml(petId)}">
+      <input type="hidden" name="veterinarianId" value="${escapeHtml(firstVetId)}" required>
+      <input type="hidden" name="slotId" value="" required>
+      <div class="client-section-title compact"><h2>Escolha o veterinário</h2><p>Selecione um profissional parceiro. Toque em “Ver dados” para conhecer CRMV, especialidade e currículo.</p></div>
+      <div id="health360-vet-grid" class="health360-vet-grid">${health360VetCards(vets, firstVetId)}</div><div id="health360-vet-detail-panel" class="health360-vet-detail-panel" hidden></div>
+      <div class="client-section-title compact"><h2>Dias e horários disponíveis</h2><p>Os horários abaixo são cadastrados no Admin Saúde 360 e futuramente poderão vir do App do Veterinário.</p></div>
+      <div id="health360-slot-grid" class="health360-slot-grid">${health360SlotCards(initialSlots, '')}</div>
+      ${selectField('Motivo', 'reason', [{value:'duvida_rapida',label:'Dúvida rápida'}, {value:'sintomas_leves',label:'Sintomas leves'}, {value:'retorno',label:'Retorno'}, {value:'orientacao_preventiva',label:'Orientação preventiva'}, {value:'pos_banho_tosa',label:'Pós-banho/tosa'}], '', 'Selecione o motivo')}
+      ${field('Descreva brevemente', 'symptoms', '', 'placeholder="Conte o que você quer conversar com o veterinário"')}
+      ${paymentMethodChoicesHtml({ fieldName: 'paymentMethod', selected: 'pix', selectMode: true })}
+      <article class="client-alert-soft"><strong>Emergência?</strong> Teleconsulta não substitui atendimento presencial em caso grave.</article>
+      <button class="btn" type="submit">Solicitar teleconsulta</button>
+    </form>`;
+  }
+
+
   function renderPerfil() {
     const tutor = data.tutor || {};
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Dados do tutor</h2><p>Edite seus dados. O WhatsApp fica protegido.</p></div>
       <form class="client-form-card" id="profile-form">
+        ${photoUploadField('Foto do tutor', 'photoDataUrl', tutor.photoUrl || '', '👤')}
         ${field('Nome', 'name', tutor.name || '')}
         ${field('WhatsApp', 'whatsapp', tutor.whatsapp || data.account?.whatsapp || '', 'disabled')}
         ${field('E-mail', 'email', tutor.email || '', 'type="email"')}
+        <div class="client-form-subtitle">Endereço</div>
+        ${field('CEP', 'addressZipcode', tutor.addressZipcode || '', 'data-mask="cep" placeholder="14000-000"')}
+        ${field('Rua / Avenida', 'address', tutor.address || '')}
+        ${field('Número', 'addressNumber', tutor.addressNumber || '')}
+        ${field('Bairro', 'addressNeighborhood', tutor.addressNeighborhood || '')}
         ${field('Cidade', 'city', tutor.city || '')}
-        ${field('Estado', 'state', tutor.state || '')}
+        ${field('Estado', 'state', tutor.state || '', 'data-mask="uf" maxlength="2"')}
         <button class="btn" type="submit">Salvar perfil</button>
       </form>
     </section>
@@ -631,7 +1082,7 @@
     <section class="client-mobile-section">${renderPushActivationCard()}</section>`;
   }
 
-  const renderers = { home: renderHome, agenda: renderAgenda, pets: renderPets, historico: renderHistorico, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, promocoes: renderPromocoes, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
+  const renderers = { home: renderHome, agenda: renderAgenda, saude: renderHealth360, pets: renderPets, historico: renderHistorico, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, promocoes: renderPromocoes, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
 
   async function reload(sectionOverride = null) {
     registerClientServiceWorker().catch(() => null);
@@ -708,10 +1159,11 @@
 
   function paymentPageHtml(intent = {}) {
     const paymentType = String(intent.paymentType || 'pix').toLowerCase();
-    if (paymentType === 'card') {
+    if (paymentType === 'card' || paymentType === 'wallet') {
+      const isWallet = paymentType === 'wallet';
       return `<div class="client-pix-page-panel client-card-payment-panel">
-        <div class="client-pix-header"><span>Cartão Mercado Pago</span><strong>${money(intent.amountCents || 0)}</strong></div>
-        <p>Finalize com cartão de crédito ou débito dentro do App do Tutor. A PetFunny não armazena dados do cartão; o formulário seguro é processado pelo Mercado Pago.</p>
+        <div class="client-pix-header"><span>${isWallet ? 'Google Pay / Carteira digital' : 'Cartão Mercado Pago'}</span><strong>${money(intent.amountCents || 0)}</strong></div>
+        <p>${isWallet ? 'Use a carteira digital quando ela estiver disponível no seu navegador. Se o Mercado Pago não liberar essa opção para sua conta/dispositivo, finalize pelo cartão ou Pix.' : 'Finalize com cartão de crédito ou débito dentro do App do Tutor. A PetFunny não armazena dados do cartão; o formulário seguro é processado pelo Mercado Pago.'}</p>
         ${intent.mercadoPagoPublicKey ? '<div id="mp-payment-brick" class="client-mp-brick"></div>' : '<div class="client-pix-warning">Configure MERCADO_PAGO_PUBLIC_KEY no servidor para habilitar cartão.</div>'}
         <div class="client-pix-help">Ambiente seguro Mercado Pago. Pix continua funcionando normalmente como alternativa.</div>
         <div class="client-pix-status" id="pix-payment-status">Aguardando preenchimento do cartão...</div>
@@ -740,8 +1192,8 @@
       const timer = window.setInterval(async () => {
         attempts += 1;
         try {
-          const response = await clientApi.get(paymentKind === 'package' ? `/app/packages/payment/${intentId}` : `/app/appointments/payment/${intentId}`);
-          if (response.appointment || response.customerPackageId || response.paymentIntent?.status === 'paid') {
+          const response = await clientApi.get(paymentKind === 'package' ? `/app/packages/payment/${intentId}` : paymentKind === 'teleconsultation' ? `/app/teleconsultations/payment/${intentId}` : `/app/appointments/payment/${intentId}`);
+          if (response.appointment || response.customerPackageId || response.teleconsultationId || response.paymentIntent?.status === 'paid') {
             window.clearInterval(timer);
             if (status) status.textContent = response.message || 'Pagamento confirmado com sucesso.';
             resolve(response);
@@ -818,14 +1270,17 @@
               if (status) status.textContent = 'Processando cartão com Mercado Pago...';
               const endpoint = paymentKind === 'package'
                 ? `/app/packages/payment/${intent.id}/card`
-                : `/app/appointments/payment/${intent.id}/card`;
+                : paymentKind === 'teleconsultation'
+                  ? `/app/teleconsultations/payment/${intent.id}/card`
+                  : `/app/appointments/payment/${intent.id}/card`;
               const response = await clientApi.post(endpoint, formData || {});
-              if (response.appointment || response.customerPackageId || response.paymentIntent?.status === 'paid') {
+              if (response.appointment || response.customerPackageId || response.teleconsultationId || response.paymentIntent?.status === 'paid') {
                 clearRoletaScheduleContext();
                 sessionStorage.removeItem('petfunny_pending_pix_intent');
                 localStorage.removeItem('petfunny_last_pending_pix_intent');
-                const target = paymentKind === 'package' ? '/app/pacotes' : '/app/agenda';
-                document.getElementById('pix-page-card').innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento aprovado com sucesso.')}</div><a class="btn" href="${target}">${paymentKind === 'package' ? 'Ver meus pacotes' : 'Ver minha agenda'}</a>`;
+                const target = paymentKind === 'package' ? '/app/pacotes' : paymentKind === 'teleconsultation' ? '/app/saude-360' : '/app/agenda';
+                const label = paymentKind === 'package' ? 'Ver meus pacotes' : paymentKind === 'teleconsultation' ? 'Ver Saúde 360' : 'Ver minha agenda';
+                document.getElementById('pix-page-card').innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento aprovado com sucesso.')}</div><a class="btn" href="${target}">${label}</a>`;
                 toast(response.message || 'Pagamento aprovado.');
                 resolve();
                 return;
@@ -863,7 +1318,8 @@
     if (!card) return;
     const params = new URLSearchParams(window.location.search);
     const intentId = params.get('intent');
-    const paymentKind = params.get('kind') === 'package' ? 'package' : 'appointment';
+    const rawPaymentKind = params.get('kind');
+    const paymentKind = ['package', 'teleconsultation'].includes(rawPaymentKind) ? rawPaymentKind : 'appointment';
     if (!intentId) {
       card.innerHTML = '<div class="client-pix-status">Pagamento não encontrado. Volte para a agenda e gere um novo Pix.</div><a class="btn" href="/app/agenda">Voltar para agenda</a>';
       return;
@@ -871,11 +1327,11 @@
     let intent = null;
     try { intent = JSON.parse(sessionStorage.getItem('petfunny_pending_pix_intent') || localStorage.getItem('petfunny_last_pending_pix_intent') || 'null'); } catch {}
     try {
-      const response = await clientApi.get(paymentKind === 'package' ? `/app/packages/payment/${intentId}` : `/app/appointments/payment/${intentId}`);
+      const response = await clientApi.get(paymentKind === 'package' ? `/app/packages/payment/${intentId}` : paymentKind === 'teleconsultation' ? `/app/teleconsultations/payment/${intentId}` : `/app/appointments/payment/${intentId}`);
       intent = response.paymentIntent || intent;
       if (response.appointment || intent?.status === 'paid') {
         clearRoletaScheduleContext();
-        card.innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento confirmado com sucesso.')}</div><a class="btn" href="/app/agenda">Ver minha agenda</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
+        card.innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento confirmado com sucesso.')}</div><a class="btn" href="${paymentKind === 'teleconsultation' ? '/app/saude-360' : '/app/agenda'}">${paymentKind === 'teleconsultation' ? 'Ver Saúde 360' : 'Ver minha agenda'}</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
         return;
       }
     } catch {}
@@ -884,7 +1340,7 @@
       return;
     }
     card.innerHTML = paymentPageHtml(intent) + '<div class="client-card-actions"><a class="btn btn-ghost" href="/app/agenda">Cancelar e voltar</a></div>';
-    if (String(intent.paymentType || 'pix').toLowerCase() === 'card') {
+    if (['card', 'wallet'].includes(String(intent.paymentType || 'pix').toLowerCase())) {
       await mountMercadoPagoPaymentBrick(intent, paymentKind);
       return;
     }
@@ -970,7 +1426,10 @@
     bindTimelineInfinite();
     bindPixPaymentPage();
     if (currentClientSection() === 'bemestar') { loadWellbeingPanel(new URLSearchParams(window.location.search).get('petId') || ''); }
+    if (currentClientSection() === 'saude') { loadHealth360Panel(new URLSearchParams(window.location.search).get('petId') || ''); }
     document.querySelector('[name="wellbeingPetId"]')?.addEventListener('change', (event) => loadWellbeingPanel(event.target.value));
+    document.querySelector('[name="healthPetId"]')?.addEventListener('change', (event) => loadHealth360Panel(event.target.value));
+    syncDigitalWalletPaymentOptions();
     bindAppointmentAvailability();
     document.getElementById('appointment-form')?.addEventListener('change', (event) => {
       if (event.target.name === 'petId') {
@@ -1027,6 +1486,86 @@
       }
     });
 
+
+
+    document.body.addEventListener('click', (event) => {
+      const dailyButton = event.target?.closest?.('[data-open-daily-triage]');
+      if (dailyButton) {
+        openModal('Triagem diária Saúde 360', dailyTriageForm(dailyButton.dataset.openDailyTriage || ''), '<button class="btn btn-secondary" data-close-modal>Cancelar</button>');
+      }
+      if (event.target?.id === 'open-health-triage') {
+        openModal('Meu pet está estranho', healthTriageForm(), '<button class="btn btn-secondary" data-close-modal>Cancelar</button>');
+      }
+      if (event.target?.id === 'open-teleconsultation') {
+        openModal('Agendar teleconsulta', teleconsultationForm(), '<button class="btn btn-secondary" data-close-modal>Cancelar</button>');
+        window.setTimeout(syncHealth360TeleSlots, 0);
+      }
+      const selectVetButton = event.target?.closest?.('[data-select-vet]');
+      if (selectVetButton) {
+        const form = document.getElementById('teleconsultation-form');
+        if (form?.veterinarianId) {
+          form.veterinarianId.value = selectVetButton.dataset.selectVet || '';
+          if (form.slotId) form.slotId.value = '';
+          syncHealth360TeleSlots();
+        }
+      }
+      const viewVetButton = event.target?.closest?.('[data-view-vet]');
+      if (viewVetButton) showHealth360VetDetails(viewVetButton.dataset.viewVet || '');
+      const selectSlotButton = event.target?.closest?.('[data-select-slot]');
+      if (selectSlotButton) {
+        const form = document.getElementById('teleconsultation-form');
+        if (form?.slotId) {
+          form.slotId.value = selectSlotButton.dataset.selectSlot || '';
+          syncHealth360TeleSlots();
+        }
+      }
+    });
+
+    document.body.addEventListener('submit', async (event) => {
+      if (event.target.id !== 'health-daily-triage-form') return;
+      event.preventDefault();
+      try {
+        const response = await clientApi.post('/app/health360/triage', formPayload(event.target));
+        closeModal();
+        await loadHealth360Panel(event.target.petId?.value || '');
+        openModal('PetFunny Health Insight™', renderHealth360InsightModal(response), '<button class="btn" data-close-modal>OK</button>');
+      } catch (error) {
+        openModal('Não foi possível salvar triagem diária', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
+      }
+    });
+
+    document.body.addEventListener('submit', async (event) => {
+      if (event.target.id !== 'health-triage-form') return;
+      event.preventDefault();
+      try {
+        const response = await clientApi.post('/app/health360/triage', formPayload(event.target));
+        closeModal();
+        await loadHealth360Panel(event.target.petId?.value || '');
+        openModal('Triagem Saúde 360 IA', renderHealth360InsightModal(response), '<button class="btn" data-close-modal>OK</button>');
+      } catch (error) {
+        openModal('Não foi possível gerar triagem', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
+      }
+    });
+
+    document.body.addEventListener('submit', async (event) => {
+      if (event.target.id !== 'teleconsultation-form') return;
+      event.preventDefault();
+      try {
+        if (!event.target.veterinarianId?.value) throw new Error('Selecione um veterinário.');
+        if (!event.target.slotId?.value) throw new Error('Selecione um dia e horário disponível.');
+        const response = await clientApi.post('/app/teleconsultations', formPayload(event.target));
+        closeModal();
+        if (response.requiresPayment && response.paymentIntent) {
+          goToPaymentPage(response.paymentIntent, 'teleconsultation');
+          return;
+        }
+        toast(response.message || 'Teleconsulta solicitada.');
+        await loadHealth360Panel(event.target.petId?.value || '');
+      } catch (error) {
+        openModal('Não foi possível solicitar teleconsulta', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
+      }
+    });
+
     document.getElementById('appointment-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -1067,6 +1606,23 @@
     }));
     document.body.addEventListener('change', (event) => {
       if (event.target?.name === 'breed' && event.target.closest('#pet-form')) applyAppBreedSuggestion(event.target.closest('#pet-form'));
+      const fileInput = event.target?.matches?.('[data-photo-input]') ? event.target : null;
+      if (fileInput?.files?.[0]) {
+        const file = fileInput.files[0];
+        if (!file.type.startsWith('image/')) { toast('Escolha um arquivo de imagem válido.', 'error'); return; }
+        if (file.size > 750 * 1024) { toast('Use uma foto com até 700 KB para manter o app leve.', 'error'); fileInput.value = ''; return; }
+        const fieldName = fileInput.dataset.photoInput;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const value = String(reader.result || '');
+          const form = fileInput.closest('form');
+          const hidden = form?.querySelector(`input[type="hidden"][name="${fieldName}"]`);
+          const preview = form?.querySelector(`[data-photo-preview="${fieldName}"]`);
+          if (hidden) hidden.value = value;
+          if (preview) preview.innerHTML = `<img src="${escapeHtml(value)}" alt="Prévia da foto">`;
+        };
+        reader.readAsDataURL(file);
+      }
     });
     document.body.addEventListener('blur', (event) => {
       if (event.target?.name === 'breed' && event.target.closest('#pet-form')) applyAppBreedSuggestion(event.target.closest('#pet-form'));
@@ -1128,7 +1684,7 @@
 
     document.getElementById('profile-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      try { const response = await clientApi.put('/app/profile', formPayload(event.currentTarget)); data.tutor = response.tutor; toast(response.message || 'Perfil atualizado.'); } catch (error) { openModal('Erro ao salvar perfil', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>'); }
+      try { const response = await clientApi.put('/app/profile', formPayload(event.currentTarget)); data.tutor = response.tutor; setClientUser({ account: data.account, tutor: response.tutor }); toast(response.message || 'Perfil atualizado.'); await reload('perfil'); } catch (error) { openModal('Erro ao salvar perfil', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>'); }
     });
     document.getElementById('password-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();

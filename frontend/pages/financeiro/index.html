@@ -38,7 +38,8 @@
     defaulterSortBy: 'dueDate',
     defaulterSortDir: 'asc',
     loadingMore: false,
-    done: false
+    done: false,
+    editingTransactionId: null
   };
 
   const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -331,7 +332,7 @@
         <td>${dateBR(item.dueDate)}</td>
         <td><span class="status-pill status-${statusTone[item.status] || 'neutral'}">${esc(statusLabel[item.status] || item.status)}</span></td>
         <td><strong class="finance-value ${item.type === 'expense' ? 'negative' : 'positive'}">${item.type === 'expense' ? '-' : '+'}${money(item.amountCents)}</strong></td>
-        <td><div class="table-actions finance-kebab-actions">${item.status !== 'paid' && item.status !== 'canceled' ? `<button class="card-kebab finance-kebab" type="button" data-finance-menu="${esc(item.id)}" aria-label="Ações do lançamento">⋯</button><div class="finance-action-menu" data-finance-menu-panel="${esc(item.id)}"><button type="button" data-finance-message="${esc(item.id)}">Enviar mensagem</button><button type="button" data-finance-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Dar baixa</button></div>` : '<span class="muted-small">Concluído</span>'}</div></td>
+        <td><div class="table-actions finance-kebab-actions"><button class="card-kebab finance-kebab" type="button" data-finance-menu="${esc(item.id)}" aria-label="Ações do lançamento">⋯</button><div class="finance-action-menu" data-finance-menu-panel="${esc(item.id)}"><button type="button" data-finance-edit="${esc(item.id)}">Editar lançamento</button>${item.status !== 'paid' && item.status !== 'canceled' ? `<button type="button" data-finance-message="${esc(item.id)}">Enviar mensagem</button><button type="button" data-finance-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Dar baixa</button>` : ''}<button type="button" class="danger-menu-item" data-finance-delete="${esc(item.id)}">Excluir lançamento</button></div></div></td>
       </tr>`).join('') : '<tr><td colspan="8"><div class="empty-state"><strong>Nenhum lançamento encontrado.</strong><p>Revise os filtros ou crie um novo lançamento.</p></div></td></tr>';
     setupFinanceActionMenus();
     setupPremiumInteractions(document);
@@ -346,7 +347,7 @@
         <td><strong>${esc(item.tutorName || 'Cliente')}</strong><small>${esc(item.tutorWhatsapp || 'WhatsApp não informado')}</small></td>
         <td>${dateBR(item.dueDate)}</td>
         <td><strong class="finance-value positive">${money(item.amountCents)}</strong></td>
-        <td><div class="table-actions finance-kebab-actions"><button class="card-kebab finance-kebab" type="button" data-finance-menu="${esc(item.id)}" aria-label="Ações da cobrança">⋯</button><div class="finance-action-menu" data-finance-menu-panel="${esc(item.id)}"><button type="button" data-finance-message="${esc(item.id)}">Enviar mensagem</button><button type="button" data-finance-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Dar baixa</button></div></div></td>
+        <td><div class="table-actions finance-kebab-actions"><button class="card-kebab finance-kebab" type="button" data-finance-menu="${esc(item.id)}" aria-label="Ações da cobrança">⋯</button><div class="finance-action-menu" data-finance-menu-panel="${esc(item.id)}"><button type="button" data-finance-edit="${esc(item.id)}">Editar lançamento</button><button type="button" data-finance-message="${esc(item.id)}">Enviar mensagem</button><button type="button" data-finance-pay="${esc(item.id)}" data-amount="${esc(item.amountCents)}">Dar baixa</button><button type="button" class="danger-menu-item" data-finance-delete="${esc(item.id)}">Excluir lançamento</button></div></div></td>
       </tr>`).join('') : '<tr><td colspan="5"><div class="empty-state"><strong>Nenhum inadimplente encontrado.</strong><p>Ótimo sinal para o caixa do PetFunny.</p></div></td></tr>';
     setupFinanceActionMenus();
     updateSortArrows();
@@ -368,8 +369,29 @@
     finally { hideLoading(); }
   }
 
-  function openTransactionModal() { $('#finance-form').reset(); $('#finance-modal').hidden = false; setupPremiumInteractions($('#finance-modal')); }
-  function closeTransactionModal() { $('#finance-modal').hidden = true; }
+  function setFinanceFormValue(name, value) {
+    const field = $('#finance-form')?.elements?.[name];
+    if (field) field.value = value ?? '';
+  }
+  function openTransactionModal(item = null) {
+    const form = $('#finance-form');
+    form.reset();
+    state.editingTransactionId = item?.id || null;
+    $('#modal-title').textContent = state.editingTransactionId ? 'Editar lançamento' : 'Novo lançamento';
+    if (item) {
+      setFinanceFormValue('type', item.type || 'income');
+      setFinanceFormValue('status', item.status || 'pending');
+      setFinanceFormValue('category', item.category || 'outros');
+      setFinanceFormValue('amount', money(item.amountCents || 0));
+      setFinanceFormValue('dueDate', item.dueDate ? String(item.dueDate).slice(0, 10) : '');
+      setFinanceFormValue('tutorId', item.tutorId || '');
+      setFinanceFormValue('description', item.description || '');
+    }
+    $('#finance-modal').hidden = false;
+    $('#finance-modal').classList.add('is-open');
+    setupPremiumInteractions($('#finance-modal'));
+  }
+  function closeTransactionModal() { state.editingTransactionId = null; $('#finance-modal').hidden = true; $('#finance-modal').classList.remove('is-open'); }
   function findFinanceItem(id) { return [...state.transactions, ...state.defaulters].find((item) => String(item.id) === String(id)) || {}; }
   function buildFinanceMessage(item = {}) {
     return `Oi, ${item.tutorName || 'tudo bem'}! Aqui é do PetFunny - Banho e Tosa.\n\nPassando para lembrar sobre ${item.description || 'um lançamento financeiro'} no valor de ${money(item.amountCents)}${item.dueDate ? `, com vencimento em ${dateBR(item.dueDate)}` : ''}.\n\nQualquer dúvida, pode me chamar por aqui. 🐾`;
@@ -381,20 +403,35 @@
     const phone = String(item.tutorWhatsapp || '').replace(/\D/g, '');
     const normalized = phone ? (phone.startsWith('55') ? phone : `55${phone}`) : '';
     $('#finance-message-whatsapp').href = normalized ? `https://wa.me/${normalized}?text=${encodeURIComponent(text)}` : '#';
-    $('#message-modal').hidden = false; setupPremiumInteractions($('#message-modal'));
+    $('#message-modal').hidden = false; $('#message-modal').classList.add('is-open'); setupPremiumInteractions($('#message-modal'));
   }
-  function closeMessageModal() { $('#message-modal').hidden = true; }
-  function openPayModal(id, amountCents) { $('#pay-form').reset(); $('#pay-form').elements.id.value = id; $('#pay-form').elements.amount.value = money(amountCents); $('#pay-modal').hidden = false; setupPremiumInteractions($('#pay-modal')); }
-  function closePayModal() { $('#pay-modal').hidden = true; }
+  function closeMessageModal() { $('#message-modal').hidden = true; $('#message-modal').classList.remove('is-open'); }
+  function openPayModal(id, amountCents) { $('#pay-form').reset(); $('#pay-form').elements.id.value = id; $('#pay-form').elements.amount.value = money(amountCents); $('#pay-modal').hidden = false; $('#pay-modal').classList.add('is-open'); setupPremiumInteractions($('#pay-modal')); }
+  function closePayModal() { $('#pay-modal').hidden = true; $('#pay-modal').classList.remove('is-open'); }
   function closeFinanceMenus() { document.querySelectorAll('.finance-action-menu.is-open').forEach((menu) => menu.classList.remove('is-open')); }
+  async function deleteTransaction(id) {
+    const item = findFinanceItem(id);
+    const label = item?.description || 'este lançamento';
+    if (!confirm(`Excluir/cancelar ${label}? Esta ação remove o lançamento da consulta financeira sem apagar o histórico técnico.`)) return;
+    try {
+      showLoading('Excluindo lançamento...', 'Atualizando financeiro e inadimplentes.');
+      await api.delete(`/financeiro/transactions/${id}`);
+      showToast('Lançamento excluído com sucesso.');
+      await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]);
+    } catch (error) { showToast(error.message || 'Erro ao excluir lançamento.', 'error'); }
+    finally { hideLoading(); }
+  }
+  
   function setupFinanceActionMenus() {
     document.querySelectorAll('[data-finance-menu]').forEach((button) => button.onclick = (event) => { event.stopPropagation(); const id = button.dataset.financeMenu; const panel = document.querySelector(`[data-finance-menu-panel="${CSS.escape(id)}"]`); const wasOpen = panel?.classList.contains('is-open'); closeFinanceMenus(); if (panel && !wasOpen) panel.classList.add('is-open'); });
     document.querySelectorAll('[data-finance-pay]').forEach((button) => button.onclick = () => { closeFinanceMenus(); openPayModal(button.dataset.financePay, button.dataset.amount); });
+    document.querySelectorAll('[data-finance-edit]').forEach((button) => button.onclick = () => { closeFinanceMenus(); const item = findFinanceItem(button.dataset.financeEdit); if (!item?.id) return showToast('Lançamento não encontrado para edição.', 'error'); openTransactionModal(item); });
+    document.querySelectorAll('[data-finance-delete]').forEach((button) => button.onclick = async () => { closeFinanceMenus(); await deleteTransaction(button.dataset.financeDelete); });
     document.querySelectorAll('[data-finance-message]').forEach((button) => button.onclick = () => { closeFinanceMenus(); openMessageModal(button.dataset.financeMessage); });
   }
 
-  $('#new-transaction').addEventListener('click', openTransactionModal);
-  $('#new-transaction-list')?.addEventListener('click', openTransactionModal);
+  $('#new-transaction').addEventListener('click', () => openTransactionModal());
+  $('#new-transaction-list')?.addEventListener('click', () => openTransactionModal());
   $('#refresh-finance').addEventListener('click', refreshAll);
   document.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', closeTransactionModal));
   document.querySelectorAll('[data-close-pay]').forEach((b) => b.addEventListener('click', closePayModal));
@@ -439,7 +476,18 @@
   $('#finance-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-    try { showLoading('Salvando lançamento...', 'Atualizando o financeiro.'); await api.post('/financeiro/transactions', data); closeTransactionModal(); showToast('Lançamento criado com sucesso.'); await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]); }
+    try {
+      showLoading(state.editingTransactionId ? 'Atualizando lançamento...' : 'Salvando lançamento...', 'Atualizando o financeiro.');
+      if (state.editingTransactionId) {
+        await api.put(`/financeiro/transactions/${state.editingTransactionId}`, data);
+        showToast('Lançamento atualizado com sucesso.');
+      } else {
+        await api.post('/financeiro/transactions', data);
+        showToast('Lançamento criado com sucesso.');
+      }
+      closeTransactionModal();
+      await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]);
+    }
     catch (error) { showToast(error.message || 'Erro ao salvar lançamento.', 'error'); }
     finally { hideLoading(); }
   });

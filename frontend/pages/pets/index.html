@@ -29,6 +29,8 @@
     loading: false,
     done: false,
     items: [],
+    total: 0,
+    stats: { totalPets: 0, activePets: 0, tutorCount: 0, breedCount: 0 },
     tutors: [],
     petOptions: { types: [], sizes: [], breeds: [] },
     sortKey: 'name',
@@ -100,6 +102,7 @@
             <tbody id="pets-body"><tr><td colspan="7">Preparando tudo...</td></tr></tbody>
           </table>
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais pets...</div>
+          <div class="list-load-status" id="pets-load-status">0/0 pets carregados</div>
         </div>
       </section>
 
@@ -119,6 +122,14 @@
                     <small class="muted">PNG, JPG, WebP ou GIF. Quando não houver foto, a listagem mostra as iniciais.</small>
                   </div>
                 </div>
+              </div>
+              <div class="form-field span-2">
+                <span>Buscar tutor por WhatsApp</span>
+                <div class="input-action-row">
+                  <input class="input" id="tutorWhatsappSearch" inputmode="tel" placeholder="Digite o WhatsApp do tutor" autocomplete="off">
+                  <button class="btn btn-secondary" id="find-tutor-btn" type="button">Buscar</button>
+                </div>
+                <small class="muted" id="tutor-search-feedback">Ao encontrar o WhatsApp, o tutor será selecionado automaticamente abaixo.</small>
               </div>
               <label class="form-field span-2"><span>Tutor responsável</span><select class="select" id="tutorId" required><option value="">Carregando tutores...</option></select></label>
               <label class="form-field"><span>Nome do pet</span><input class="input" id="name" required placeholder="Ex.: Mel"></label>
@@ -143,9 +154,10 @@
   const body = document.getElementById('pets-body');
   const scrollBox = document.getElementById('pets-scroll');
   const loader = document.getElementById('infinite-loader');
+  const loadStatus = document.getElementById('pets-load-status');
   const modal = document.getElementById('pet-modal');
   const form = document.getElementById('pet-form');
-  const fields = ['pet-id','photoDataUrl','photoFile','tutorId','name','species','breed','size','coatType','birthDate','weightKg','status','preferences','restrictions','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
+  const fields = ['pet-id','photoDataUrl','photoFile','tutorWhatsappSearch','tutorId','name','species','breed','size','coatType','birthDate','weightKg','status','preferences','restrictions','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
 
   function setPetPhotoPreview(name, photoUrl) {
     const next = new DOMParser().parseFromString(avatarHtml(name || 'Pet', photoUrl || '', 'photo-preview'), 'text/html').body.firstElementChild;
@@ -166,15 +178,25 @@
     </tr>`;
   }
 
+  function updateLoadStatus() {
+    if (!loadStatus) return;
+    const loaded = state.items.length;
+    const total = Number(state.total || loaded || 0);
+    loadStatus.textContent = total > 0 ? `${loaded}/${total} pets carregados` : '0/0 pets carregados';
+  }
+
   function updateMetrics() {
-    const active = state.items.filter(item => item.status === 'active').length;
-    const tutors = new Set(state.items.map(item => item.tutorId).filter(Boolean)).size;
-    const breeds = new Set(state.items.map(item => String(item.breed || '').trim().toLowerCase()).filter(Boolean)).size;
+    const stats = state.stats || {};
+    const totalPets = Number(stats.totalPets ?? state.total ?? state.items.length ?? 0);
+    const active = Number(stats.activePets ?? 0);
+    const tutors = Number(stats.tutorCount ?? 0);
+    const breeds = Number(stats.breedCount ?? 0);
     document.getElementById('pet-metrics').innerHTML = bigNumberGrid([
-      ['Pets carregados', String(state.items.length), `${active} ativos nesta consulta`],
-      ['Tutores vinculados', String(tutors), 'responsáveis únicos'],
+      ['Pets cadastrados', String(totalPets), `${active} ativos no resultado`],
+      ['Tutores vinculados', String(tutors), 'responsáveis únicos no total'],
       ['Raças registradas', String(breeds), 'personalização do atendimento']
     ]);
+    updateLoadStatus();
   }
 
   function sortValue(item, key) {
@@ -223,7 +245,71 @@
   async function loadTutorsForSelect() {
     const data = await api.get('/tutores?status=active&limit=100');
     state.tutors = data.items || [];
-    fields.tutorId.innerHTML = '<option value="">Selecione o tutor</option>' + state.tutors.map(t => `<option value="${esc(t.id)}">${esc(t.name)} · ${formatWhatsapp(t.whatsapp)}</option>`).join('');
+    fields.tutorId.innerHTML = '<option value="">Selecione o tutor</option>' + state.tutors.map(t => `<option value="${esc(t.id)}" data-whatsapp="${esc(onlyDigits(t.whatsapp || ''))}">${esc(t.name)} · ${formatWhatsapp(t.whatsapp)}</option>`).join('');
+  }
+
+
+  function ensureTutorOption(tutor) {
+    if (!tutor?.id) return;
+    const exists = Array.from(fields.tutorId.options).some(option => option.value === tutor.id);
+    if (!exists) {
+      const option = document.createElement('option');
+      option.value = tutor.id;
+      option.dataset.whatsapp = onlyDigits(tutor.whatsapp || '');
+      option.textContent = `${tutor.name || 'Tutor'} · ${formatWhatsapp(tutor.whatsapp || '')}`;
+      fields.tutorId.appendChild(option);
+    }
+    if (!state.tutors.some(item => item.id === tutor.id)) state.tutors.unshift(tutor);
+  }
+
+  async function findTutorByWhatsapp(silent = false) {
+    const feedback = document.getElementById('tutor-search-feedback');
+    const raw = fields.tutorWhatsappSearch.value || '';
+    const digits = onlyDigits(raw);
+    if (!digits) {
+      if (!silent) {
+        feedback.textContent = 'Digite o WhatsApp para buscar o tutor responsável.';
+        feedback.classList.remove('success-text');
+        feedback.classList.add('danger-text');
+      }
+      return null;
+    }
+
+    const localMatch = state.tutors.find(tutor => onlyDigits(tutor.whatsapp || '').endsWith(digits.slice(-8)) || digits.endsWith(onlyDigits(tutor.whatsapp || '').slice(-8)));
+    if (localMatch) {
+      fields.tutorId.value = localMatch.id;
+      feedback.textContent = `Tutor encontrado: ${localMatch.name} · ${formatWhatsapp(localMatch.whatsapp || '')}`;
+      feedback.classList.remove('danger-text');
+      feedback.classList.add('success-text');
+      return localMatch;
+    }
+
+    try {
+      feedback.textContent = 'Buscando tutor pelo WhatsApp...';
+      feedback.classList.remove('danger-text', 'success-text');
+      const data = await api.get(`/tutores?status=all&limit=10&search=${encodeURIComponent(digits)}`);
+      const tutors = data.items || [];
+      const found = tutors.find(tutor => onlyDigits(tutor.whatsapp || '').endsWith(digits.slice(-8)) || digits.endsWith(onlyDigits(tutor.whatsapp || '').slice(-8))) || tutors[0];
+      if (!found) {
+        fields.tutorId.value = '';
+        feedback.textContent = 'Nenhum tutor encontrado com esse WhatsApp. Cadastre o tutor antes ou selecione manualmente.';
+        feedback.classList.remove('success-text');
+        feedback.classList.add('danger-text');
+        return null;
+      }
+      ensureTutorOption(found);
+      fields.tutorId.value = found.id;
+      feedback.textContent = `Tutor encontrado: ${found.name} · ${formatWhatsapp(found.whatsapp || '')}`;
+      feedback.classList.remove('danger-text');
+      feedback.classList.add('success-text');
+      return found;
+    } catch (error) {
+      feedback.textContent = error.message || 'Não foi possível buscar o tutor agora.';
+      feedback.classList.remove('success-text');
+      feedback.classList.add('danger-text');
+      if (!silent) toast(feedback.textContent, 'error');
+      return null;
+    }
   }
 
   async function loadPets(reset = false) {
@@ -237,6 +323,8 @@
       const data = await api.get(`/pets?${params.toString()}`);
       if (reset) state.items = [];
       state.items.push(...(data.items || []));
+      state.total = Number(data.total || 0);
+      state.stats = data.stats || state.stats;
       state.done = state.items.length >= Number(data.total || 0) || (data.items || []).length === 0;
       state.page += 1;
       renderPets();
@@ -244,6 +332,7 @@
     } catch (error) {
       body.innerHTML = `<tr><td colspan="7">${esc(error.message)}</td></tr>`;
       toast(error.message, 'error');
+      updateLoadStatus();
     } finally {
       loader.hidden = true;
       state.loading = false;
@@ -254,6 +343,9 @@
     document.getElementById('modal-title').textContent = item ? 'Editar pet' : 'Novo pet';
     fields['pet-id'].value = item?.id || '';
     fields.photoDataUrl.value = item?.photoUrl || '';
+    fields.tutorWhatsappSearch.value = item?.tutorWhatsapp ? formatWhatsapp(item.tutorWhatsapp) : '';
+    const feedback = document.getElementById('tutor-search-feedback');
+    if (feedback) { feedback.textContent = 'Ao encontrar o WhatsApp, o tutor será selecionado automaticamente abaixo.'; feedback.classList.remove('danger-text', 'success-text'); }
     if (fields.photoFile) fields.photoFile.value = '';
     setPetPhotoPreview(item?.name || 'Pet', item?.photoUrl || '');
     fields.tutorId.value = item?.tutorId || '';
@@ -329,6 +421,14 @@
       finally { hideLoading(); }
     }
   });
+
+  document.getElementById('find-tutor-btn').addEventListener('click', () => findTutorByWhatsapp(false));
+  fields.tutorWhatsappSearch.addEventListener('input', () => {
+    fields.tutorWhatsappSearch.value = formatWhatsapp(fields.tutorWhatsappSearch.value);
+    window.clearTimeout(window.__petTutorWhatsappSearch);
+    window.__petTutorWhatsappSearch = window.setTimeout(() => findTutorByWhatsapp(true), 450);
+  });
+  fields.tutorWhatsappSearch.addEventListener('blur', () => findTutorByWhatsapp(true));
 
   fields.photoFile.addEventListener('change', async () => {
     try {
