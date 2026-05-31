@@ -10,6 +10,10 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
   <meta name="msapplication-TileColor" content="#26b9c7">
   <link rel="stylesheet" href="/assets/css/app.css">
+  <style>
+    .finance-v2-metric{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(20,36,43,.09);border-radius:16px;background:rgba(255,255,255,.78);box-shadow:0 10px 24px rgba(18,41,49,.05)}
+    .finance-v2-metric strong{display:block;color:#14242b}.finance-v2-metric small{display:block;color:#64777f}.finance-v2-metric b{font-size:1.04rem;color:#00a9b7;white-space:nowrap}.finance-v2-danger b{color:#d94646}.finance-v2-warning b{color:#d97706}.finance-v2-ok b{color:#0f9f6e}
+  </style>
 </head>
 <body>
 <script type="module">
@@ -25,14 +29,16 @@
 
   const state = {
     summary: null,
+    financeV2: null,
+    financeV3: null,
     options: { paymentMethods: [], tutors: [], categories: [], statuses: [], types: [] },
     transactions: [],
     defaulters: [],
     page: 1,
     limit: 30,
     total: 0,
-    filters: { search: '', status: 'all', type: 'all', category: 'all', period: 'month', month: currentMonth, startDate: firstDayOfMonth, endDate: todayIso },
-    activeTab: new URLSearchParams(window.location.search).get('tab') === 'inadimplentes' ? 'inadimplentes' : 'lancamentos',
+    filters: { search: '', status: 'all', type: 'all', category: 'all', period: 'month', month: currentMonth, startDate: firstDayOfMonth, endDate: todayIso, dateType: 'due' },
+    activeTab: ['inadimplentes','comissoes','conciliacao','servicos','projecao','caixa-futuro','indicadores','executivo'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'lancamentos',
     sortBy: 'dueDate',
     sortDir: 'asc',
     defaulterSortBy: 'dueDate',
@@ -57,15 +63,17 @@
           <div class="page-heading-row between">
             <div>
               <p class="eyebrow">Controle financeiro</p>
-              <h1>Financeiro PetFunny</h1>
-              <p>Organize entradas, saídas, pendências e baixas do caixa com leitura rápida para quem opera o balcão todos os dias.</p>
+              <h1>Financeiro 360°</h1>
+              <p>Controle caixa real, valores previstos, vencimentos, inadimplência e despesas com leitura por data de vencimento, pagamento ou lançamento.</p>
             </div>
             <div class="actions no-card-actions">
               <button class="btn btn-secondary" type="button" id="refresh-finance">↻ Atualizar</button>
+              <button class="btn btn-secondary" type="button" id="export-finance-csv">Exportar Excel</button>
+              <button class="btn btn-secondary" type="button" id="export-finance-pdf">Exportar PDF</button>
               <button class="btn" type="button" id="new-transaction">＋ Novo lançamento</button>
             </div>
           </div>
-          <div class="finance-tabs"><button class="finance-tab active" data-finance-tab="lancamentos">Lançamentos</button><button class="finance-tab" data-finance-tab="inadimplentes">Inadimplentes</button></div>
+          <div class="finance-tabs finance-tabs-360"><button class="finance-tab active" data-finance-tab="lancamentos">Lançamentos</button><button class="finance-tab" data-finance-tab="inadimplentes">Inadimplência</button><button class="finance-tab" type="button" data-finance-tab="comissoes">Comissões</button><button class="finance-tab" type="button" data-finance-tab="conciliacao">Conciliação</button><button class="finance-tab" type="button" data-finance-tab="servicos">Serviços & margem</button><button class="finance-tab" type="button" data-finance-tab="projecao">Projeção</button><button class="finance-tab" type="button" data-finance-tab="caixa-futuro">Caixa futuro</button><button class="finance-tab" type="button" data-finance-tab="indicadores">Indicadores</button><button class="finance-tab" type="button" data-finance-tab="executivo">Executivo</button><button class="finance-tab" type="button" data-finance-filter-shortcut="income">Recebimentos</button><button class="finance-tab" type="button" data-finance-filter-shortcut="expense">Despesas</button><button class="finance-tab" type="button" data-finance-filter-shortcut="pending">Vencimentos</button></div>
         </section>
 
         <section class="admin-big-numbers-strip finance-big-numbers-strip" aria-label="Indicadores financeiros">
@@ -74,21 +82,75 @@
 
         <section class="module-grid finance-grid-2 finance-support-grid">
           <article class="module-card finance-card stack-sm">
-            <div class="table-header"><div><h3>Fluxo dos últimos 7 dias</h3><p>Entradas e saídas para antecipar aperto de caixa antes do fechamento.</p></div></div>
+            <div class="table-header"><div><h3>Fluxo de Caixa do período</h3><p>Entradas e saídas por vencimento. Caixa realizado usa data de pagamento e auditoria usa lançamento.</p></div></div>
             <div class="finance-bars" id="finance-flow"></div>
           </article>
           <article class="module-card finance-card stack-sm">
-            <div class="table-header"><div><h3>Distribuição por categoria</h3><p>Entenda para onde o dinheiro está indo e quais receitas sustentam a operação.</p></div></div>
+            <div class="table-header"><div><h3>Distribuição por categoria</h3><p>Entenda receitas e despesas por vencimento, sem distorcer por data de lançamento.</p></div></div>
             <div class="finance-category-list" id="finance-categories"></div>
           </article>
         </section>
 
+        <section class="module-grid finance-grid-3 finance-360-grid">
+          <article class="module-card finance-card stack-sm">
+            <div class="table-header"><div><h3>Recebimentos de hoje</h3><p>Caixa realizado por forma de pagamento.</p></div></div>
+            <div class="finance-mini-list" id="finance-receipts-today"></div>
+          </article>
+          <article class="module-card finance-card stack-sm">
+            <div class="table-header"><div><h3>Vencimentos próximos</h3><p>Cobranças e contas abertas para os próximos 7 dias.</p></div></div>
+            <div class="finance-mini-list" id="finance-upcoming"></div>
+          </article>
+          <article class="module-card finance-card stack-sm">
+            <div class="table-header"><div><h3>Alertas importantes</h3><p>Pontos de atenção para decisão rápida.</p></div></div>
+            <div class="finance-alert-list" id="finance-alerts"></div>
+          </article>
+        </section>
+
+        <section class="module-card stack-md finance-list-card" id="commissions-card" hidden>
+          <div class="section-toolbar stacked-toolbar">
+            <div class="toolbar-copy-line finance-consulta-copy"><div><h3>Comissões</h3><p>Cálculo por colaborador com regra progressiva PetFunny: 11–12 pets/dia = 5%, 13–14 = 8%, 15+ = 10%.</p></div><span class="badge">Financeiro 360° v2</span></div>
+          </div>
+          <div class="table-scroll custom-scroll no-inner-scroll finance-table-scroll"><table class="premium-table finance-records-table"><thead><tr><th>Colaborador</th><th>Serviços</th><th>Faturamento</th><th>% médio</th><th>Comissão estimada</th></tr></thead><tbody id="finance-commissions-list"><tr><td colspan="5">Carregando comissões...</td></tr></tbody></table></div>
+        </section>
+
+        <section class="module-card stack-md finance-list-card" id="reconciliation-card" hidden>
+          <div class="section-toolbar stacked-toolbar">
+            <div class="toolbar-copy-line finance-consulta-copy"><div><h3>Conciliação Pix/Cartão</h3><p>Compara valor previsto no financeiro com pagamentos registrados por Pix, cartão ou lançamento manual.</p></div><span class="badge">Mercado Pago / Caixa</span></div>
+          </div>
+          <div class="table-scroll custom-scroll no-inner-scroll finance-table-scroll"><table class="premium-table finance-records-table"><thead><tr><th>Vencimento</th><th>Cliente/Pet</th><th>Lançamento</th><th>Forma</th><th>Previsto</th><th>Recebido</th><th>Diferença</th><th>Status</th></tr></thead><tbody id="finance-reconciliation-list"><tr><td colspan="8">Carregando conciliação...</td></tr></tbody></table></div>
+        </section>
+
+        <section class="module-grid finance-grid-2" id="services-card" hidden>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Receita por serviço</h3><p>Quantidade, receita e ticket médio por serviço no período.</p></div></div><div class="finance-category-list" id="finance-service-revenue"></div></article>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Margem por serviço</h3><p>Estimativa de custo operacional e margem por categoria de serviço.</p></div></div><div class="finance-category-list" id="finance-service-margin"></div></article>
+        </section>
+
+
+        <section class="module-grid finance-grid-2" id="projection-card" hidden>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Projeção futura</h3><p>Receita prevista para 30, 90 dias e 12 meses usando vencimentos e recorrências já registradas.</p></div><span class="badge">v3</span></div><div class="finance-category-list" id="finance-v3-projection"></div></article>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Crescimento projetado 12M</h3><p>Entradas e saídas previstas por mês para visão de expansão.</p></div></div><div class="finance-bars" id="finance-v3-monthly"></div></article>
+        </section>
+
+        <section class="module-grid finance-grid-2" id="cash-forecast-card" hidden>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Previsão de caixa</h3><p>Saldo atual + entradas previstas - saídas previstas.</p></div><span class="badge">Caixa futuro</span></div><div class="finance-category-list" id="finance-v3-cash-kpis"></div></article>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Curva de caixa 90 dias</h3><p>Semana a semana por vencimento financeiro.</p></div></div><div class="finance-bars" id="finance-v3-cash-curve"></div></article>
+        </section>
+
+        <section class="module-grid finance-grid-2" id="franchise-card" hidden>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Indicadores de franquia</h3><p>Leitura de unidade para expansão PetFunny: ticket, recorrência, ocupação e produtividade.</p></div><span class="badge">Expansão</span></div><div class="finance-category-list" id="finance-v3-franchise"></div></article>
+          <article class="module-card finance-card stack-sm"><div class="table-header"><div><h3>Alertas executivos</h3><p>Insights automáticos para decisão rápida.</p></div></div><div class="finance-alert-list" id="finance-v3-alerts"></div></article>
+        </section>
+
+        <section class="module-card stack-md finance-list-card" id="executive-card" hidden>
+          <div class="section-toolbar stacked-toolbar"><div class="toolbar-copy-line finance-consulta-copy"><div><h3>Dashboard executivo</h3><p>Resumo para gestão: operação, financeiro, comercial e expansão.</p></div><span class="badge">CEO Dashboard</span></div></div>
+          <div class="big-number-grid finance-metrics" id="finance-v3-executive"></div>
+        </section>
         <section class="module-card stack-md finance-list-card" id="transactions-card">
           <div class="section-toolbar stacked-toolbar">
             <div class="toolbar-copy-line finance-consulta-copy">
               <div>
                 <h3>Consulta financeira</h3>
-                <p>Busque lançamentos, revise status, filtre por tipo e faça a baixa sem perder o contexto do tutor.</p>
+                <p>Busque lançamentos por vencimento, revise status, filtre por tipo e faça a baixa sem perder o contexto do tutor.</p>
               </div>
               <button class="btn" type="button" id="new-transaction-list">＋ Novo lançamento</button>
             </div>
@@ -103,6 +165,11 @@
                 <option value="last30">Últimos 30 dias</option>
                 <option value="year">Ano do mês selecionado</option>
                 <option value="custom">Período por data</option>
+              </select>
+              <select class="select" id="filter-date-type" aria-label="Tipo de data">
+                <option value="due">Data de vencimento</option>
+                <option value="paid">Data de pagamento</option>
+                <option value="created">Data de lançamento</option>
               </select>
               <input class="input" id="filter-month" type="month" value="${state.filters.month}" aria-label="Filtrar por mês">
               <input class="input" id="filter-start-date" type="date" value="${state.filters.startDate}" aria-label="Data inicial">
@@ -248,6 +315,7 @@
       params.set('startDate', state.filters.startDate || firstDayOfMonth);
       params.set('endDate', state.filters.endDate || todayIso);
     }
+    params.set('dateType', state.filters.dateType || 'due');
     return params;
   }
 
@@ -259,6 +327,7 @@
     params.set('type', state.filters.type || 'all');
     params.set('status', state.filters.status || 'all');
     params.set('category', state.filters.category || 'all');
+    params.set('dateType', state.filters.dateType || 'due');
     return params;
   }
 
@@ -273,6 +342,141 @@
     const params = buildPeriodParams();
     state.summary = await api.get(`/financeiro/summary?${params}`);
     renderSummary();
+  }
+
+  async function loadFinanceV2() {
+    const params = buildPeriodParams();
+    state.financeV2 = await api.get(`/financeiro/360-v2?${params}`);
+    renderFinanceV2();
+  }
+
+  async function loadFinanceV3() {
+    const params = buildPeriodParams();
+    state.financeV3 = await api.get(`/financeiro/360-v3?${params}`);
+    renderFinanceV3();
+  }
+
+  function v3Metric(label, value, hint, tone = '') {
+    return `<div class="finance-v2-metric ${tone}"><span><strong>${esc(label)}</strong><small>${esc(hint || '')}</small></span><b>${value}</b></div>`;
+  }
+
+  function renderFinanceV3() {
+    const v3 = state.financeV3 || {};
+    const projection = v3.projection || {};
+    const cash = v3.cashForecast || {};
+    const franchise = v3.franchiseIndicators || {};
+    const executive = v3.executive || {};
+    const projectionEl = $('#finance-v3-projection');
+    if (projectionEl) projectionEl.innerHTML = [
+      v3Metric('Receita prevista 30 dias', money(projection.revenue_30_cents), `${projection.income_30_count || 0} recebimento(s)`),
+      v3Metric('Receita prevista 90 dias', money(projection.revenue_90_cents), `${projection.income_90_count || 0} recebimento(s)`),
+      v3Metric('Receita prevista 12 meses', money(projection.revenue_12m_cents), `${projection.income_12m_count || 0} recebimento(s)`),
+      v3Metric('Saídas previstas 30 dias', money(projection.expense_30_cents), 'Contas a pagar por vencimento', 'finance-v2-warning')
+    ].join('');
+
+    const monthRows = projection.monthly || [];
+    const maxMonth = Math.max(1, ...monthRows.flatMap((d) => [Number(d.income_cents || 0), Number(d.expense_cents || 0)]));
+    const monthlyEl = $('#finance-v3-monthly');
+    if (monthlyEl) monthlyEl.innerHTML = monthRows.length ? monthRows.map((d) => `<div class="finance-bar-row"><span>${esc(d.label)}</span><div class="finance-bar-track"><i style="width:${Math.max(4, (Number(d.income_cents || 0)/maxMonth)*100)}%"></i><b style="width:${Math.max(4, (Number(d.expense_cents || 0)/maxMonth)*100)}%"></b></div><small>${money(d.income_cents)} / ${money(d.expense_cents)}</small></div>`).join('') : '<p class="muted-text">Sem projeção mensal.</p>';
+
+    const cashKpiEl = $('#finance-v3-cash-kpis');
+    if (cashKpiEl) cashKpiEl.innerHTML = [
+      v3Metric('Saldo atual estimado', money(cash.current_cents), 'Entradas pagas menos saídas pagas'),
+      v3Metric('Saldo projetado 30 dias', money(cash.projected_30_cents), 'Saldo atual + entradas previstas - saídas previstas', Number(cash.projected_30_cents || 0) < 0 ? 'finance-v2-danger' : 'finance-v2-ok'),
+      v3Metric('Entradas abertas', money(cash.realized?.open_income_cents), 'A receber nos próximos 30 dias'),
+      v3Metric('Saídas abertas', money(cash.realized?.open_expense_cents), 'A pagar nos próximos 30 dias', 'finance-v2-warning')
+    ].join('');
+
+    const curve = cash.curve || [];
+    const maxCurve = Math.max(1, ...curve.flatMap((d) => [Number(d.income_cents || 0), Number(d.expense_cents || 0)]));
+    const curveEl = $('#finance-v3-cash-curve');
+    if (curveEl) curveEl.innerHTML = curve.length ? curve.map((d) => `<div class="finance-bar-row"><span>${esc(d.label)}</span><div class="finance-bar-track"><i style="width:${Math.max(4, (Number(d.income_cents || 0)/maxCurve)*100)}%"></i><b style="width:${Math.max(4, (Number(d.expense_cents || 0)/maxCurve)*100)}%"></b></div><small>${money(d.income_cents)} / ${money(d.expense_cents)}</small></div>`).join('') : '<p class="muted-text">Sem curva de caixa.</p>';
+
+    const franchiseEl = $('#finance-v3-franchise');
+    if (franchiseEl) franchiseEl.innerHTML = [
+      v3Metric('Ticket médio', money(franchise.ticketAverageCents), 'Receita / agendamentos'),
+      v3Metric('Receita por pet', money(franchise.revenuePerPetCents), 'Receita / pets atendidos'),
+      v3Metric('Receita por colaborador', money(franchise.revenuePerCollaboratorCents), 'Produtividade operacional'),
+      v3Metric('Ocupação da agenda', `${franchise.agendaOccupancyPercent || 0}%`, 'Estimativa de capacidade mensal'),
+      v3Metric('Pacotes ativos', franchise.activePackages || 0, `${money(franchise.activePackagesValueCents)} em valor ativo`),
+      v3Metric('Recorrência', `${franchise.recurrencePercent || 0}%`, 'Pacotes ativos sobre base movimentada'),
+      v3Metric('Churn operacional', `${franchise.churnPercent || 0}%`, 'Cancelamentos sobre concluídos/cancelados'),
+      v3Metric('LTV estimado', money(franchise.ltvEstimatedCents), 'Ticket médio x 6 ciclos')
+    ].join('');
+
+    const alertEl = $('#finance-v3-alerts');
+    if (alertEl) alertEl.innerHTML = (v3.alerts || []).length ? (v3.alerts || []).map((a) => `<div class="finance-alert-item ${esc(a.tone || 'neutral')}"><strong>${esc(a.title)}</strong><span>${esc(a.message)}</span></div>`).join('') : '<p class="muted-text">Sem alertas críticos para este período.</p>';
+
+    const executiveEl = $('#finance-v3-executive');
+    if (executiveEl) executiveEl.innerHTML = [
+      ['Receita mês', money(executive.revenueMonthCents), 'Operação'],
+      ['Lucro mês', money(executive.profitMonthCents), 'Financeiro'],
+      ['Meta mês', `${executive.targetProgressPercent || 0}%`, `${money(executive.targetMonthCents)} de meta`],
+      ['Agenda ocupada', `${franchise.agendaOccupancyPercent || 0}%`, 'Operação'],
+      ['Pacotes ativos', franchise.activePackages || 0, 'Comercial'],
+      ['Clientes recorrentes', `${franchise.recurrencePercent || 0}%`, 'Comercial'],
+      ['Inadimplência', money(executive.overdueCents), `${executive.overdueCount || 0} pendência(s)`],
+      ['Receita projetada 12M', money(executive.projected12mCents), 'Expansão']
+    ].map(([label, value, hint]) => `<article class="big-number-card"><span>${label}</span><strong>${value}</strong><small>${hint}</small></article>`).join('');
+  }
+
+  function renderFinanceV2() {
+    const v2 = state.financeV2 || {};
+    const commissions = v2.commissions || [];
+    const reconciliation = v2.reconciliation || [];
+    const services = v2.serviceRevenue || [];
+    const margins = v2.serviceMargins || [];
+    const v2Alerts = v2.alerts || [];
+
+    const commissionsEl = $('#finance-commissions-list');
+    if (commissionsEl) commissionsEl.innerHTML = commissions.length ? commissions.map((item) => `
+      <tr>
+        <td><strong>${esc(item.collaborator_name || 'Colaborador')}</strong><small>Comissão operacional</small></td>
+        <td>${Number(item.services_count || 0)}</td>
+        <td><strong>${money(item.gross_cents)}</strong></td>
+        <td><span class="status-pill status-info">${Number(item.avg_commission_percent || 0)}%</span></td>
+        <td><strong class="finance-value positive">${money(item.commission_cents)}</strong></td>
+      </tr>
+    `).join('') : '<tr><td colspan="5"><div class="empty-state"><strong>Sem comissões no período.</strong><p>Vincule colaboradores aos agendamentos para calcular automaticamente.</p></div></td></tr>';
+
+    const reconciliationEl = $('#finance-reconciliation-list');
+    if (reconciliationEl) reconciliationEl.innerHTML = reconciliation.length ? reconciliation.map((item) => {
+      const status = item.reconciliation_status || 'Pendente';
+      const tone = status === 'Conciliado' ? 'success' : (status === 'Divergente' ? 'danger' : 'warning');
+      return `<tr>
+        <td>${dateBR(item.due_date)}</td>
+        <td><strong>${esc(item.tutor_name || 'Sem tutor')}</strong><small>${esc(item.pet_name || '—')}</small></td>
+        <td>${esc(item.description || 'Lançamento')}</td>
+        <td>${esc(item.method || 'Sem forma')}</td>
+        <td>${money(item.expected_cents)}</td>
+        <td>${money(item.received_cents)}</td>
+        <td><strong class="finance-value ${Number(item.difference_cents || 0) === 0 ? 'positive' : 'negative'}">${money(Math.abs(Number(item.difference_cents || 0)))}</strong></td>
+        <td><span class="status-pill status-${tone}">${esc(status)}</span></td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="8"><div class="empty-state"><strong>Sem itens para conciliar.</strong><p>Os pagamentos aparecerão aqui quando houver lançamentos e baixas.</p></div></td></tr>';
+
+    const serviceEl = $('#finance-service-revenue');
+    if (serviceEl) serviceEl.innerHTML = services.length ? services.map((item) => `
+      <div class="finance-v2-metric"><span><strong>${esc(item.service_name)}</strong><small>${esc(item.category_name || 'Sem categoria')} · ${Number(item.quantity || 0)} atendimento(s) · Ticket ${money(item.ticket_cents)}</small></span><b>${money(item.revenue_cents)}</b></div>
+    `).join('') : '<p class="muted-text">Sem receita por serviço no período.</p>';
+
+    const marginEl = $('#finance-service-margin');
+    if (marginEl) marginEl.innerHTML = margins.length ? margins.map((item) => {
+      const cls = Number(item.margin_percent || 0) < 40 ? 'finance-v2-warning' : 'finance-v2-ok';
+      return `<div class="finance-v2-metric ${cls}"><span><strong>${esc(item.service_name)}</strong><small>Custo estimado ${money(item.cost_cents)} · margem ${money(item.margin_cents)}</small></span><b>${Number(item.margin_percent || 0)}%</b></div>`;
+    }).join('') : '<p class="muted-text">Sem margem calculada no período.</p>';
+
+    const alertBox = $('#finance-alerts');
+    if (alertBox && v2Alerts.length) {
+      const current = alertBox.innerHTML || '';
+      alertBox.innerHTML = current + v2Alerts.map((a) => `<div class="finance-alert-item ${esc(a.tone || 'neutral')}"><strong>${esc(a.title)}</strong><span>${esc(a.message)}</span></div>`).join('');
+    }
+  }
+
+  function openFinanceExport(format) {
+    const params = buildPeriodParams();
+    const path = format === 'pdf' ? '/api/financeiro/export.pdf' : '/api/financeiro/export.csv';
+    window.open(`${path}?${params}`, '_blank', 'noopener');
   }
 
   async function loadTransactions({ reset = true } = {}) {
@@ -304,21 +508,29 @@
 
   function renderSummary() {
     const s = state.summary?.summary || {};
+    const incomeDue = Number(s.income_due_period_cents || 0);
+    const expenseDue = Number(s.expense_due_period_cents || 0);
     $('#finance-metrics').innerHTML = [
-      [`Entradas do período`, money(s.pending_income_cents + s.paid_income_today_cents), state.summary?.period?.label || 'mês selecionado'],
-      ['A receber', money(s.pending_income_cents), `${s.pending_income_count || 0} pendência(s)`],
-      ['Vencidos', money(s.overdue_income_cents), `${s.overdue_income_count || 0} cobrança(s)`],
-      ['A pagar', money(s.pending_expense_cents), `${s.pending_expense_count || 0} conta(s)`]
+      ['Receitas', money(incomeDue), 'Previstas por vencimento'],
+      ['Despesas', money(expenseDue), 'Contas por vencimento'],
+      ['Lucro estimado', money(s.estimated_profit_cents), 'Receitas menos despesas'],
+      ['Em aberto', money((s.pending_income_cents || 0) + (s.pending_expense_cents || 0)), `${(s.pending_income_count || 0) + (s.pending_expense_count || 0)} pendência(s)`],
+      ['Em atraso', money(s.overdue_income_cents), `${s.overdue_income_count || 0} cobrança(s)`],
+      ['Pago', `${s.payment_rate_percent || 0}%`, 'Taxa de pagamento do período']
     ].map(([label, value, hint]) => `<article class="big-number-card"><span>${label}</span><strong>${value}</strong><small>${hint}</small></article>`).join('');
 
-    const max = Math.max(1, ...((state.summary?.flow || []).flatMap((d) => [d.income_cents, d.expense_cents])));
+    const max = Math.max(1, ...((state.summary?.flow || []).flatMap((d) => [d.income_cents, d.expense_cents, d.received_cents, d.projected_cents])));
     $('#finance-flow').innerHTML = (state.summary?.flow || []).map((d) => `
-      <div class="finance-bar-row"><span>${esc(d.label)}</span><div class="finance-bar-track"><i style="width:${Math.max(4, (d.income_cents / max) * 100)}%"></i><b style="width:${Math.max(4, (d.expense_cents / max) * 100)}%"></b></div><small>${money(d.income_cents)} / ${money(d.expense_cents)}</small></div>
+      <div class="finance-bar-row"><span>${esc(d.label)}</span><div class="finance-bar-track"><i title="Entradas" style="width:${Math.max(4, (d.income_cents / max) * 100)}%"></i><b title="Saídas" style="width:${Math.max(4, (d.expense_cents / max) * 100)}%"></b></div><small>${money(d.income_cents)} / ${money(d.expense_cents)}</small></div>
     `).join('') || '<p>Sem movimentação recente.</p>';
 
     $('#finance-categories').innerHTML = (state.summary?.byCategory || []).map((c) => `
       <div class="finance-category-pill ${esc(c.type)}"><strong>${esc(c.category)}</strong><span>${esc(typeLabel[c.type] || c.type)} · ${c.count}</span><b>${money(c.total_cents)}</b></div>
     `).join('') || '<p>Nenhuma categoria encontrada.</p>';
+
+    $('#finance-receipts-today').innerHTML = (state.summary?.receiptsToday || []).map((r) => `<div class="finance-mini-item"><span>${esc(r.method)}</span><strong>${money(r.total_cents)}</strong><small>${r.count} recebimento(s)</small></div>`).join('') || '<p class="muted-text">Nenhum recebimento registrado hoje.</p>';
+    $('#finance-upcoming').innerHTML = (state.summary?.upcoming || []).map((item) => `<div class="finance-mini-item"><span>${dateBR(item.dueDate)} · ${esc(item.description || 'Lançamento')}</span><strong>${money(item.amountCents)}</strong><small>${esc(item.tutorName || item.category || 'Sem tutor')}</small></div>`).join('') || '<p class="muted-text">Nenhum vencimento nos próximos 7 dias.</p>';
+    $('#finance-alerts').innerHTML = (state.summary?.alerts || []).map((a) => `<div class="finance-alert-item ${esc(a.tone || 'neutral')}"><strong>${esc(a.title)}</strong><span>${esc(a.message)}</span></div>`).join('') || '<p class="muted-text">Nenhum alerta crítico no momento.</p>';
   }
 
   function renderTransactions() {
@@ -357,13 +569,20 @@
     document.querySelectorAll('[data-finance-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.financeTab === state.activeTab));
     $('#transactions-card').hidden = state.activeTab !== 'lancamentos';
     $('#defaulters-card').hidden = state.activeTab !== 'inadimplentes';
+    $('#commissions-card').hidden = state.activeTab !== 'comissoes';
+    $('#reconciliation-card').hidden = state.activeTab !== 'conciliacao';
+    $('#services-card').hidden = state.activeTab !== 'servicos';
+    $('#projection-card').hidden = state.activeTab !== 'projecao';
+    $('#cash-forecast-card').hidden = state.activeTab !== 'caixa-futuro';
+    $('#franchise-card').hidden = state.activeTab !== 'indicadores';
+    $('#executive-card').hidden = state.activeTab !== 'executivo';
   }
 
   async function refreshAll() {
     showLoading('Carregando financeiro...', 'Consolidando caixa, pendências e baixas do PetFunny.');
     try {
       await loadOptions();
-      await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]);
+      await Promise.all([loadSummary(), loadFinanceV2(), loadFinanceV3(), loadTransactions({ reset: true }), loadDefaulters()]);
       window.dispatchEvent(new Event('petfunny:page-ready'));
     } catch (error) { showToast(error.message || 'Erro ao carregar financeiro.', 'error'); }
     finally { hideLoading(); }
@@ -417,7 +636,7 @@
       showLoading('Excluindo lançamento...', 'Atualizando financeiro e inadimplentes.');
       await api.delete(`/financeiro/transactions/${id}`);
       showToast('Lançamento excluído com sucesso.');
-      await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]);
+      await Promise.all([loadSummary(), loadFinanceV2(), loadFinanceV3(), loadTransactions({ reset: true }), loadDefaulters()]);
     } catch (error) { showToast(error.message || 'Erro ao excluir lançamento.', 'error'); }
     finally { hideLoading(); }
   }
@@ -433,6 +652,8 @@
   $('#new-transaction').addEventListener('click', () => openTransactionModal());
   $('#new-transaction-list')?.addEventListener('click', () => openTransactionModal());
   $('#refresh-finance').addEventListener('click', refreshAll);
+  $('#export-finance-csv')?.addEventListener('click', () => openFinanceExport('csv'));
+  $('#export-finance-pdf')?.addEventListener('click', () => openFinanceExport('pdf'));
   document.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', closeTransactionModal));
   document.querySelectorAll('[data-close-pay]').forEach((b) => b.addEventListener('click', closePayModal));
   document.querySelectorAll('[data-close-message]').forEach((b) => b.addEventListener('click', closeMessageModal));
@@ -441,14 +662,27 @@
   document.querySelectorAll('[data-finance-tab]').forEach((button) => button.addEventListener('click', async () => {
     state.activeTab = button.dataset.financeTab;
     const url = new URL(window.location.href);
-    if (state.activeTab === 'inadimplentes') url.searchParams.set('tab', 'inadimplentes'); else url.searchParams.delete('tab');
+    if (state.activeTab && state.activeTab !== 'lancamentos') url.searchParams.set('tab', state.activeTab); else url.searchParams.delete('tab');
     window.history.replaceState({}, '', url);
     applyFinanceTab();
     if (state.activeTab === 'inadimplentes') await loadDefaulters();
+    if (['comissoes','conciliacao','servicos'].includes(state.activeTab) && !state.financeV2) await loadFinanceV2();
+    if (['projecao','caixa-futuro','indicadores','executivo'].includes(state.activeTab) && !state.financeV3) await loadFinanceV3();
+  }));
+  document.querySelectorAll('[data-finance-filter-shortcut]').forEach((button) => button.addEventListener('click', async () => {
+    const shortcut = button.dataset.financeFilterShortcut;
+    state.activeTab = 'lancamentos';
+    if (shortcut === 'income') { state.filters.type = 'income'; state.filters.status = 'all'; }
+    if (shortcut === 'expense') { state.filters.type = 'expense'; state.filters.status = 'all'; }
+    if (shortcut === 'pending') { state.filters.status = 'pending'; state.filters.type = 'all'; }
+    $('#filter-type').value = state.filters.type;
+    $('#filter-status').value = state.filters.status;
+    applyFinanceTab();
+    await loadTransactions({ reset: true });
   }));
   document.querySelectorAll('.finance-sort').forEach((btn) => btn.addEventListener('click', () => { const key = btn.dataset.sort; state.sortDir = state.sortBy === key && state.sortDir === 'asc' ? 'desc' : 'asc'; state.sortBy = key; renderTransactions(); }));
   document.querySelectorAll('.defaulter-sort').forEach((btn) => btn.addEventListener('click', () => { const key = btn.dataset.sort; state.defaulterSortDir = state.defaulterSortBy === key && state.defaulterSortDir === 'asc' ? 'desc' : 'asc'; state.defaulterSortBy = key; renderDefaulters(); }));
-  ['filter-search','filter-type','filter-status','filter-category','filter-period','filter-month','filter-start-date','filter-end-date'].forEach((id) => {
+  ['filter-search','filter-type','filter-status','filter-category','filter-period','filter-date-type','filter-month','filter-start-date','filter-end-date'].forEach((id) => {
     $(`#${id}`).addEventListener('input', async () => {
       state.filters = {
         search: $('#filter-search').value,
@@ -458,10 +692,11 @@
         period: $('#filter-period').value || 'month',
         month: $('#filter-month').value || currentMonth,
         startDate: $('#filter-start-date').value || firstDayOfMonth,
-        endDate: $('#filter-end-date').value || todayIso
+        endDate: $('#filter-end-date').value || todayIso,
+        dateType: $('#filter-date-type').value || 'due'
       };
       applyPeriodControlsVisibility();
-      await Promise.all([loadSummary(), loadTransactions({ reset: true })]);
+      await Promise.all([loadSummary(), loadFinanceV2(), loadFinanceV3(), loadTransactions({ reset: true })]);
     });
   });
 
@@ -486,7 +721,7 @@
         showToast('Lançamento criado com sucesso.');
       }
       closeTransactionModal();
-      await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]);
+      await Promise.all([loadSummary(), loadFinanceV2(), loadFinanceV3(), loadTransactions({ reset: true }), loadDefaulters()]);
     }
     catch (error) { showToast(error.message || 'Erro ao salvar lançamento.', 'error'); }
     finally { hideLoading(); }
@@ -495,7 +730,7 @@
   $('#pay-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-    try { showLoading('Baixando pagamento...', 'Registrando pagamento no caixa.'); await api.patch(`/financeiro/transactions/${data.id}/pay`, data); closePayModal(); showToast('Pagamento baixado com sucesso.'); await Promise.all([loadSummary(), loadTransactions({ reset: true }), loadDefaulters()]); }
+    try { showLoading('Baixando pagamento...', 'Registrando pagamento no caixa.'); await api.patch(`/financeiro/transactions/${data.id}/pay`, data); closePayModal(); showToast('Pagamento baixado com sucesso.'); await Promise.all([loadSummary(), loadFinanceV2(), loadFinanceV3(), loadTransactions({ reset: true }), loadDefaulters()]); }
     catch (error) { showToast(error.message || 'Erro ao baixar pagamento.', 'error'); }
     finally { hideLoading(); }
   });

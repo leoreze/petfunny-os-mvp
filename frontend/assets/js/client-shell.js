@@ -1,8 +1,8 @@
-import { getClientUser, clientLogout, requireClientFrontendAuth } from './client-auth.js';
+import { getClientUser, getClientToken, clientLogout, requireClientFrontendAuth } from './client-auth.js';
 import { finishPageLoading } from './loading.js';
 
 const navItems = [
-  { key: 'home', label: 'Timeline', icon: '✨', href: '/app/home', priority: 1 },
+  { key: 'home', label: 'Meu Pet', icon: '🐾', href: '/app/home', priority: 1 },
   { key: 'agenda', label: 'Agenda', icon: '📅', href: '/app/agenda', priority: 2 },
   { key: 'saude', label: 'Saúde 360', icon: '🩺', href: '/app/saude-360', priority: 3 },
   { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets', priority: 4 },
@@ -10,19 +10,23 @@ const navItems = [
 ];
 
 const overflowNavItems = [
+  { key: 'momentos', label: 'Momentos', icon: '📸', href: '/app/momentos', priority: 6 },
   { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta', priority: 6 },
   { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 6 },
+  { key: 'indique', label: 'Indique', icon: '🤝', href: '/app/indique', priority: 6 },
   { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes', priority: 7 },
   { key: 'bemestar', label: '360 IA', icon: '🧠', href: '/app/bem-estar', priority: 8 }
 ];
 
 const sectionHeroMeta = {
-  home: { icon: '✨', tag: 'Linha do tempo inteligente', actionLabel: 'Agendar pelo app', href: '/app/agenda' },
+  home: { icon: '🐾', tag: 'Diário digital do pet', actionLabel: 'Agendar cuidado', href: '/app/agenda' },
   agenda: { icon: '📅', tag: 'Novo cuidado em poucos toques', actionLabel: 'Ver meus pets', href: '/app/pets' },
   pets: { icon: '🐶', tag: 'Cadastro completo dos pets', actionLabel: 'Novo agendamento', href: '/app/agenda' },
   historico: { icon: '📄', tag: 'Tudo registrado com segurança', actionLabel: 'Ir para agenda', href: '/app/agenda' },
+  momentos: { icon: '📸', tag: 'Momentos do atendimento', actionLabel: 'Agendar próximo banho', href: '/app/agenda' },
   pacotes: { icon: '📦', tag: 'Recorrência sem complicação', actionLabel: 'Agendar horário', href: '/app/agenda' },
   mimos: { icon: '🎁', tag: 'Benefícios para tutores', actionLabel: 'Girar roleta', href: '/app/roleta' },
+  indique: { icon: '🤝', tag: 'Clube de indicação', actionLabel: 'Compartilhar convite', href: '/app/indique' },
   roleta: { icon: '🎁', tag: 'Mimos e recompensas', actionLabel: 'Ver agenda', href: '/app/agenda' },
   saude: { icon: '🩺', tag: 'Health 360 e teleconsulta', actionLabel: 'Meu pet está estranho', href: '/app/saude-360' },
   promocoes: { icon: '🏷️', tag: 'Condições especiais', actionLabel: 'Agendar com desconto', href: '/app/agenda' },
@@ -36,7 +40,9 @@ export function currentClientSection() {
   if (path.includes('/agenda')) return 'agenda';
   if (path.includes('/pets')) return 'pets';
   if (path.includes('/historico')) return 'historico';
+  if (path.includes('/momentos')) return 'momentos';
   if (path.includes('/pacotes')) return 'pacotes';
+  if (path.includes('/indique')) return 'indique';
   if (path.includes('/mimos')) return 'mimos';
   if (path.includes('/saude-360')) return 'saude';
   if (path.includes('/roleta')) return 'roleta';
@@ -80,6 +86,22 @@ export function shortDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleDateString('pt-BR');
+}
+
+
+function trackClientAccess(eventType = 'page_view', metadata = {}) {
+  try {
+    const token = getClientToken();
+    if (!token || window.__petfunnyLastAccessLog === `${eventType}:${window.location.pathname}`) return;
+    window.__petfunnyLastAccessLog = `${eventType}:${window.location.pathname}`;
+    fetch('/api/app/access-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ eventType, page: window.location.pathname, metadata }),
+      keepalive: true,
+      cache: 'no-store'
+    }).catch(() => {});
+  } catch {}
 }
 
 function applyClientInputMasks(scope = document) {
@@ -221,7 +243,9 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
       </nav>
     </main>
   `;
-  document.getElementById('client-logout')?.addEventListener('click', clientLogout);
+  document.getElementById('client-logout')?.addEventListener('click', () => { trackClientAccess('logout'); clientLogout(); });
+  const eventMap = { agenda: 'agenda_open', roleta: 'roleta_open', pacotes: 'packages_open', momentos: 'moments_open', saude: 'health360_open', home: 'page_view' };
+  trackClientAccess(eventMap[active] || 'page_view');
   setupClientBottomNavOverflow();
   applyClientInputMasks(document);
   window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 180));

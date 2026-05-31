@@ -7,6 +7,7 @@ const menuItems = [
   { label: 'Dashboard', icon: '📊', href: '/admin/dashboard', aliases: ['/dashboard', '/admin', '/admin/dashboard'] },
   { label: 'Agenda', icon: '📅', href: '/admin/agenda', aliases: ['/agenda', '/admin/agenda'] },
   { label: 'Tutores', icon: '👥', href: '/admin/tutores', aliases: ['/tutores', '/admin/tutores'] },
+  { label: 'Acessos do App', icon: '📲', href: '/admin/app-acessos', aliases: ['/app-acessos', '/admin/app-acessos'] },
   { label: 'Pets', icon: '🐾', href: '/admin/pets', aliases: ['/pets', '/admin/pets'] },
   { label: 'Serviços', icon: '✂️', href: '/admin/servicos', aliases: ['/servicos', '/admin/servicos'] },
   { label: 'Pacotes', icon: '🎁', href: '/admin/pacotes', aliases: ['/pacotes', '/admin/pacotes'] },

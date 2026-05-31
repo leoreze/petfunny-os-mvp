@@ -396,6 +396,35 @@ async function requireClientAuth(req, res, next) {
 }
 
 
+async function logClientAppAccess(req, { tutorId, phone, eventType = 'page_view', page = '', metadata = {} } = {}) {
+  try {
+    if (!tutorId && !phone) return;
+    await query(`
+      INSERT INTO app_access_logs (tutor_id, phone, event_type, page, user_agent, ip_address, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+    `, [
+      tutorId || null,
+      phone || null,
+      cleanText(eventType) || 'page_view',
+      cleanText(page).slice(0, 180) || null,
+      String(req.headers['user-agent'] || '').slice(0, 500),
+      String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim().slice(0, 80),
+      JSON.stringify(metadata || {})
+    ]);
+  } catch (error) {
+    console.warn('[app-access-log] registro ignorado:', error.message);
+  }
+}
+
+function appAccessStatus(lastAccessAt) {
+  if (!lastAccessAt) return { code: 'never', label: 'Nunca acessou', tone: 'muted' };
+  const days = Math.max(0, Math.floor((Date.now() - new Date(lastAccessAt).getTime()) / 86400000));
+  if (days === 0) return { code: 'today', label: 'Acessou hoje', tone: 'success' };
+  if (days <= 6) return { code: 'active', label: 'Ativo', tone: 'ok' };
+  if (days <= 29) return { code: 'inactive_7', label: 'Inativo 7 dias', tone: 'warning' };
+  return { code: 'inactive_30', label: 'Inativo 30 dias', tone: 'danger' };
+}
+
 function getPushConfigStatus() {
   const missing = [];
   if (!env.vapidPublicKey) missing.push('VAPID_PUBLIC_KEY');
@@ -2770,6 +2799,7 @@ app.post('/api/app/login', async (req, res, next) => {
     if (!passwordOk) return res.status(401).json({ error: 'WhatsApp ou senha inválidos.' });
 
     await query('UPDATE client_accounts SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1', [account.id]);
+    await logClientAppAccess(req, { tutorId: account.tutor_id, phone: whatsapp, eventType: 'login', page: '/app/login', metadata: { source: 'password_login' } });
 
     const token = jwt.sign(
       { sub: account.id, tutorId: account.tutor_id, scope: 'client_app', channel: 'whatsapp', tenant: false },
@@ -2855,6 +2885,7 @@ app.post('/api/app/demo-login', async (req, res, next) => {
     }
 
     await query('UPDATE client_accounts SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1', [accountResult.rows[0].id]);
+    await logClientAppAccess(req, { tutorId: tutor.id, phone: whatsapp, eventType: 'login', page: '/app/demo-login', metadata: { source: 'demo_login' } });
 
     const token = jwt.sign(
       { sub: accountResult.rows[0].id, tutorId: tutor.id, scope: 'client_app', channel: 'whatsapp', tenant: false },
@@ -2878,6 +2909,119 @@ app.post('/api/app/demo-login', async (req, res, next) => {
 app.get('/api/app/me', requireClientAuth, async (req, res) => {
   res.json(req.clientApp);
 });
+
+
+app.post('/api/app/access-log', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutor = req.clientApp?.tutor || {};
+    const eventType = cleanText(req.body?.eventType || req.body?.event_type || 'page_view');
+    const page = cleanText(req.body?.page || req.body?.path || req.get('referer') || '');
+    const allowed = new Set(['page_view','timeline_open','agenda_open','roleta_open','packages_open','payment_attempt','payment_completed','profile_update','pet_update','media_view','referral_open','moments_open','health360_open','logout','login']);
+    await logClientAppAccess(req, {
+      tutorId: tutor.id,
+      phone: tutor.whatsapp || req.clientApp?.account?.whatsapp,
+      eventType: allowed.has(eventType) ? eventType : 'page_view',
+      page,
+      metadata: req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}
+    });
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app-access/tutors', requireAuth, async (req, res, next) => {
+  try {
+    const status = cleanText(req.query.status || 'all');
+    const search = cleanText(req.query.search || '');
+    const limit = parseLimit(req.query.limit, 100);
+    const offset = parseOffset(req.query.page, limit);
+    const params = [];
+    let where = 'WHERE t.deleted_at IS NULL';
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      where += ` AND (LOWER(t.name) LIKE $${params.length} OR regexp_replace(COALESCE(t.whatsapp,''), '[^0-9]', '', 'g') LIKE regexp_replace($${params.length}, '[^0-9]', '', 'g'))`;
+    }
+    const base = `
+      WITH access AS (
+        SELECT tutor_id,
+               MIN(created_at) AS first_access_at,
+               MAX(created_at) AS last_access_at,
+               COUNT(*)::int AS total_accesses,
+               (ARRAY_AGG(event_type ORDER BY created_at DESC))[1] AS last_event_type,
+               (ARRAY_AGG(page ORDER BY created_at DESC))[1] AS last_page
+        FROM app_access_logs
+        WHERE tutor_id IS NOT NULL
+        GROUP BY tutor_id
+      ), pet_counts AS (
+        SELECT tutor_id, COUNT(*)::int AS pets_count
+        FROM pets
+        WHERE deleted_at IS NULL
+        GROUP BY tutor_id
+      )
+      SELECT t.id, t.name, t.whatsapp, COALESCE(pc.pets_count,0)::int AS pets_count,
+             a.first_access_at, a.last_access_at, COALESCE(a.total_accesses,0)::int AS total_accesses,
+             a.last_event_type, a.last_page
+      FROM tutors t
+      LEFT JOIN access a ON a.tutor_id = t.id
+      LEFT JOIN pet_counts pc ON pc.tutor_id = t.id
+      ${where}
+    `;
+    const allRows = await query(base, params);
+    const filtered = allRows.rows.filter((row) => {
+      const st = appAccessStatus(row.last_access_at).code;
+      return status === 'all' || st === status;
+    });
+    const pageItems = filtered.slice(offset, offset + limit).map((row) => ({
+      id: row.id,
+      tutorId: row.id,
+      name: row.name,
+      whatsapp: row.whatsapp,
+      petsCount: Number(row.pets_count || 0),
+      firstAccessAt: row.first_access_at,
+      lastAccessAt: row.last_access_at,
+      totalAccesses: Number(row.total_accesses || 0),
+      lastEventType: row.last_event_type || null,
+      lastPage: row.last_page || null,
+      status: appAccessStatus(row.last_access_at)
+    }));
+    const summary = filtered.reduce((acc, row) => {
+      const code = appAccessStatus(row.last_access_at).code;
+      acc.total += 1;
+      acc[code] = (acc[code] || 0) + 1;
+      if (row.last_access_at) acc.withAccess += 1;
+      return acc;
+    }, { total: 0, withAccess: 0, never: 0, today: 0, active: 0, inactive_7: 0, inactive_30: 0 });
+    res.json({ items: pageItems, total: filtered.length, page: Number(req.query.page || 1), limit, summary });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app-access/tutors/:id', requireAuth, async (req, res, next) => {
+  try {
+    const tutorResult = await query('SELECT id, name, whatsapp FROM tutors WHERE id = $1 AND deleted_at IS NULL LIMIT 1', [req.params.id]);
+    if (!tutorResult.rows[0]) return res.status(404).json({ error: 'Tutor não encontrado.' });
+    const logs = await query(`
+      SELECT id, event_type, page, user_agent, ip_address, metadata, created_at
+      FROM app_access_logs
+      WHERE tutor_id = $1
+      ORDER BY created_at DESC
+      LIMIT 120
+    `, [req.params.id]);
+    const firstLast = await query(`
+      SELECT MIN(created_at) AS first_access_at, MAX(created_at) AS last_access_at, COUNT(*)::int AS total_accesses
+      FROM app_access_logs
+      WHERE tutor_id = $1
+    `, [req.params.id]);
+    const summary = firstLast.rows[0] || {};
+    res.json({
+      tutor: tutorResult.rows[0],
+      firstAccessAt: summary.first_access_at || null,
+      lastAccessAt: summary.last_access_at || null,
+      totalAccesses: Number(summary.total_accesses || 0),
+      status: appAccessStatus(summary.last_access_at),
+      items: logs.rows.map(row => ({ id: row.id, eventType: row.event_type, page: row.page, userAgent: row.user_agent, ipAddress: row.ip_address, metadata: row.metadata || {}, createdAt: row.created_at }))
+    });
+  } catch (error) { next(error); }
+});
+
 
 
 function appDocumentLinks(row = {}) {
@@ -3001,6 +3145,276 @@ async function safeClientSummaryQuery(label, sql, params = []) {
     console.warn(`[app:summary] ${label} indisponível:`, error.message);
     return { rows: [], rowCount: 0 };
   }
+}
+
+
+function normalizeCareText(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function buildLocalCareInsight({ pet = {}, lastAppointment = null, healthScore = null, lastTriage = null, activePackage = null } = {}) {
+  const petName = pet.name || 'Seu pet';
+  const breed = normalizeCareText(pet.breed);
+  const size = normalizeCareText(pet.size);
+  const coat = normalizeCareText(pet.coat_type || pet.coatType);
+  const species = normalizeCareText(pet.species || 'dog');
+  const daysWithoutAppointment = lastAppointment?.starts_at ? daysSince(lastAppointment.starts_at) : null;
+  const health = Number(healthScore?.score || 0);
+  const risk = normalizeCareText(lastTriage?.risk_level);
+  const signs = normalizeCareText(`${lastTriage?.summary || ''} ${lastTriage?.guidance || ''} ${lastTriage?.raw_result ? JSON.stringify(lastTriage.raw_result) : ''}`);
+
+  const insight = {
+    petId: pet.id,
+    title: 'Cuidado recomendado',
+    message: `${petName} está pronto para ter uma rotina de cuidados acompanhada pelo PetFunny. Mantenha banho, pelagem e Saúde 360 em dia para gerar histórico inteligente.`,
+    priority: 'normal',
+    ctaLabel: 'Agendar cuidado',
+    ctaAction: 'schedule',
+    url: '/app/agenda',
+    source: 'local_rules',
+    facts: []
+  };
+
+  if (breed) insight.facts.push(`Raça: ${pet.breed}`);
+  if (size) insight.facts.push(`Porte: ${pet.size}`);
+  if (coat) insight.facts.push(`Pelagem: ${pet.coat_type || pet.coatType}`);
+  if (activePackage) insight.facts.push(`Pacote ativo: ${activePackage.package_name || activePackage.name || 'PetFunny'}`);
+
+  if (risk === 'high' || signs.includes('emerg') || signs.includes('respirar') || signs.includes('convuls') || signs.includes('sangue')) {
+    return {
+      ...insight,
+      title: 'Atenção veterinária recomendada',
+      message: `${petName} possui sinais recentes no Saúde 360 que merecem avaliação profissional. A IA não diagnostica, mas recomenda orientação veterinária para decidir o próximo passo com segurança.`,
+      priority: 'high',
+      ctaLabel: 'Agendar teleconsulta',
+      ctaAction: 'teleconsultation',
+      url: '/app/saude-360'
+    };
+  }
+  if (risk === 'medium' || (health > 0 && health < 75)) {
+    return {
+      ...insight,
+      title: 'Saúde 360 pede acompanhamento',
+      message: `${petName} teve uma leitura preventiva que merece observação. Registre evolução nos próximos dias e considere uma teleconsulta se os sinais persistirem.`,
+      priority: 'attention',
+      ctaLabel: 'Ver Saúde 360',
+      ctaAction: 'health360',
+      url: '/app/saude-360'
+    };
+  }
+
+  if (coat.includes('long') || coat.includes('longo') || coat.includes('médio') || coat.includes('medio') || breed.includes('shih') || breed.includes('lhasa') || breed.includes('poodle') || breed.includes('spitz') || breed.includes('york')) {
+    return {
+      ...insight,
+      title: 'Pelagem pede rotina preventiva',
+      message: `${petName} tem perfil de pelagem que costuma precisar de escovação frequente, banho regular e atenção a nós, pele e orelhas. Uma rotina quinzenal ou semanal ajuda a evitar desconfortos.`,
+      priority: 'normal',
+      ctaLabel: 'Agendar banho/tosa',
+      ctaAction: 'grooming',
+      url: '/app/agenda'
+    };
+  }
+
+  if (daysWithoutAppointment !== null && daysWithoutAppointment >= 30) {
+    return {
+      ...insight,
+      title: 'Hora de retomar os cuidados',
+      message: `${petName} está há ${daysWithoutAppointment} dias sem atendimento registrado. Agendar banho, tosa ou hidratação ajuda a manter higiene, conforto e histórico do cuidado em dia.`,
+      priority: daysWithoutAppointment >= 45 ? 'attention' : 'normal',
+      ctaLabel: 'Agendar banho',
+      ctaAction: 'bath',
+      url: '/app/agenda'
+    };
+  }
+
+  if (activePackage) {
+    return {
+      ...insight,
+      title: 'Rotina protegida pelo pacote',
+      message: `${petName} possui pacote ativo. Continue usando as sessões para manter recorrência, previsibilidade e acompanhamento pelo App do Tutor.`,
+      priority: 'normal',
+      ctaLabel: 'Ver pacote',
+      ctaAction: 'package',
+      url: '/app/pacotes'
+    };
+  }
+
+  if (species.includes('cat') || species.includes('gato')) {
+    return {
+      ...insight,
+      title: 'Cuidado gentil para gatos',
+      message: `${petName} pode se beneficiar de uma rotina tranquila, com avaliação de pele, pelagem, unhas e comportamento. Registre observações no Saúde 360 para acompanhar mudanças.`,
+      priority: 'normal',
+      ctaLabel: 'Ver Saúde 360',
+      ctaAction: 'health360',
+      url: '/app/saude-360'
+    };
+  }
+
+  return insight;
+}
+
+async function getPetCareInsightForClient(petId, tutorId) {
+  const pet = await getPetAccessForClient(petId, tutorId);
+  if (!pet) return null;
+  const [lastAppointment, activePackage, lastScore, lastTriage] = await Promise.all([
+    query(`SELECT * FROM appointments WHERE tutor_id=$1::uuid AND pet_id=$2::uuid AND deleted_at IS NULL ORDER BY starts_at DESC NULLS LAST, created_at DESC LIMIT 1`, [tutorId, pet.id]).catch(() => ({ rows: [] })),
+    query(`SELECT cp.*, pk.name AS package_name FROM customer_packages cp LEFT JOIN packages pk ON pk.id=cp.package_id WHERE cp.tutor_id=$1::uuid AND cp.pet_id=$2::uuid AND cp.deleted_at IS NULL AND cp.status='active' ORDER BY cp.created_at DESC LIMIT 1`, [tutorId, pet.id]).catch(() => ({ rows: [] })),
+    query(`SELECT * FROM pet_health_scores WHERE tutor_id=$1::uuid AND pet_id=$2::uuid AND deleted_at IS NULL ORDER BY calculated_at DESC, created_at DESC LIMIT 1`, [tutorId, pet.id]).catch(() => ({ rows: [] })),
+    query(`SELECT * FROM pet_health_triages WHERE tutor_id=$1::uuid AND pet_id=$2::uuid AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`, [tutorId, pet.id]).catch(() => ({ rows: [] }))
+  ]);
+  return buildLocalCareInsight({
+    pet,
+    lastAppointment: lastAppointment.rows[0] || null,
+    activePackage: activePackage.rows[0] || null,
+    healthScore: lastScore.rows[0] || null,
+    lastTriage: lastTriage.rows[0] || null
+  });
+}
+
+
+const REWARD_RULES = {
+  appointment_created_app: 2,
+  appointment_completed: 3,
+  package_purchased: 8,
+  review_submitted: 2,
+  referral_created: 5,
+  referral_converted: 15,
+  share_media: 1
+};
+
+function engagementLevelFromPoints(points = 0) {
+  const p = Number(points || 0);
+  if (p >= 80) return 'ouro';
+  if (p >= 40) return 'vip';
+  if (p >= 15) return 'recorrente';
+  return 'inicial';
+}
+
+function engagementLevelLabel(level = 'inicial') {
+  return ({ inicial: 'Cliente PetFunny', recorrente: 'Cliente Recorrente', vip: 'Cliente VIP', ouro: 'Cliente Ouro' }[level] || 'Cliente PetFunny');
+}
+
+function daysSince(dateValue) {
+  if (!dateValue) return null;
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+}
+
+function computeTutorEngagementStatus({ totalAppointments = 0, lastAppointmentAt = null, activePackages = 0, points = 0, createdAt = null } = {}) {
+  const total = Number(totalAppointments || 0);
+  const days = daysSince(lastAppointmentAt);
+  if (!total) return { code: 'novo_lead', label: 'Novo lead', tone: 'info', message: 'Ainda não agendou pelo PetFunny.' };
+  if (days !== null && days > 90) return { code: 'em_risco_cancelamento', label: 'Em risco de cancelamento', tone: 'danger', message: `${days} dias sem agendar.` };
+  if (days !== null && days > 45) return { code: 'em_atencao', label: 'Em atenção', tone: 'warning', message: `${days} dias sem agendar.` };
+  if (Number(points || 0) >= 80 || (activePackages > 0 && total >= 8 && days <= 45)) return { code: 'cliente_ouro', label: 'Cliente Ouro', tone: 'success', message: 'Alta recorrência e vínculo com a PetFunny.' };
+  if (Number(points || 0) >= 40 || (activePackages > 0 && total >= 4)) return { code: 'cliente_vip', label: 'Cliente VIP', tone: 'success', message: 'Pacote ativo e rotina de cuidados.' };
+  if (activePackages > 0 || total >= 2) return { code: 'cliente_recorrente', label: 'Cliente Recorrente', tone: 'success', message: 'Mantém rotina de cuidados.' };
+  return { code: 'ativo', label: 'Cliente Ativo', tone: 'info', message: 'Já teve atendimento PetFunny.' };
+}
+
+function rewardNextGoal(points = 0) {
+  const p = Number(points || 0);
+  const goals = [
+    { points: 10, label: 'brinde surpresa' },
+    { points: 20, label: 'hidratação especial' },
+    { points: 40, label: 'benefício VIP PetFunny' },
+    { points: 80, label: 'status Cliente Ouro' }
+  ];
+  const next = goals.find((g) => p < g.points) || { points: p + 20, label: 'novo mimo PetFunny' };
+  return { target: next.points, label: next.label, remaining: Math.max(0, next.points - p), progressPercent: Math.min(100, Math.round((p / next.points) * 100)) };
+}
+
+async function ensureTutorRewards(tutorId) {
+  const result = await query(`
+    INSERT INTO tutor_rewards (tutor_id, points_balance, level)
+    VALUES ($1::uuid, 0, 'inicial')
+    ON CONFLICT (tutor_id) DO UPDATE SET updated_at = tutor_rewards.updated_at
+    RETURNING *
+  `, [tutorId]);
+  return result.rows[0] || null;
+}
+
+async function getTutorRewardsSummary(tutorId) {
+  try {
+    const reward = await ensureTutorRewards(tutorId);
+    const points = Number(reward?.points_balance || 0);
+    const level = engagementLevelFromPoints(points);
+    if (reward && reward.level !== level) {
+      await query(`UPDATE tutor_rewards SET level=$2::text, updated_at=NOW() WHERE tutor_id=$1::uuid`, [tutorId, level]).catch(() => null);
+    }
+    const events = await query(`
+      SELECT id, event_type, points, description, pet_id, appointment_id, customer_package_id, metadata, created_at
+      FROM tutor_reward_events
+      WHERE tutor_id=$1::uuid
+      ORDER BY created_at DESC
+      LIMIT 12
+    `, [tutorId]).catch(() => ({ rows: [] }));
+    return { pointsBalance: points, level, levelLabel: engagementLevelLabel(level), nextGoal: rewardNextGoal(points), events: events.rows.map((row) => ({ id: row.id, type: row.event_type, points: Number(row.points || 0), description: row.description || '', createdAt: row.created_at })) };
+  } catch (error) {
+    console.warn('[rewards] resumo indisponível:', error.message);
+    return { pointsBalance: 0, level: 'inicial', levelLabel: 'Cliente PetFunny', nextGoal: rewardNextGoal(0), events: [] };
+  }
+}
+
+async function awardTutorPoints({ tutorId, petId = null, appointmentId = null, customerPackageId = null, eventType, points = null, description = '', metadata = {} }) {
+  const value = Number(points ?? REWARD_RULES[eventType] ?? 0);
+  if (!tutorId || !eventType || !value) return null;
+  await ensureTutorRewards(tutorId);
+  const result = await query(`
+    INSERT INTO tutor_reward_events (tutor_id, pet_id, appointment_id, customer_package_id, event_type, points, description, metadata)
+    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::int, $7::text, $8::jsonb)
+    ON CONFLICT DO NOTHING
+    RETURNING *
+  `, [tutorId, petId || null, appointmentId || null, customerPackageId || null, eventType, value, description || '', JSON.stringify(metadata || {})]);
+  if (result.rowCount) {
+    await query(`UPDATE tutor_rewards SET points_balance = points_balance + $2::int, level = $3::text, updated_at = NOW() WHERE tutor_id=$1::uuid`, [tutorId, value, engagementLevelFromPoints(value)]).catch(() => null);
+  }
+  return result.rows[0] || null;
+}
+
+async function buildClientEngagementSummary(tutorId, base = {}) {
+  const rewards = await getTutorRewardsSummary(tutorId);
+  const appointmentStats = await query(`
+    SELECT COUNT(*)::int AS total_appointments,
+           MAX(starts_at) FILTER (WHERE starts_at <= NOW()) AS last_appointment_at,
+           COUNT(*) FILTER (WHERE starts_at >= NOW() AND deleted_at IS NULL)::int AS upcoming_count,
+           COALESCE(AVG(NULLIF(total_cents,0)),0)::int AS avg_ticket_cents
+    FROM appointments
+    WHERE tutor_id=$1::uuid AND deleted_at IS NULL
+  `, [tutorId]).catch(() => ({ rows: [{}] }));
+  const pkgStats = await query(`
+    SELECT COUNT(*) FILTER (WHERE status='active' AND deleted_at IS NULL)::int AS active_packages
+    FROM customer_packages WHERE tutor_id=$1::uuid
+  `, [tutorId]).catch(() => ({ rows: [{}] }));
+  const stats = { ...(appointmentStats.rows[0] || {}), ...(pkgStats.rows[0] || {}) };
+  const customerStatus = computeTutorEngagementStatus({
+    totalAppointments: stats.total_appointments,
+    lastAppointmentAt: stats.last_appointment_at,
+    activePackages: stats.active_packages,
+    points: rewards.pointsBalance,
+    createdAt: base?.tutor?.created_at
+  });
+  const activePet = base?.pets?.[0] || null;
+  return {
+    tutor: base?.tutor || null,
+    activePet,
+    customerStatus,
+    rewards,
+    metrics: {
+      totalAppointments: Number(stats.total_appointments || 0),
+      lastAppointmentAt: stats.last_appointment_at || null,
+      daysWithoutAppointment: daysSince(stats.last_appointment_at),
+      activePackages: Number(stats.active_packages || 0),
+      upcomingAppointments: Number(stats.upcoming_count || 0),
+      avgTicketCents: Number(stats.avg_ticket_cents || 0)
+    },
+    whatsapp: {
+      label: 'Falar com a PetFunny',
+      url: 'https://wa.me/5516981535338?text=' + encodeURIComponent('Oi, PetFunny! Vim pelo app e quero cuidar do meu pet 🐶')
+    }
+  };
 }
 
 app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
@@ -3164,6 +3578,29 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
 
     const nextAppointment = appointmentsResult.rows[0] ? sanitizeClientAppointment(appointmentsResult.rows[0]) : null;
     const activePackages = packagesResult.rows.filter((row) => row.status === 'active');
+    const sanitizedPets = petsResult.rows.map(sanitizeClientPet);
+    const rewards = await getTutorRewardsSummary(tutorId);
+    const engagement = await buildClientEngagementSummary(tutorId, { tutor: req.clientApp.tutor, pets: sanitizedPets });
+    const activePetForInsight = engagement.activePet || sanitizedPets[0] || null;
+    const careInsight = activePetForInsight?.id ? await getPetCareInsightForClient(activePetForInsight.id, tutorId).catch(() => null) : null;
+    const mediaPreviewResult = await safeClientSummaryQuery('appointment media preview', `
+      SELECT am.id, am.appointment_id, am.pet_id, am.media_type, am.url, am.caption, am.created_at,
+             p.name AS pet_name, a.starts_at, COALESCE(string_agg(DISTINCT ai.description, ', '), '') AS services
+      FROM appointment_media am
+      LEFT JOIN pets p ON p.id = am.pet_id
+      LEFT JOIN appointments a ON a.id = am.appointment_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
+      WHERE am.tutor_id = $1::uuid
+        AND am.deleted_at IS NULL
+      GROUP BY am.id, p.name, a.starts_at
+      ORDER BY am.created_at DESC
+      LIMIT 8
+    `, [tutorId]);
+    const mediaPreview = mediaPreviewResult.rows.map((row) => ({
+      id: row.id, appointmentId: row.appointment_id, petId: row.pet_id, petName: row.pet_name || 'Pet',
+      mediaType: row.media_type || 'photo', url: row.url, caption: row.caption || '', createdAt: row.created_at,
+      startsAt: row.starts_at, services: row.services || ''
+    }));
     res.json({
       ok: true,
       tutor: req.clientApp.tutor,
@@ -3176,10 +3613,15 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
         history: historyResult.rows.length
       },
       nextAppointment,
-      pets: petsResult.rows.map(sanitizeClientPet),
+      pets: sanitizedPets,
       upcomingAppointments: appointmentsResult.rows.map(sanitizeClientAppointment),
       history: historyResult.rows.map(sanitizeClientAppointment),
       packages: packagesResult.rows.map(sanitizeClientPackage),
+      rewards,
+      engagement,
+      careInsight,
+      mediaPreview,
+      referral: await getTutorReferralSummary(tutorId, req.clientApp.tutor?.name || 'Tutor PetFunny'),
       timelineEvents: [...timelineResult.rows.map(makeClientAppointmentTimelineEvent), ...wellbeingEvents, ...healthEvents, ...teleEvents],
       health360Timeline: [...healthEvents, ...teleEvents]
     });
@@ -3190,6 +3632,210 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
 
 
 
+app.get('/api/app/engagement/summary', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petsResult = await safeClientSummaryQuery('engagement pets', `
+      SELECT id, name, photo_url, species, breed, size, coat_type, birth_date, weight_kg, preferences, restrictions, notes, status
+      FROM pets
+      WHERE tutor_id = $1::uuid AND deleted_at IS NULL
+      ORDER BY created_at ASC
+    `, [tutorId]);
+    const pets = petsResult.rows.map(sanitizeClientPet);
+    const nextAppointmentResult = await safeClientSummaryQuery('engagement next appointment', `
+      SELECT a.id, a.pet_id, p.name AS pet_name, p.photo_url AS pet_photo_url,
+             a.starts_at, a.ends_at, a.status, s.name AS status_name, s.color AS status_color,
+             a.total_cents, a.payment_status, a.customer_package_id, a.package_session_number, a.package_total_sessions, a.package_session_label,
+             COALESCE(string_agg(DISTINCT ai.description, ', '), '') AS services
+      FROM appointments a
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN appointment_statuses s ON s.code = a.status
+      LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
+      WHERE a.tutor_id = $1::uuid AND a.deleted_at IS NULL AND a.starts_at >= NOW() - INTERVAL '2 hours'
+      GROUP BY a.id, p.name, p.photo_url, s.name, s.color
+      ORDER BY a.starts_at ASC
+      LIMIT 1
+    `, [tutorId]);
+    const engagement = await buildClientEngagementSummary(tutorId, { tutor: req.clientApp.tutor, pets });
+    const activePetForInsight = engagement.activePet || pets[0] || null;
+    const careInsight = activePetForInsight?.id ? await getPetCareInsightForClient(activePetForInsight.id, tutorId).catch(() => null) : null;
+    const mediaPreviewResult = await safeClientSummaryQuery('appointment media preview', `
+      SELECT am.id, am.appointment_id, am.pet_id, am.media_type, am.url, am.caption, am.created_at,
+             p.name AS pet_name, a.starts_at, COALESCE(string_agg(DISTINCT ai.description, ', '), '') AS services
+      FROM appointment_media am
+      LEFT JOIN pets p ON p.id = am.pet_id
+      LEFT JOIN appointments a ON a.id = am.appointment_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
+      WHERE am.tutor_id = $1::uuid
+        AND am.deleted_at IS NULL
+      GROUP BY am.id, p.name, a.starts_at
+      ORDER BY am.created_at DESC
+      LIMIT 8
+    `, [tutorId]);
+    const mediaPreview = mediaPreviewResult.rows.map((row) => ({
+      id: row.id, appointmentId: row.appointment_id, petId: row.pet_id, petName: row.pet_name || 'Pet',
+      mediaType: row.media_type || 'photo', url: row.url, caption: row.caption || '', createdAt: row.created_at,
+      startsAt: row.starts_at, services: row.services || ''
+    }));
+    res.json({ ok: true, ...engagement, pets, careInsight, referral: await getTutorReferralSummary(tutorId, req.clientApp.tutor?.name || 'Tutor PetFunny'), nextAppointment: nextAppointmentResult.rows[0] ? sanitizeClientAppointment(nextAppointmentResult.rows[0]) : null });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/rewards/summary', requireClientAuth, async (req, res, next) => {
+  try {
+    res.json({ ok: true, rewards: await getTutorRewardsSummary(req.clientApp.tutor.id) });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/rewards/events', requireClientAuth, async (req, res, next) => {
+  try {
+    const result = await query(`
+      SELECT re.id, re.event_type, re.points, re.description, re.created_at, p.name AS pet_name
+      FROM tutor_reward_events re
+      LEFT JOIN pets p ON p.id = re.pet_id
+      WHERE re.tutor_id=$1::uuid
+      ORDER BY re.created_at DESC
+      LIMIT 50
+    `, [req.clientApp.tutor.id]);
+    res.json({ ok: true, items: result.rows.map((row) => ({ id: row.id, type: row.event_type, points: Number(row.points || 0), description: row.description || '', petName: row.pet_name || '', createdAt: row.created_at })) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/rewards/share-event', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petId = cleanText(req.body?.petId) || null;
+    await awardTutorPoints({ tutorId, petId, eventType: 'share_media', points: REWARD_RULES.share_media, description: 'Compartilhou um momento do pet pelo App PetFunny.' });
+    res.json({ ok: true, rewards: await getTutorRewardsSummary(tutorId) });
+  } catch (error) { next(error); }
+});
+
+
+
+
+function referralCodeForTutor(tutorId = '') {
+  const base = String(tutorId || '').replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase() || Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `PF${base}`;
+}
+
+async function ensureTutorReferralCode(tutorId) {
+  const existing = await query(`
+    SELECT referral_code
+    FROM tutor_referrals
+    WHERE referrer_tutor_id=$1::uuid AND deleted_at IS NULL
+    ORDER BY created_at ASC
+    LIMIT 1
+  `, [tutorId]).catch(() => ({ rows: [] }));
+  if (existing.rows[0]?.referral_code) return existing.rows[0].referral_code;
+  return referralCodeForTutor(tutorId);
+}
+
+function buildReferralShareUrl(code) {
+  const base = String(process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://agendapetfunny.com.br').replace(/\/$/, '');
+  return `${base}/app/login?ref=${encodeURIComponent(code || '')}`;
+}
+
+function buildReferralWhatsappUrl(tutorName, code) {
+  const link = buildReferralShareUrl(code);
+  const message = [
+    `Oi! Eu cuido do meu pet na PetFunny e queria te indicar 🐶✨`,
+    `Use meu convite para conhecer o app, agendar banho/tosa e participar dos mimos PetFunny:`,
+    link
+  ].join('\n');
+  return `https://wa.me/?text=${encodeURIComponent(message)}`;
+}
+
+async function getTutorReferralSummary(tutorId, tutorName = 'Tutor PetFunny') {
+  const code = await ensureTutorReferralCode(tutorId);
+  const result = await query(`
+    SELECT id, referred_name, referred_phone, status, reward_points, referral_code, created_at, converted_at
+    FROM tutor_referrals
+    WHERE referrer_tutor_id=$1::uuid AND deleted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 20
+  `, [tutorId]).catch(() => ({ rows: [] }));
+  return {
+    referralCode: code,
+    shareLink: buildReferralShareUrl(code),
+    whatsappUrl: buildReferralWhatsappUrl(tutorName, code),
+    items: result.rows.map((row) => ({
+      id: row.id,
+      name: row.referred_name || 'Indicação',
+      phone: row.referred_phone || '',
+      status: row.status || 'created',
+      rewardPoints: Number(row.reward_points || 0),
+      referralCode: row.referral_code || code,
+      createdAt: row.created_at,
+      convertedAt: row.converted_at
+    }))
+  };
+}
+
+app.get('/api/app/referrals', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const code = await ensureTutorReferralCode(tutorId);
+    const result = await query(`
+      SELECT id, referred_name, referred_phone, status, reward_points, created_at, converted_at, referral_code
+      FROM tutor_referrals
+      WHERE referrer_tutor_id=$1::uuid AND deleted_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 80
+    `, [tutorId]).catch(() => ({ rows: [] }));
+    res.json({
+      ok: true,
+      referralCode: code,
+      shareLink: buildReferralShareUrl(code),
+      whatsappUrl: buildReferralWhatsappUrl(req.clientApp.tutor?.name || 'Tutor PetFunny', code),
+      items: result.rows.map((row) => ({
+        id: row.id,
+        name: row.referred_name || 'Indicação',
+        phone: row.referred_phone || '',
+        status: row.status || 'created',
+        rewardPoints: Number(row.reward_points || 0),
+        referralCode: row.referral_code || code,
+        createdAt: row.created_at,
+        convertedAt: row.converted_at
+      }))
+    });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/referrals', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const name = cleanText(req.body?.name || req.body?.referredName) || 'Indicação PetFunny';
+    const phone = normalizeWhatsapp(req.body?.phone || req.body?.whatsapp || req.body?.referredPhone || '');
+    const code = await ensureTutorReferralCode(tutorId);
+    if (!phone) return res.status(400).json({ error: 'Informe o WhatsApp da pessoa indicada.' });
+    const inserted = await query(`
+      INSERT INTO tutor_referrals (referrer_tutor_id, referred_name, referred_phone, referral_code, status, reward_points)
+      VALUES ($1::uuid, $2::text, $3::text, $4::text, 'created', 5)
+      RETURNING *
+    `, [tutorId, name, phone, code]);
+    await awardTutorPoints({
+      tutorId,
+      eventType: 'referral_created',
+      points: REWARD_RULES.referral_created,
+      description: `Indicou ${name} para conhecer a PetFunny.`,
+      metadata: { referralId: inserted.rows[0].id, phone }
+    }).catch(() => null);
+    res.status(201).json({
+      ok: true,
+      referral: inserted.rows[0],
+      shareLink: buildReferralShareUrl(code),
+      whatsappUrl: buildReferralWhatsappUrl(req.clientApp.tutor?.name || 'Tutor PetFunny', code),
+      rewards: await getTutorRewardsSummary(tutorId)
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/referrals/share-link', requireClientAuth, async (req, res, next) => {
+  try {
+    const code = await ensureTutorReferralCode(req.clientApp.tutor.id);
+    res.json({ ok: true, referralCode: code, shareLink: buildReferralShareUrl(code), whatsappUrl: buildReferralWhatsappUrl(req.clientApp.tutor?.name || 'Tutor PetFunny', code) });
+  } catch (error) { next(error); }
+});
 
 app.get('/api/promocoes', requireAuth, async (req, res, next) => {
   try {
@@ -4499,6 +5145,126 @@ app.post('/api/app/roleta/spin', requireClientAuth, async (req, res, next) => {
 });
 
 
+
+
+function parseDataUrlMedia(dataUrl = '') {
+  const match = String(dataUrl || '').match(/^data:([\w/+.-]+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const base64 = match[2];
+  const extMap = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };
+  const ext = extMap[mimeType] || (mimeType.startsWith('image/') ? 'jpg' : mimeType.startsWith('video/') ? 'mp4' : null);
+  if (!ext) return null;
+  return { mimeType, base64, ext, mediaType: mimeType.startsWith('video/') ? 'video' : 'photo' };
+}
+
+app.post('/api/agenda/:id/media', requireAuth, async (req, res, next) => {
+  try {
+    const appointmentId = req.params.id;
+    const { caption = '', mediaType = 'photo', url = '', dataUrl = '', featured = false } = req.body || {};
+    const appointment = await query(`
+      SELECT a.id, a.tutor_id, a.pet_id
+      FROM appointments a
+      WHERE a.id = $1 AND a.deleted_at IS NULL
+      LIMIT 1
+    `, [appointmentId]);
+    if (!appointment.rowCount) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+
+    let finalUrl = String(url || '').trim();
+    let finalMediaType = String(mediaType || 'photo').toLowerCase() === 'video' ? 'video' : 'photo';
+
+    if (!finalUrl && dataUrl) {
+      const parsed = parseDataUrlMedia(dataUrl);
+      if (!parsed) return res.status(400).json({ error: 'Arquivo inválido. Envie imagem JPG/PNG/WebP/GIF ou vídeo MP4/WebM.' });
+      const raw = Buffer.from(parsed.base64, 'base64');
+      if (!raw.length) return res.status(400).json({ error: 'Arquivo vazio.' });
+      if (raw.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Arquivo maior que 7MB. Use uma imagem/vídeo menor.' });
+      const uploadsDir = path.resolve(frontendRoot, 'uploads', 'appointment-media');
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      const safeName = `${appointmentId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${parsed.ext}`;
+      fs.writeFileSync(path.join(uploadsDir, safeName), raw);
+      finalUrl = `/uploads/appointment-media/${safeName}`;
+      finalMediaType = parsed.mediaType;
+    }
+
+    if (!finalUrl) return res.status(400).json({ error: 'Envie uma foto/vídeo ou informe uma URL.' });
+
+    const row = appointment.rows[0];
+    const result = await query(`
+      INSERT INTO appointment_media (appointment_id, tutor_id, pet_id, media_type, url, caption, is_featured, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      RETURNING id, appointment_id, pet_id, media_type, url, caption, is_featured, created_at
+    `, [appointmentId, row.tutor_id, row.pet_id, finalMediaType, finalUrl, String(caption || '').trim(), Boolean(featured)]);
+    res.status(201).json({ ok: true, media: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/agenda/media/:mediaId', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`
+      UPDATE appointment_media
+      SET deleted_at = NOW()
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING id
+    `, [req.params.mediaId]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Mídia não encontrada.' });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/app/appointments/:id/media', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const appointmentId = req.params.id;
+    const appointment = await query(`
+      SELECT id, pet_id FROM appointments
+      WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL
+      LIMIT 1
+    `, [appointmentId, tutorId]);
+    if (!appointment.rowCount) return res.status(404).json({ error: 'Atendimento não encontrado.' });
+    const media = await query(`
+      SELECT am.id, am.appointment_id, am.pet_id, am.media_type, am.url, am.caption, am.is_featured, am.created_at,
+             p.name AS pet_name
+      FROM appointment_media am
+      LEFT JOIN pets p ON p.id = am.pet_id
+      WHERE am.appointment_id=$1::uuid AND am.tutor_id=$2::uuid AND am.deleted_at IS NULL
+      ORDER BY am.is_featured DESC, am.created_at DESC
+    `, [appointmentId, tutorId]);
+    res.json({ ok: true, media: media.rows.map((row) => ({
+      id: row.id, appointmentId: row.appointment_id, petId: row.pet_id, petName: row.pet_name || 'Pet',
+      mediaType: row.media_type || 'photo', url: row.url, caption: row.caption || '', featured: !!row.is_featured, createdAt: row.created_at
+    })) });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/pets/:petId/media', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petId = req.params.petId;
+    const pet = await query(`SELECT id, name FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL LIMIT 1`, [petId, tutorId]);
+    if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const media = await query(`
+      SELECT am.id, am.appointment_id, am.pet_id, am.media_type, am.url, am.caption, am.is_featured, am.created_at,
+             a.starts_at, COALESCE(string_agg(DISTINCT ai.description, ', '), '') AS services
+      FROM appointment_media am
+      LEFT JOIN appointments a ON a.id = am.appointment_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
+      WHERE am.pet_id=$1::uuid AND am.tutor_id=$2::uuid AND am.deleted_at IS NULL
+      GROUP BY am.id, a.starts_at
+      ORDER BY am.created_at DESC
+      LIMIT 60
+    `, [petId, tutorId]);
+    res.json({ ok: true, pet: { id: pet.rows[0].id, name: pet.rows[0].name }, media: media.rows.map((row) => ({
+      id: row.id, appointmentId: row.appointment_id, petId: row.pet_id, mediaType: row.media_type || 'photo', url: row.url,
+      caption: row.caption || '', featured: !!row.is_featured, createdAt: row.created_at, startsAt: row.starts_at, services: row.services || ''
+    })) });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/app/push/public-key', requireClientAuth, async (req, res) => {
   const status = getPushConfigStatus();
   res.json({
@@ -4875,6 +5641,18 @@ function analyzePetHealthTriage(payload = {}, pet = {}) {
     emergency: critical
   };
 }
+
+
+app.get('/api/app/pets/:petId/care-insights', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petId = cleanText(req.params?.petId);
+    if (!petId) return res.status(400).json({ error: 'Informe o pet.' });
+    const insight = await getPetCareInsightForClient(petId, tutorId);
+    if (!insight) return res.status(404).json({ error: 'Pet não encontrado.' });
+    res.json({ ok: true, insight });
+  } catch (error) { next(error); }
+});
 
 app.get('/api/app/health360/summary', requireClientAuth, async (req, res, next) => {
   try {
@@ -7965,6 +8743,195 @@ app.get('/api/crm/summary', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+
+app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
+  const safeRows = async (label, sql, params = []) => {
+    try {
+      const result = await query(sql, params);
+      return result.rows || [];
+    } catch (error) {
+      console.warn(`[crm-operacional] ${label} indisponível: ${error.message}`);
+      return [];
+    }
+  };
+  const daysBetween = (dateValue) => {
+    if (!dateValue) return null;
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+  };
+  const crmStatusFor = ({ appointmentsCount, daysWithoutAppointment, activePackages, points, convertedReferrals }) => {
+    if (!appointmentsCount) return { code: 'novo_lead', label: 'Novo lead', tone: 'info' };
+    if (appointmentsCount >= 12 && activePackages > 0 && convertedReferrals > 0) return { code: 'cliente_ouro', label: 'Cliente Ouro', tone: 'gold' };
+    if ((appointmentsCount >= 8 && activePackages > 0) || points >= 60) return { code: 'vip', label: 'Cliente VIP', tone: 'success' };
+    if ((activePackages > 0 || appointmentsCount >= 3) && (daysWithoutAppointment === null || daysWithoutAppointment <= 45)) return { code: 'recorrente', label: 'Recorrente', tone: 'success' };
+    if (daysWithoutAppointment !== null && daysWithoutAppointment <= 30) return { code: 'ativo', label: 'Ativo', tone: 'success' };
+    if (daysWithoutAppointment !== null && daysWithoutAppointment <= 60) return { code: 'em_atencao', label: 'Em atenção', tone: 'warning' };
+    if (daysWithoutAppointment !== null && daysWithoutAppointment <= 90) return { code: 'em_risco', label: 'Em risco', tone: 'danger' };
+    return { code: 'perdido', label: 'Perdido', tone: 'muted' };
+  };
+  const appStatusFor = ({ totalAccesses, lastAccessAt }) => {
+    const days = daysBetween(lastAccessAt);
+    if (!totalAccesses) return { code: 'nunca_acessou', label: 'Nunca acessou', days: null, tone: 'muted' };
+    if (days === 0) return { code: 'acessou_hoje', label: 'Acessou hoje', days, tone: 'success' };
+    if (days <= 7) return { code: 'ativo_app', label: 'Ativo no app', days, tone: 'success' };
+    if (days <= 30) return { code: 'inativo_7', label: 'Inativo 7+ dias', days, tone: 'warning' };
+    return { code: 'inativo_30', label: 'Inativo 30+ dias', days, tone: 'danger' };
+  };
+  const actionFor = (row) => {
+    if (!row.totalAccesses) return { code: 'ativar_app', label: 'Ativar app', message: `Oi, ${row.name}! Agora você pode acompanhar os cuidados do seu pet pelo App PetFunny: https://agendapetfunny.com.br/app` };
+    if (row.crmStatus.code === 'novo_lead') return { code: 'primeiro_agendamento', label: 'Convidar para agendar', message: `Oi, ${row.name}! Vi que seu cadastro já está no PetFunny. Que tal agendar o primeiro cuidado do seu pet pelo app? https://agendapetfunny.com.br/app` };
+    if (['em_atencao','em_risco','perdido'].includes(row.crmStatus.code)) return { code: 'reativar', label: 'Reativar cliente', message: `Oi, ${row.name}! Sentimos falta do seu pet por aqui 🐾 Já faz um tempinho desde o último cuidado. Você pode escolher um horário pelo App PetFunny: https://agendapetfunny.com.br/app` };
+    if (!row.activePackages) return { code: 'ofertar_pacote', label: 'Ofertar pacote', message: `Oi, ${row.name}! Pelo histórico do seu pet, um pacote PetFunny pode ajudar a manter a rotina com economia. Quer ver as opções no app? https://agendapetfunny.com.br/app` };
+    return { code: 'manter_recorrencia', label: 'Manter recorrência', message: `Oi, ${row.name}! Passando para lembrar que a rotina do seu pet está em boas mãos 💚 Veja próximos cuidados e mimos no App PetFunny: https://agendapetfunny.com.br/app` };
+  };
+  try {
+    const tutors = await safeRows('tutores', `
+      SELECT id, name, whatsapp, email, status, created_at
+      FROM tutors
+      WHERE deleted_at IS NULL
+      ORDER BY name ASC
+      LIMIT 2000
+    `);
+    const pets = await safeRows('pets', `
+      SELECT tutor_id, COUNT(*)::int AS pets_count, STRING_AGG(name, ', ' ORDER BY name) AS pet_names
+      FROM pets
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    `);
+    const appointments = await safeRows('agendamentos', `
+      SELECT tutor_id,
+             COUNT(*)::int AS appointments_count,
+             MAX(starts_at) AS last_appointment_at,
+             MIN(starts_at) FILTER (WHERE starts_at >= NOW() AND COALESCE(status,'') NOT IN ('cancelled','cancelado')) AS next_appointment_at,
+             COUNT(*) FILTER (WHERE starts_at >= NOW() AND COALESCE(status,'') NOT IN ('cancelled','cancelado'))::int AS future_appointments
+      FROM appointments
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    `);
+    const packages = await safeRows('pacotes', `
+      SELECT tutor_id, COUNT(*)::int AS active_packages
+      FROM customer_packages
+      WHERE deleted_at IS NULL AND COALESCE(status,'active') IN ('active','ativo','paid','pago')
+      GROUP BY tutor_id
+    `);
+    const rewards = await safeRows('ossinhos', `
+      SELECT tutor_id, COALESCE(MAX(points_balance),0)::int AS points_balance
+      FROM tutor_rewards
+      GROUP BY tutor_id
+    `);
+    const rewardEvents = await safeRows('eventos_ossinhos', `
+      SELECT tutor_id, COALESCE(SUM(points),0)::int AS points_earned
+      FROM tutor_reward_events
+      GROUP BY tutor_id
+    `);
+    const referrals = await safeRows('indicacoes', `
+      SELECT referrer_tutor_id AS tutor_id,
+             COUNT(*)::int AS referrals_count,
+             COUNT(*) FILTER (WHERE status='converted')::int AS referrals_converted
+      FROM tutor_referrals
+      GROUP BY referrer_tutor_id
+    `);
+    const accesses = await safeRows('acessos_app', `
+      SELECT tutor_id,
+             COUNT(*)::int AS total_accesses,
+             MIN(created_at) AS first_access_at,
+             MAX(created_at) AS last_access_at,
+             (ARRAY_AGG(event_type ORDER BY created_at DESC))[1] AS last_action,
+             (ARRAY_AGG(page ORDER BY created_at DESC))[1] AS last_page
+      FROM app_access_logs
+      WHERE tutor_id IS NOT NULL
+      GROUP BY tutor_id
+    `);
+    const finance = await safeRows('financeiro', `
+      SELECT tutor_id, COALESCE(SUM(CASE WHEN type='income' OR kind='income' THEN amount_cents ELSE 0 END),0)::bigint AS paid_cents
+      FROM financial_transactions
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    `);
+
+    const byTutor = (rows, key='tutor_id') => new Map(rows.filter(Boolean).map((r) => [String(r[key]), r]));
+    const petMap = byTutor(pets);
+    const apptMap = byTutor(appointments);
+    const packageMap = byTutor(packages);
+    const rewardMap = byTutor(rewards);
+    const rewardEventMap = byTutor(rewardEvents);
+    const referralMap = byTutor(referrals);
+    const accessMap = byTutor(accesses);
+    const financeMap = byTutor(finance);
+
+    const items = tutors.map((tutor) => {
+      const id = String(tutor.id);
+      const appt = apptMap.get(id) || {};
+      const pet = petMap.get(id) || {};
+      const reward = rewardMap.get(id) || {};
+      const event = rewardEventMap.get(id) || {};
+      const ref = referralMap.get(id) || {};
+      const access = accessMap.get(id) || {};
+      const fin = financeMap.get(id) || {};
+      const appointmentsCount = Number(appt.appointments_count || 0);
+      const daysWithoutAppointment = daysBetween(appt.last_appointment_at);
+      const totalAccesses = Number(access.total_accesses || 0);
+      const activePackages = Number(packageMap.get(id)?.active_packages || 0);
+      const points = Number(reward.points_balance || event.points_earned || 0);
+      const convertedReferrals = Number(ref.referrals_converted || 0);
+      const row = {
+        id,
+        name: tutor.name || 'Tutor',
+        whatsapp: tutor.whatsapp || '',
+        email: tutor.email || '',
+        petsCount: Number(pet.pets_count || 0),
+        petNames: pet.pet_names || '',
+        appointmentsCount,
+        lastAppointmentAt: appt.last_appointment_at || null,
+        nextAppointmentAt: appt.next_appointment_at || null,
+        futureAppointments: Number(appt.future_appointments || 0),
+        daysWithoutAppointment,
+        activePackages,
+        pointsBalance: points,
+        referralsCount: Number(ref.referrals_count || 0),
+        referralsConverted: convertedReferrals,
+        paidCents: Number(fin.paid_cents || 0),
+        totalAccesses,
+        firstAccessAt: access.first_access_at || null,
+        lastAccessAt: access.last_access_at || null,
+        lastAction: access.last_action || '',
+        lastPage: access.last_page || ''
+      };
+      row.crmStatus = crmStatusFor(row);
+      row.appStatus = appStatusFor(row);
+      row.suggestedAction = actionFor(row);
+      return row;
+    });
+
+    const countStatus = (code) => items.filter((item) => item.crmStatus.code === code).length;
+    const metrics = {
+      totalTutors: items.length,
+      activeTutors: items.filter((item) => ['ativo','recorrente','vip','cliente_ouro'].includes(item.crmStatus.code)).length,
+      recurringTutors: countStatus('recorrente') + countStatus('vip') + countStatus('cliente_ouro'),
+      atRiskTutors: countStatus('em_atencao') + countStatus('em_risco'),
+      lostTutors: countStatus('perdido'),
+      newLeads: countStatus('novo_lead'),
+      neverAccessed: items.filter((item) => item.appStatus.code === 'nunca_acessou').length,
+      accessedToday: items.filter((item) => item.appStatus.code === 'acessou_hoje').length,
+      inactiveApp30: items.filter((item) => item.appStatus.code === 'inativo_30').length,
+      totalAccesses: items.reduce((sum, item) => sum + item.totalAccesses, 0),
+      pointsBalance: items.reduce((sum, item) => sum + item.pointsBalance, 0),
+      referrals: items.reduce((sum, item) => sum + item.referralsCount, 0),
+      convertedReferrals: items.reduce((sum, item) => sum + item.referralsConverted, 0),
+      activePackages: items.reduce((sum, item) => sum + item.activePackages, 0)
+    };
+    const segments = [
+      { code: 'novo_lead', label: 'Novos leads', count: metrics.newLeads, action: 'Convidar para primeiro agendamento' },
+      { code: 'recorrente', label: 'Recorrentes/VIP/Ouro', count: metrics.recurringTutors, action: 'Manter rotina e pacote ativo' },
+      { code: 'em_risco', label: 'Atenção/Risco', count: metrics.atRiskTutors, action: 'Mensagem de reativação' },
+      { code: 'perdido', label: 'Perdidos', count: metrics.lostTutors, action: 'Campanha de retorno' },
+      { code: 'nunca_acessou', label: 'Nunca acessaram o app', count: metrics.neverAccessed, action: 'Enviar ativação do app' }
+    ];
+    res.json({ generatedAt: new Date().toISOString(), metrics, segments, items });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/crm/leads', requireAuth, async (req, res, next) => {
   try {
     const search = cleanText(req.query.search);
@@ -8759,34 +9726,48 @@ app.get('/api/financeiro/summary', requireAuth, async (req, res, next) => {
   try {
     const periodWindow = resolvePeriodWindow({ period: req.query.period || 'month', month: req.query.month, startDate: req.query.startDate, endDate: req.query.endDate });
     const periodParams = [periodWindow.start, periodWindow.end];
-    const today = await query(`
-      WITH base AS (
+    const summary = await query(`
+      WITH due_base AS (
         SELECT * FROM financial_transactions
         WHERE deleted_at IS NULL
-          AND COALESCE(paid_at::date, due_date, created_at::date) >= $1::date
-          AND COALESCE(paid_at::date, due_date, created_at::date) < $2::date
+          AND status <> 'canceled'
+          AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
+          AND COALESCE(due_date, paid_at::date, created_at::date) < $2::date
+      ), paid_base AS (
+        SELECT * FROM financial_transactions
+        WHERE deleted_at IS NULL
+          AND status = 'paid'
+          AND paid_at::date >= $1::date
+          AND paid_at::date < $2::date
       ), payments_today AS (
         SELECT COALESCE(SUM(amount_cents),0)::int AS total FROM payments WHERE paid_at::date = CURRENT_DATE
       )
       SELECT
         (SELECT total FROM payments_today) AS revenue_today_cents,
-        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'paid'),0)::int AS pending_income_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM due_base WHERE type='income'),0)::int AS income_due_period_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM due_base WHERE type='expense'),0)::int AS expense_due_period_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM paid_base WHERE type='income'),0)::int AS paid_income_period_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM paid_base WHERE type='expense'),0)::int AS paid_expense_period_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM due_base WHERE type='income' AND status <> 'paid'),0)::int AS pending_income_cents,
         COUNT(*) FILTER (WHERE type='income' AND status <> 'paid')::int AS pending_income_count,
-        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'paid'),0)::int AS pending_expense_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM due_base WHERE type='expense' AND status <> 'paid'),0)::int AS pending_expense_cents,
         COUNT(*) FILTER (WHERE type='expense' AND status <> 'paid')::int AS pending_expense_count,
-        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status='paid' AND paid_at::date = CURRENT_DATE),0)::int AS paid_income_today_cents,
-        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status='paid'),0)::int AS paid_income_period_cents,
-        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status='paid' AND paid_at::date = CURRENT_DATE),0)::int AS paid_expense_today_cents,
-        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'paid' AND due_date < CURRENT_DATE),0)::int AS overdue_income_cents,
-        COUNT(*) FILTER (WHERE type='income' AND status <> 'paid' AND due_date < CURRENT_DATE)::int AS overdue_income_count
-      FROM base
+        COALESCE((SELECT SUM(amount_cents) FROM paid_base WHERE type='income' AND paid_at::date = CURRENT_DATE),0)::int AS paid_income_today_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM paid_base WHERE type='expense' AND paid_at::date = CURRENT_DATE),0)::int AS paid_expense_today_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM due_base WHERE type='income' AND status <> 'paid' AND COALESCE(due_date, created_at::date) < CURRENT_DATE),0)::int AS overdue_income_cents,
+        COALESCE((SELECT COUNT(*) FROM due_base WHERE type='income' AND status <> 'paid' AND COALESCE(due_date, created_at::date) < CURRENT_DATE),0)::int AS overdue_income_count,
+        COALESCE((SELECT COUNT(*) FROM due_base WHERE type='income'),0)::int AS income_count,
+        COALESCE((SELECT COUNT(*) FROM due_base WHERE type='income' AND status='paid'),0)::int AS paid_income_count
+      FROM due_base
     `, periodParams);
     const flow = await query(`
       SELECT to_char(day, 'DD/MM') AS label,
-             COALESCE(SUM(amount_cents) FILTER (WHERE type='income'),0)::int AS income_cents,
-             COALESCE(SUM(amount_cents) FILTER (WHERE type='expense'),0)::int AS expense_cents
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='income'),0)::int AS income_cents,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='expense'),0)::int AS expense_cents,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='income' AND ft.status='paid'),0)::int AS received_cents,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='income' AND ft.status <> 'paid'),0)::int AS projected_cents
       FROM generate_series($1::date, ($2::date - INTERVAL '1 day'), INTERVAL '1 day') day
-      LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL AND COALESCE(ft.paid_at::date, ft.due_date, ft.created_at::date) = day::date AND ft.status <> 'canceled'
+      LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) = day::date AND ft.status <> 'canceled'
       GROUP BY day
       ORDER BY day ASC
     `, periodParams);
@@ -8794,13 +9775,454 @@ app.get('/api/financeiro/summary', requireAuth, async (req, res, next) => {
       SELECT category, type, COALESCE(SUM(amount_cents),0)::int AS total_cents, COUNT(*)::int AS count
       FROM financial_transactions
       WHERE deleted_at IS NULL AND status <> 'canceled'
-        AND COALESCE(paid_at::date, due_date, created_at::date) >= $1::date
-        AND COALESCE(paid_at::date, due_date, created_at::date) < $2::date
+        AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
+        AND COALESCE(due_date, paid_at::date, created_at::date) < $2::date
       GROUP BY category, type
       ORDER BY total_cents DESC
       LIMIT 12
     `, periodParams);
-    res.json({ period: periodWindow, summary: today.rows[0] || {}, flow: flow.rows, byCategory: byCategory.rows });
+    const receiptsToday = await query(`
+      SELECT COALESCE(pm.name, 'Sem forma definida') AS method,
+             COALESCE(SUM(pay.amount_cents),0)::int AS total_cents,
+             COUNT(*)::int AS count
+      FROM payments pay
+      LEFT JOIN payment_methods pm ON pm.id = pay.payment_method_id
+      WHERE pay.paid_at::date = CURRENT_DATE
+      GROUP BY COALESCE(pm.name, 'Sem forma definida')
+      ORDER BY total_cents DESC
+    `);
+    const upcoming = await query(`
+      SELECT ft.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp,
+             p.name AS pet_name, pk.name AS package_name, pm.name AS payment_method_name
+      FROM financial_transactions ft
+      LEFT JOIN tutors t ON t.id = ft.tutor_id
+      LEFT JOIN appointments a ON a.id = ft.appointment_id
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN customer_packages cp ON cp.id = ft.customer_package_id
+      LEFT JOIN packages pk ON pk.id = cp.package_id
+      LEFT JOIN payments pay ON pay.financial_transaction_id = ft.id
+      LEFT JOIN payment_methods pm ON pm.id = pay.payment_method_id
+      WHERE ft.deleted_at IS NULL
+        AND ft.status <> 'paid'
+        AND ft.status <> 'canceled'
+        AND COALESCE(ft.due_date, ft.created_at::date) >= CURRENT_DATE
+        AND COALESCE(ft.due_date, ft.created_at::date) < (CURRENT_DATE + INTERVAL '8 days')
+      ORDER BY COALESCE(ft.due_date, ft.created_at::date) ASC, ft.created_at ASC
+      LIMIT 8
+    `);
+    const s = summary.rows[0] || {};
+    const incomeDue = Number(s.income_due_period_cents || 0);
+    const expenseDue = Number(s.expense_due_period_cents || 0);
+    const paidIncome = Number(s.paid_income_period_cents || 0);
+    const paidCount = Number(s.paid_income_count || 0);
+    const incomeCount = Number(s.income_count || 0);
+    const enrichedSummary = {
+      ...s,
+      estimated_profit_cents: incomeDue - expenseDue,
+      realized_profit_cents: paidIncome - Number(s.paid_expense_period_cents || 0),
+      payment_rate_percent: incomeCount ? Math.round((paidCount / incomeCount) * 100) : 0
+    };
+    const alerts = [];
+    if (Number(enrichedSummary.overdue_income_count || 0) > 0) alerts.push({ tone: 'danger', title: 'Inadimplência', message: `${enrichedSummary.overdue_income_count} cobrança(s) vencida(s), somando ${enrichedSummary.overdue_income_cents || 0} centavos.` });
+    if (Number(enrichedSummary.pending_income_cents || 0) > 0) alerts.push({ tone: 'warning', title: 'A receber', message: `Existem valores em aberto no período por data de vencimento.` });
+    if (Number(enrichedSummary.pending_expense_cents || 0) > 0) alerts.push({ tone: 'neutral', title: 'Contas a pagar', message: `Revise despesas pendentes antes do fechamento do caixa.` });
+    res.json({
+      period: periodWindow,
+      dateRules: { forecast: 'due_date', realized: 'paid_at', audit: 'created_at' },
+      summary: enrichedSummary,
+      flow: flow.rows,
+      byCategory: byCategory.rows,
+      receiptsToday: receiptsToday.rows,
+      upcoming: upcoming.rows.map(sanitizeFinancialTransaction),
+      alerts
+    });
+  } catch (error) { next(error); }
+});
+
+
+// Financeiro 360° v2 — comissões, conciliação, alertas, receita/margem e exportações.
+function resolveFinanceDateExpression(alias = 'ft', dateType = 'due') {
+  const prefix = alias ? `${alias}.` : '';
+  if (dateType === 'paid') return `${prefix}paid_at::date`;
+  if (dateType === 'created') return `${prefix}created_at::date`;
+  return `COALESCE(${prefix}due_date, ${prefix}paid_at::date, ${prefix}created_at::date)`;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? '').replace(/"/g, '""');
+  return /[";\n\r]/.test(text) ? `"${text}"` : text;
+}
+
+function toBRLCents(value = 0) {
+  return (Number(value || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function buildFinanceV2ExportRows(rows = []) {
+  return rows.map((row) => [
+    row.due_date ? new Date(row.due_date).toISOString().slice(0, 10) : '',
+    row.paid_at ? new Date(row.paid_at).toISOString().slice(0, 10) : '',
+    row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : '',
+    row.tutor_name || '',
+    row.pet_name || '',
+    row.type || '',
+    row.category || '',
+    row.description || '',
+    toBRLCents(row.amount_cents),
+    row.payment_method_name || '',
+    row.status || '',
+    row.origin || row.source || ''
+  ]);
+}
+
+app.get('/api/financeiro/360-v2', requireAuth, async (req, res, next) => {
+  try {
+    const periodWindow = resolvePeriodWindow({ period: req.query.period || 'month', month: req.query.month, startDate: req.query.startDate, endDate: req.query.endDate });
+    const dateType = ['due','paid','created'].includes(cleanText(req.query.dateType)) ? cleanText(req.query.dateType) : 'due';
+    const dateExpression = resolveFinanceDateExpression('ft', dateType);
+    const periodParams = [periodWindow.start, periodWindow.end];
+
+    const commissions = await query(`
+      WITH appointment_base AS (
+        SELECT a.id, a.collaborator_id, a.starts_at::date AS service_day, a.total_cents,
+               c.name AS collaborator_name,
+               COUNT(*) OVER (PARTITION BY a.collaborator_id, a.starts_at::date) AS day_services_count
+        FROM appointments a
+        LEFT JOIN collaborators c ON c.id = a.collaborator_id
+        WHERE a.deleted_at IS NULL
+          AND a.collaborator_id IS NOT NULL
+          AND a.status NOT IN ('cancelado','nao_compareceu')
+          AND a.starts_at::date >= $1::date
+          AND a.starts_at::date < $2::date
+      ), calc AS (
+        SELECT *,
+          CASE
+            WHEN day_services_count >= 15 THEN 10
+            WHEN day_services_count >= 13 THEN 8
+            WHEN day_services_count >= 11 THEN 5
+            ELSE 0
+          END AS commission_percent
+        FROM appointment_base
+      )
+      SELECT collaborator_id,
+             COALESCE(collaborator_name, 'Colaborador') AS collaborator_name,
+             COUNT(*)::int AS services_count,
+             COALESCE(SUM(total_cents),0)::int AS gross_cents,
+             ROUND(AVG(commission_percent))::int AS avg_commission_percent,
+             COALESCE(SUM(ROUND(total_cents * (commission_percent::numeric / 100))),0)::int AS commission_cents
+      FROM calc
+      GROUP BY collaborator_id, collaborator_name
+      ORDER BY commission_cents DESC, gross_cents DESC
+      LIMIT 12
+    `, periodParams);
+
+    const reconciliation = await query(`
+      SELECT ft.id,
+             COALESCE(ft.due_date, ft.created_at::date) AS due_date,
+             ft.description,
+             ft.amount_cents AS expected_cents,
+             COALESCE(SUM(pay.amount_cents),0)::int AS received_cents,
+             (ft.amount_cents - COALESCE(SUM(pay.amount_cents),0))::int AS difference_cents,
+             COALESCE(pm.name, ft.category, 'Sem forma') AS method,
+             CASE
+               WHEN ft.status='canceled' THEN 'Cancelado'
+               WHEN COALESCE(SUM(pay.amount_cents),0) = ft.amount_cents AND ft.status='paid' THEN 'Conciliado'
+               WHEN COALESCE(SUM(pay.amount_cents),0) > 0 AND COALESCE(SUM(pay.amount_cents),0) <> ft.amount_cents THEN 'Divergente'
+               WHEN ft.status <> 'paid' THEN 'Pendente'
+               ELSE 'Divergente'
+             END AS reconciliation_status,
+             t.name AS tutor_name,
+             p.name AS pet_name
+      FROM financial_transactions ft
+      LEFT JOIN payments pay ON pay.financial_transaction_id = ft.id
+      LEFT JOIN payment_methods pm ON pm.id = pay.payment_method_id
+      LEFT JOIN tutors t ON t.id = ft.tutor_id
+      LEFT JOIN appointments a ON a.id = ft.appointment_id
+      LEFT JOIN pets p ON p.id = a.pet_id
+      WHERE ft.deleted_at IS NULL
+        AND ft.type='income'
+        AND ft.status <> 'canceled'
+        AND ${dateExpression} >= $1::date
+        AND ${dateExpression} < $2::date
+      GROUP BY ft.id, pm.name, t.name, p.name
+      ORDER BY reconciliation_status DESC, COALESCE(ft.due_date, ft.created_at::date) ASC
+      LIMIT 20
+    `, periodParams);
+
+    const serviceRevenue = await query(`
+      SELECT COALESCE(s.name, ai.description, 'Serviço') AS service_name,
+             COALESCE(sc.name, 'Sem categoria') AS category_name,
+             COUNT(ai.id)::int AS quantity,
+             COALESCE(SUM(ai.total_cents),0)::int AS revenue_cents,
+             CASE WHEN COUNT(ai.id) > 0 THEN ROUND(COALESCE(SUM(ai.total_cents),0)::numeric / COUNT(ai.id))::int ELSE 0 END AS ticket_cents
+      FROM appointment_items ai
+      JOIN appointments a ON a.id = ai.appointment_id
+      LEFT JOIN services s ON s.id = ai.service_id
+      LEFT JOIN service_categories sc ON sc.id = s.category_id
+      WHERE a.deleted_at IS NULL
+        AND a.status NOT IN ('cancelado','nao_compareceu')
+        AND a.starts_at::date >= $1::date
+        AND a.starts_at::date < $2::date
+      GROUP BY COALESCE(s.name, ai.description, 'Serviço'), COALESCE(sc.name, 'Sem categoria')
+      ORDER BY revenue_cents DESC
+      LIMIT 12
+    `, periodParams);
+
+    const marginByService = serviceRevenue.rows.map((row) => {
+      const revenue = Number(row.revenue_cents || 0);
+      const category = String(row.category_name || '').toLowerCase();
+      const service = String(row.service_name || '').toLowerCase();
+      const estimatedCostPercent = category.includes('tosa') || service.includes('tosa') ? 34 : (category.includes('pacote') || service.includes('pacote') ? 45 : 32);
+      const costCents = Math.round(revenue * (estimatedCostPercent / 100));
+      const marginCents = revenue - costCents;
+      const marginPercent = revenue ? Math.round((marginCents / revenue) * 100) : 0;
+      return { ...row, estimated_cost_percent: estimatedCostPercent, cost_cents: costCents, margin_cents: marginCents, margin_percent: marginPercent };
+    });
+
+    const extraAlerts = [];
+    const overdue = await query(`
+      SELECT COALESCE(SUM(amount_cents),0)::int AS total_cents, COUNT(*)::int AS count
+      FROM financial_transactions
+      WHERE deleted_at IS NULL AND type='income' AND status <> 'paid' AND status <> 'canceled'
+        AND COALESCE(due_date, created_at::date) < CURRENT_DATE
+    `);
+    const dueToday = await query(`
+      SELECT COALESCE(SUM(amount_cents),0)::int AS total_cents, COUNT(*)::int AS count
+      FROM financial_transactions
+      WHERE deleted_at IS NULL AND status <> 'paid' AND status <> 'canceled'
+        AND COALESCE(due_date, created_at::date) = CURRENT_DATE
+    `);
+    const divergentCount = reconciliation.rows.filter((r) => r.reconciliation_status === 'Divergente').length;
+    if (Number(overdue.rows[0]?.count || 0) > 0) extraAlerts.push({ tone: 'danger', title: 'Cobranças vencidas', message: `${overdue.rows[0].count} cobrança(s) em atraso somando ${toBRLCents(overdue.rows[0].total_cents)}.` });
+    if (Number(dueToday.rows[0]?.count || 0) > 0) extraAlerts.push({ tone: 'warning', title: 'Vencem hoje', message: `${dueToday.rows[0].count} lançamento(s) vencem hoje.` });
+    if (divergentCount > 0) extraAlerts.push({ tone: 'danger', title: 'Conciliação divergente', message: `${divergentCount} pagamento(s) com diferença entre previsto e recebido.` });
+    if (marginByService.some((r) => Number(r.margin_percent || 0) < 40)) extraAlerts.push({ tone: 'warning', title: 'Margem baixa', message: 'Há serviços com margem estimada abaixo de 40%. Revise preço, pacote ou custo.' });
+    if (!commissions.rows.length) extraAlerts.push({ tone: 'neutral', title: 'Comissões', message: 'Sem comissão calculada no período. Verifique colaboradores nos agendamentos finalizados.' });
+
+    res.json({
+      period: periodWindow,
+      dateType,
+      commissions: commissions.rows,
+      reconciliation: reconciliation.rows,
+      alerts: extraAlerts,
+      serviceRevenue: serviceRevenue.rows,
+      serviceMargins: marginByService
+    });
+  } catch (error) { next(error); }
+});
+
+
+// Financeiro 360° v3 — projeção futura, previsão de caixa, indicadores de franquia e dashboard executivo.
+app.get('/api/financeiro/360-v3', requireAuth, async (req, res, next) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const currentMonthStart = new Date();
+    currentMonthStart.setUTCDate(1);
+    const monthStart = currentMonthStart.toISOString().slice(0, 10);
+    const projection = await query(`
+      WITH future AS (
+        SELECT type, status, amount_cents, COALESCE(due_date, paid_at::date, created_at::date) AS ref_date
+        FROM financial_transactions
+        WHERE deleted_at IS NULL AND status <> 'canceled'
+          AND COALESCE(due_date, paid_at::date, created_at::date) >= CURRENT_DATE
+      )
+      SELECT
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND ref_date < CURRENT_DATE + INTERVAL '31 days'),0)::int AS revenue_30_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND ref_date < CURRENT_DATE + INTERVAL '91 days'),0)::int AS revenue_90_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND ref_date < CURRENT_DATE + INTERVAL '366 days'),0)::int AS revenue_12m_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND ref_date < CURRENT_DATE + INTERVAL '31 days'),0)::int AS expense_30_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND ref_date < CURRENT_DATE + INTERVAL '91 days'),0)::int AS expense_90_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND ref_date < CURRENT_DATE + INTERVAL '366 days'),0)::int AS expense_12m_cents,
+        COALESCE(COUNT(*) FILTER (WHERE type='income' AND ref_date < CURRENT_DATE + INTERVAL '31 days'),0)::int AS income_30_count,
+        COALESCE(COUNT(*) FILTER (WHERE type='income' AND ref_date < CURRENT_DATE + INTERVAL '91 days'),0)::int AS income_90_count,
+        COALESCE(COUNT(*) FILTER (WHERE type='income' AND ref_date < CURRENT_DATE + INTERVAL '366 days'),0)::int AS income_12m_count
+      FROM future
+    `);
+
+    const cashCurve = await query(`
+      SELECT to_char(day, 'DD/MM') AS label, day::date AS date,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='income'),0)::int AS income_cents,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='expense'),0)::int AS expense_cents
+      FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '90 days', INTERVAL '7 days') day
+      LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL
+        AND ft.status <> 'canceled'
+        AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) >= day::date
+        AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) < (day::date + INTERVAL '7 days')
+      GROUP BY day
+      ORDER BY day
+    `);
+
+    const monthlyProjection = await query(`
+      SELECT to_char(month_bucket, 'Mon/YY') AS label,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='income'),0)::int AS income_cents,
+             COALESCE(SUM(ft.amount_cents) FILTER (WHERE ft.type='expense'),0)::int AS expense_cents
+      FROM generate_series(date_trunc('month', CURRENT_DATE), date_trunc('month', CURRENT_DATE) + INTERVAL '11 months', INTERVAL '1 month') month_bucket
+      LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL
+        AND ft.status <> 'canceled'
+        AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) >= month_bucket::date
+        AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) < (month_bucket::date + INTERVAL '1 month')
+      GROUP BY month_bucket
+      ORDER BY month_bucket
+    `);
+
+    const realized = await query(`
+      SELECT
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status='paid'),0)::int AS realized_income_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status='paid'),0)::int AS realized_expense_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'paid'),0)::int AS open_income_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'paid'),0)::int AS open_expense_cents
+      FROM financial_transactions
+      WHERE deleted_at IS NULL AND status <> 'canceled'
+        AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
+        AND COALESCE(due_date, paid_at::date, created_at::date) < (CURRENT_DATE + INTERVAL '31 days')
+    `, [monthStart]);
+
+    const franchise = await query(`
+      WITH period_tx AS (
+        SELECT * FROM financial_transactions
+        WHERE deleted_at IS NULL AND status <> 'canceled'
+          AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
+          AND COALESCE(due_date, paid_at::date, created_at::date) < (CURRENT_DATE + INTERVAL '1 day')
+      ), ap AS (
+        SELECT * FROM appointments
+        WHERE deleted_at IS NULL AND starts_at::date >= $1::date AND starts_at::date < (CURRENT_DATE + INTERVAL '1 day')
+      )
+      SELECT
+        COALESCE(SUM(period_tx.amount_cents) FILTER (WHERE period_tx.type='income'),0)::int AS revenue_cents,
+        COALESCE(COUNT(DISTINCT ap.id),0)::int AS appointments_count,
+        COALESCE(COUNT(DISTINCT ap.pet_id),0)::int AS pets_count,
+        COALESCE(COUNT(DISTINCT ap.tutor_id),0)::int AS tutors_count,
+        COALESCE(COUNT(DISTINCT ap.collaborator_id) FILTER (WHERE ap.collaborator_id IS NOT NULL),0)::int AS collaborators_count,
+        COALESCE(COUNT(DISTINCT ap.id) FILTER (WHERE ap.status IN ('finalizado','entregue','concluido','concluído')),0)::int AS completed_count,
+        COALESCE(COUNT(DISTINCT ap.id) FILTER (WHERE ap.status IN ('cancelado','nao_compareceu','não_compareceu')),0)::int AS canceled_count
+      FROM period_tx
+      FULL OUTER JOIN ap ON false
+    `, [monthStart]);
+
+    const packages = await query(`
+      SELECT
+        COALESCE(COUNT(*) FILTER (WHERE cp.status = 'active'),0)::int AS active_packages,
+        COALESCE(COUNT(*) FILTER (WHERE cp.created_at::date >= $1::date),0)::int AS sold_month,
+        COALESCE(SUM(p.price_cents) FILTER (WHERE cp.status = 'active'),0)::int AS active_packages_value_cents
+      FROM customer_packages cp
+      LEFT JOIN packages p ON p.id = cp.package_id
+      WHERE cp.deleted_at IS NULL
+    `, [monthStart]);
+
+    const overdue = await query(`
+      SELECT COALESCE(SUM(amount_cents),0)::int AS total_cents, COUNT(*)::int AS count
+      FROM financial_transactions
+      WHERE deleted_at IS NULL AND status <> 'paid' AND status <> 'canceled' AND type='income'
+        AND COALESCE(due_date, created_at::date) < CURRENT_DATE
+    `);
+
+    const p = projection.rows[0] || {};
+    const r = realized.rows[0] || {};
+    const f = franchise.rows[0] || {};
+    const pkg = packages.rows[0] || {};
+    const over = overdue.rows[0] || {};
+    const revenue = Number(f.revenue_cents || 0);
+    const appointmentsCount = Number(f.appointments_count || 0);
+    const petsCount = Number(f.pets_count || 0);
+    const collaboratorsCount = Number(f.collaborators_count || 0) || 1;
+    const completedCount = Number(f.completed_count || 0);
+    const canceledCount = Number(f.canceled_count || 0);
+    const totalScheduled = completedCount + canceledCount;
+    const cashCurrentCents = Number(r.realized_income_cents || 0) - Number(r.realized_expense_cents || 0);
+    const cashProjected30Cents = cashCurrentCents + Number(p.revenue_30_cents || 0) - Number(p.expense_30_cents || 0);
+
+    const indicators = {
+      ticketAverageCents: appointmentsCount ? Math.round(revenue / appointmentsCount) : 0,
+      revenuePerPetCents: petsCount ? Math.round(revenue / petsCount) : 0,
+      revenuePerCollaboratorCents: Math.round(revenue / collaboratorsCount),
+      revenuePerDayCents: Math.round(revenue / Math.max(1, new Date().getUTCDate())),
+      agendaOccupancyPercent: Math.min(100, Math.round((appointmentsCount / Math.max(1, new Date().getUTCDate() * 12)) * 100)),
+      recurrencePercent: Number(f.tutors_count || 0) ? Math.min(100, Math.round((Number(pkg.active_packages || 0) / Number(f.tutors_count || 1)) * 100)) : 0,
+      churnPercent: totalScheduled ? Math.round((canceledCount / totalScheduled) * 100) : 0,
+      ltvEstimatedCents: appointmentsCount ? Math.round((revenue / appointmentsCount) * 6) : 0,
+      activePackages: Number(pkg.active_packages || 0),
+      packagesSoldMonth: Number(pkg.sold_month || 0),
+      activePackagesValueCents: Number(pkg.active_packages_value_cents || 0)
+    };
+
+    const executive = {
+      revenueMonthCents: revenue,
+      profitMonthCents: Number(r.realized_income_cents || 0) - Number(r.realized_expense_cents || 0),
+      targetMonthCents: Number(process.env.PETFUNNY_MONTHLY_TARGET_CENTS || 2000000),
+      targetProgressPercent: Number(process.env.PETFUNNY_MONTHLY_TARGET_CENTS || 2000000) ? Math.min(999, Math.round((revenue / Number(process.env.PETFUNNY_MONTHLY_TARGET_CENTS || 2000000)) * 100)) : 0,
+      projected12mCents: Number(p.revenue_12m_cents || 0),
+      overdueCents: Number(over.total_cents || 0),
+      overdueCount: Number(over.count || 0),
+      cashCurrentCents,
+      cashProjected30Cents
+    };
+
+    const alerts = [];
+    if (executive.targetProgressPercent < 70) alerts.push({ tone: 'warning', title: 'Receita abaixo da meta', message: `Meta mensal em ${executive.targetProgressPercent}%. Reforce agenda e recorrência.` });
+    if (indicators.agendaOccupancyPercent < 55) alerts.push({ tone: 'warning', title: 'Agenda ociosa', message: `Ocupação estimada em ${indicators.agendaOccupancyPercent}%. Considere campanha para dias fracos.` });
+    if (executive.overdueCount > 0) alerts.push({ tone: 'danger', title: 'Inadimplência elevada', message: `${executive.overdueCount} cobrança(s) em atraso.` });
+    if (cashProjected30Cents < 0) alerts.push({ tone: 'danger', title: 'Caixa futuro negativo', message: 'Entradas previstas não cobrem saídas nos próximos 30 dias.' });
+    if (indicators.recurrencePercent >= 60) alerts.push({ tone: 'success', title: 'Recorrência saudável', message: `Pacotes ativos representam ${indicators.recurrencePercent}% da base movimentada.` });
+
+    res.json({
+      projection: { ...p, monthly: monthlyProjection.rows },
+      cashForecast: { current_cents: cashCurrentCents, projected_30_cents: cashProjected30Cents, realized: r, curve: cashCurve.rows },
+      franchiseIndicators: indicators,
+      executive,
+      alerts,
+      rules: { forecast: 'due_date', realized: 'paid_at', audit: 'created_at' }
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/financeiro/export.csv', requireAuth, async (req, res, next) => {
+  try {
+    const periodWindow = resolvePeriodWindow({ period: req.query.period || 'month', month: req.query.month, startDate: req.query.startDate, endDate: req.query.endDate });
+    const dateType = ['due','paid','created'].includes(cleanText(req.query.dateType)) ? cleanText(req.query.dateType) : 'due';
+    const dateExpression = resolveFinanceDateExpression('ft', dateType);
+    const result = await query(`
+      SELECT ft.*, t.name AS tutor_name, p.name AS pet_name, COALESCE(pm.name, '') AS payment_method_name,
+             CASE WHEN ft.appointment_id IS NOT NULL THEN 'Agendamento' WHEN ft.customer_package_id IS NOT NULL THEN 'Pacote' ELSE 'Manual' END AS origin
+      FROM financial_transactions ft
+      LEFT JOIN tutors t ON t.id = ft.tutor_id
+      LEFT JOIN appointments a ON a.id = ft.appointment_id
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN payments pay ON pay.financial_transaction_id = ft.id
+      LEFT JOIN payment_methods pm ON pm.id = pay.payment_method_id
+      WHERE ft.deleted_at IS NULL AND ${dateExpression} >= $1::date AND ${dateExpression} < $2::date
+      ORDER BY ${dateExpression} ASC, ft.created_at ASC
+      LIMIT 5000
+    `, [periodWindow.start, periodWindow.end]);
+    const header = ['Data vencimento','Data pagamento','Data lançamento','Tutor','Pet','Tipo','Categoria','Descrição','Valor','Forma','Status','Origem'];
+    const rows = [header, ...buildFinanceV2ExportRows(result.rows)];
+    const csv = rows.map((row) => row.map(csvEscape).join(';')).join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="financeiro-360-${periodWindow.start}-${periodWindow.end}.csv"`);
+    res.send('\ufeff' + csv);
+  } catch (error) { next(error); }
+});
+
+app.get('/api/financeiro/export.pdf', requireAuth, async (req, res, next) => {
+  try {
+    const periodWindow = resolvePeriodWindow({ period: req.query.period || 'month', month: req.query.month, startDate: req.query.startDate, endDate: req.query.endDate });
+    const dateType = ['due','paid','created'].includes(cleanText(req.query.dateType)) ? cleanText(req.query.dateType) : 'due';
+    const dateExpression = resolveFinanceDateExpression('ft', dateType);
+    const result = await query(`
+      SELECT ft.*, t.name AS tutor_name, p.name AS pet_name, COALESCE(pm.name, '') AS payment_method_name,
+             CASE WHEN ft.appointment_id IS NOT NULL THEN 'Agendamento' WHEN ft.customer_package_id IS NOT NULL THEN 'Pacote' ELSE 'Manual' END AS origin
+      FROM financial_transactions ft
+      LEFT JOIN tutors t ON t.id = ft.tutor_id
+      LEFT JOIN appointments a ON a.id = ft.appointment_id
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN payments pay ON pay.financial_transaction_id = ft.id
+      LEFT JOIN payment_methods pm ON pm.id = pay.payment_method_id
+      WHERE ft.deleted_at IS NULL AND ${dateExpression} >= $1::date AND ${dateExpression} < $2::date
+      ORDER BY ${dateExpression} ASC, ft.created_at ASC
+      LIMIT 1000
+    `, [periodWindow.start, periodWindow.end]);
+    const rows = buildFinanceV2ExportRows(result.rows).map((row) => `<tr>${row.map((cell) => `<td>${String(cell).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</td>`).join('')}</tr>`).join('');
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Financeiro 360°</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#14242b}h1{margin:0 0 4px}p{color:#60717a}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #d8e1e5;padding:6px;text-align:left}th{background:#f4fafb}.print{margin-bottom:16px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Imprimir / salvar PDF</button><div class="print"><h1>Financeiro 360°</h1><p>Período: ${periodWindow.label} · Regra: ${dateType}</p></div><table><thead><tr>${['Vencimento','Pagamento','Lançamento','Tutor','Pet','Tipo','Categoria','Descrição','Valor','Forma','Status','Origem'].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || '<tr><td colspan="12">Sem registros.</td></tr>'}</tbody></table><script>setTimeout(()=>window.print(),500)</script></body></html>`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   } catch (error) { next(error); }
 });
 
@@ -8811,6 +10233,8 @@ app.get('/api/financeiro/transactions', requireAuth, async (req, res, next) => {
     const type = cleanText(req.query.type) || 'all';
     const category = cleanText(req.query.category) || 'all';
     const periodWindow = resolvePeriodWindow({ period: req.query.period || 'month', month: req.query.month, startDate: req.query.startDate, endDate: req.query.endDate });
+    const dateType = ['due','paid','created'].includes(cleanText(req.query.dateType)) ? cleanText(req.query.dateType) : 'due';
+    const dateExpression = dateType === 'paid' ? 'ft.paid_at::date' : (dateType === 'created' ? 'ft.created_at::date' : 'COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date)');
     const limit = parseLimit(req.query.limit, 30, 100);
     const offset = parseOffset(req.query.page, limit);
     const params = [];
@@ -8824,9 +10248,9 @@ app.get('/api/financeiro/transactions', requireAuth, async (req, res, next) => {
     }
     if (periodWindow) {
       params.push(periodWindow.start);
-      where.push(`COALESCE(ft.paid_at::date, ft.due_date, ft.created_at::date) >= $${params.length}::date`);
+      where.push(`${dateExpression} >= $${params.length}::date`);
       params.push(periodWindow.end);
-      where.push(`COALESCE(ft.paid_at::date, ft.due_date, ft.created_at::date) < $${params.length}::date`);
+      where.push(`${dateExpression} < $${params.length}::date`);
     }
     const result = await query(`
       SELECT ft.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp,
@@ -8953,6 +10377,157 @@ app.delete('/api/financeiro/transactions/:id', requireAuth, async (req, res, nex
     const result = await query(`UPDATE financial_transactions SET status='canceled', deleted_at=NOW(), updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING id`, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Lançamento não encontrado.' });
     res.json({ ok: true, message: 'Lançamento cancelado.' });
+  } catch (error) { next(error); }
+});
+
+
+async function getAdminEngagementDashboard() {
+  const fallback = {
+    metrics: {
+      activeTutors: 0, recurringTutors: 0, atRiskTutors: 0, lostTutors: 0,
+      rewardPoints: 0, rewardsEvents: 0, referralsCreated: 0, referralsConverted: 0,
+      appEngagementScore: 0, activePackages: 0, mediaItems: 0
+    },
+    retention: [], rewards: [], crm: [], topTutors: [], insights: [], homePreview: {}
+  };
+  try {
+    const metrics = await query(`
+      WITH tutor_base AS (
+        SELECT t.id, t.name, t.whatsapp, t.created_at,
+               COUNT(a.id)::int AS total_appointments,
+               MAX(a.starts_at) FILTER (WHERE a.starts_at <= NOW()) AS last_appointment_at,
+               COUNT(a.id) FILTER (WHERE a.starts_at >= NOW() AND a.deleted_at IS NULL)::int AS future_appointments,
+               COUNT(cp.id) FILTER (WHERE cp.status = 'active' AND cp.deleted_at IS NULL)::int AS active_packages,
+               COALESCE(MAX(r.points_balance), 0)::int AS points_balance
+        FROM tutors t
+        LEFT JOIN appointments a ON a.tutor_id = t.id AND a.deleted_at IS NULL
+        LEFT JOIN customer_packages cp ON cp.tutor_id = t.id AND cp.deleted_at IS NULL
+        LEFT JOIN tutor_rewards r ON r.tutor_id = t.id
+        WHERE t.deleted_at IS NULL
+        GROUP BY t.id
+      ), classified AS (
+        SELECT *,
+          CASE
+            WHEN total_appointments = 0 THEN 'novo_lead'
+            WHEN last_appointment_at IS NULL THEN 'novo_lead'
+            WHEN last_appointment_at < NOW() - INTERVAL '90 days' THEN 'perdido'
+            WHEN last_appointment_at < NOW() - INTERVAL '45 days' THEN 'em_risco'
+            WHEN active_packages > 0 OR total_appointments >= 2 THEN 'recorrente'
+            ELSE 'ativo'
+          END AS crm_status
+        FROM tutor_base
+      )
+      SELECT
+        COUNT(*)::int AS active_tutors,
+        COUNT(*) FILTER (WHERE crm_status = 'recorrente')::int AS recurring_tutors,
+        COUNT(*) FILTER (WHERE crm_status = 'em_risco')::int AS at_risk_tutors,
+        COUNT(*) FILTER (WHERE crm_status = 'perdido')::int AS lost_tutors,
+        COUNT(*) FILTER (WHERE active_packages > 0)::int AS active_package_tutors,
+        COALESCE(SUM(points_balance),0)::int AS reward_points
+      FROM classified
+    `).catch(() => ({ rows: [fallback.metrics] }));
+
+    const rewards = await query(`
+      SELECT event_type, COUNT(*)::int AS total_events, COALESCE(SUM(points),0)::int AS total_points
+      FROM tutor_reward_events
+      GROUP BY event_type
+      ORDER BY total_points DESC, total_events DESC
+      LIMIT 8
+    `).catch(() => ({ rows: [] }));
+
+    const referrals = await query(`
+      SELECT
+        COUNT(*)::int AS total_referrals,
+        COUNT(*) FILTER (WHERE status = 'converted')::int AS converted_referrals,
+        COUNT(*) FILTER (WHERE status = 'created')::int AS open_referrals
+      FROM tutor_referrals
+      WHERE deleted_at IS NULL
+    `).catch(() => ({ rows: [{}] }));
+
+    const media = await query(`SELECT COUNT(*)::int AS total FROM appointment_media WHERE deleted_at IS NULL`).catch(() => ({ rows: [{ total: 0 }] }));
+
+    const topTutors = await query(`
+      SELECT t.id, t.name, t.whatsapp, COALESCE(r.points_balance,0)::int AS points_balance,
+             COUNT(a.id)::int AS total_appointments,
+             MAX(a.starts_at) AS last_appointment_at
+      FROM tutors t
+      LEFT JOIN tutor_rewards r ON r.tutor_id = t.id
+      LEFT JOIN appointments a ON a.tutor_id = t.id AND a.deleted_at IS NULL
+      WHERE t.deleted_at IS NULL
+      GROUP BY t.id, r.points_balance
+      ORDER BY COALESCE(r.points_balance,0) DESC, COUNT(a.id) DESC
+      LIMIT 8
+    `).catch(() => ({ rows: [] }));
+
+    const retention = await query(`
+      WITH last_seen AS (
+        SELECT t.id,
+               MAX(a.starts_at) FILTER (WHERE a.starts_at <= NOW()) AS last_appointment_at,
+               COUNT(a.id)::int AS total_appointments
+        FROM tutors t
+        LEFT JOIN appointments a ON a.tutor_id=t.id AND a.deleted_at IS NULL
+        WHERE t.deleted_at IS NULL
+        GROUP BY t.id
+      )
+      SELECT bucket, COUNT(*)::int AS total FROM (
+        SELECT CASE
+          WHEN total_appointments = 0 THEN 'Sem atendimento'
+          WHEN last_appointment_at >= NOW() - INTERVAL '30 days' THEN '0–30 dias'
+          WHEN last_appointment_at >= NOW() - INTERVAL '45 days' THEN '31–45 dias'
+          WHEN last_appointment_at >= NOW() - INTERVAL '90 days' THEN '46–90 dias'
+          ELSE '+90 dias'
+        END AS bucket
+        FROM last_seen
+      ) x
+      GROUP BY bucket
+      ORDER BY CASE bucket WHEN '0–30 dias' THEN 1 WHEN '31–45 dias' THEN 2 WHEN '46–90 dias' THEN 3 WHEN '+90 dias' THEN 4 ELSE 5 END
+    `).catch(() => ({ rows: [] }));
+
+    const m = metrics.rows[0] || {};
+    const ref = referrals.rows[0] || {};
+    const activeTutors = Number(m.active_tutors || 0);
+    const recurring = Number(m.recurring_tutors || 0);
+    const atRisk = Number(m.at_risk_tutors || 0) + Number(m.lost_tutors || 0);
+    const score = activeTutors ? Math.max(0, Math.min(100, Math.round(((recurring / activeTutors) * 70) + ((Number(ref.converted_referrals || 0) / Math.max(1, Number(ref.total_referrals || 1))) * 15) + (atRisk ? -10 : 15)))) : 0;
+
+    const insights = [];
+    if (atRisk > 0) insights.push(`${atRisk} tutor(es) estão em risco ou perdidos. Use mensagens CRM para reativar antes do próximo fim de semana.`);
+    if (Number(ref.open_referrals || 0) > 0) insights.push(`${Number(ref.open_referrals || 0)} indicação(ões) aguardam conversão. Reforce o benefício de ossinhos no WhatsApp.`);
+    if (Number(m.reward_points || 0) > 0) insights.push(`A base já acumulou ${Number(m.reward_points || 0)} ossinhos. Use mimos e roleta para transformar pontos em recompra.`);
+    if (!insights.length) insights.push('Comece ativando ossinhos, indicações e CTAs de próximo banho na Home do Tutor.');
+
+    return {
+      metrics: {
+        activeTutors,
+        recurringTutors: recurring,
+        atRiskTutors: Number(m.at_risk_tutors || 0),
+        lostTutors: Number(m.lost_tutors || 0),
+        rewardPoints: Number(m.reward_points || 0),
+        rewardsEvents: rewards.rows.reduce((sum, row) => sum + Number(row.total_events || 0), 0),
+        referralsCreated: Number(ref.total_referrals || 0),
+        referralsConverted: Number(ref.converted_referrals || 0),
+        activePackages: Number(m.active_package_tutors || 0),
+        mediaItems: Number(media.rows[0]?.total || 0),
+        appEngagementScore: score
+      },
+      retention: retention.rows.map((row) => ({ label: row.bucket, total: Number(row.total || 0) })),
+      rewards: rewards.rows.map((row) => ({ type: row.event_type, events: Number(row.total_events || 0), points: Number(row.total_points || 0) })),
+      topTutors: topTutors.rows.map((row) => ({ id: row.id, name: row.name, whatsapp: row.whatsapp, points: Number(row.points_balance || 0), appointments: Number(row.total_appointments || 0), lastAppointmentAt: row.last_appointment_at })),
+      insights,
+      homePreview: {
+        title: 'Home Meu Pet',
+        cards: ['Próximo banho', 'Health Score', 'Ossinhos', 'Mimos', 'Próximo cuidado', 'Dica IA', 'Últimos momentos']
+      }
+    };
+  } catch (error) {
+    console.warn('[engagement-dashboard] indisponível:', error.message);
+    return fallback;
+  }
+}
+
+app.get('/api/dashboard/engagement', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ ok: true, engagementDashboard: await getAdminEngagementDashboard() });
   } catch (error) { next(error); }
 });
 
@@ -9187,8 +10762,8 @@ app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
           COUNT(*) FILTER (WHERE type='expense' AND status <> 'canceled')::int AS expense_count
         FROM financial_transactions
         WHERE deleted_at IS NULL
-          AND COALESCE(paid_at::date, due_date, created_at::date) >= $1::date
-          AND COALESCE(paid_at::date, due_date, created_at::date) < $2::date
+          AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
+          AND COALESCE(due_date, paid_at::date, created_at::date) < $2::date
       `, periodParams), { rows: [{ income_cents: 0, expense_cents: 0, income_count: 0, expense_count: 0 }] }),
       safeInsightTask('financeiro_periodo_anterior', () => query(`
         SELECT
@@ -9196,8 +10771,8 @@ app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
           COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'canceled'),0)::int AS expense_cents
         FROM financial_transactions
         WHERE deleted_at IS NULL
-          AND COALESCE(paid_at::date, due_date, created_at::date) >= $1::date
-          AND COALESCE(paid_at::date, due_date, created_at::date) < $2::date
+          AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
+          AND COALESCE(due_date, paid_at::date, created_at::date) < $2::date
       `, previousParams), { rows: [{ income_cents: 0, expense_cents: 0 }] }),
       safeInsightTask('agenda_status_periodo', () => query(`
         SELECT status, COUNT(*)::int AS count
@@ -9234,7 +10809,7 @@ app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
                COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'canceled'),0)::int AS income_cents,
                COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'canceled'),0)::int AS expense_cents
         FROM generate_series($1::date, ($2::date - INTERVAL '1 day'), INTERVAL '1 day') day
-        LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL AND COALESCE(ft.paid_at::date, ft.due_date, ft.created_at::date) = day::date
+        LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) = day::date
         GROUP BY day
         ORDER BY day ASC
       `, periodParams), { rows: [] })
@@ -9777,12 +11352,13 @@ app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/l
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
-app.get(['/app', '/app/home', '/app/agenda', '/app/saude-360', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
+app.get(['/app', '/app/home', '/app/agenda', '/app/saude-360', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/app/momentos', '/app/indique', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
 
 const modulePages = {
   agenda: 'agenda',
   tutores: 'tutores',
+  'app-acessos': 'app-acessos',
   pets: 'pets',
   servicos: 'servicos',
   pacotes: 'pacotes',

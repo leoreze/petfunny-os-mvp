@@ -508,6 +508,81 @@
       return `<article class="empty-state"><strong>${title}</strong><p>${text}</p></article>`;
     }
 
+
+    function engagementAdminCard(label, value, hint, icon, tone = 'info') {
+      return `
+        <article class="engagement-admin-kpi engagement-${tone}">
+          <span class="engagement-admin-icon">${icon}</span>
+          <small>${label}</small>
+          <strong>${value}</strong>
+          <p>${hint}</p>
+        </article>`;
+    }
+
+    function renderEngagementDashboard(summary) {
+      const dash = summary.engagementDashboard || {};
+      const metrics = dash.metrics || {};
+      const retention = dash.retention || [];
+      const rewards = dash.rewards || [];
+      const topTutors = dash.topTutors || [];
+      const insights = dash.insights || [];
+      const score = Number(metrics.appEngagementScore || 0);
+      return `
+        <section class="dashboard-full-row engagement-admin-section">
+          <article class="surface-panel engagement-admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Engajamento 360°</p>
+                <h2>Retenção, recompensas e app do tutor</h2>
+                <p>Resumo consolidado para acompanhar recorrência, ossinhos, indicações, clientes em risco e oportunidades de recompra.</p>
+              </div>
+              <span class="badge">Score ${score}/100</span>
+            </div>
+            <div class="engagement-admin-score">
+              <div class="engagement-score-ring" style="--score:${Math.max(0, Math.min(100, score))}"><strong>${score}</strong><small>score app</small></div>
+              <div>
+                <h3>Home do Tutor orientada para recorrência</h3>
+                <p>🐶 Pet ativo · 📅 próximo banho · 🩺 Health Score · 🦴 ossinhos · 🎁 mimos · 📸 momentos · IA de cuidados.</p>
+                <div class="engagement-home-preview">
+                  ${(dash.homePreview?.cards || ['Próximo banho','Health Score','Ossinhos','Mimos','Dica IA']).map(card => `<span>${esc(card)}</span>`).join('')}
+                </div>
+              </div>
+            </div>
+            <div class="engagement-admin-grid">
+              ${engagementAdminCard('Tutores ativos', num(metrics.activeTutors), `${num(metrics.recurringTutors)} recorrente(s)`, '👤', 'info')}
+              ${engagementAdminCard('Em risco', num((metrics.atRiskTutors || 0) + (metrics.lostTutors || 0)), 'sem agendar há muito tempo', '⚠️', 'warning')}
+              ${engagementAdminCard('Ossinhos gerados', num(metrics.rewardPoints), `${num(metrics.rewardsEvents)} evento(s)`, '🦴', 'success')}
+              ${engagementAdminCard('Indicações', num(metrics.referralsCreated), `${num(metrics.referralsConverted)} convertida(s)`, '🤝', 'info')}
+              ${engagementAdminCard('Pacotes ativos', num(metrics.activePackages), 'base recorrente atual', '📦', 'success')}
+              ${engagementAdminCard('Momentos', num(metrics.mediaItems), 'fotos/vídeos no app', '📸', 'info')}
+            </div>
+            <div class="engagement-admin-columns">
+              <div>
+                <h3>Retenção por última visita</h3>
+                <div class="engagement-list">
+                  ${retention.length ? retention.map(item => `<article><span>${esc(item.label)}</span><strong>${num(item.total)}</strong></article>`).join('') : emptyState('Sem dados de retenção', 'Os dados aparecem quando houver tutores e agendamentos.')}
+                </div>
+              </div>
+              <div>
+                <h3>Recompensas</h3>
+                <div class="engagement-list">
+                  ${rewards.length ? rewards.map(item => `<article><span>${esc(item.type)}</span><strong>${num(item.points)} pts</strong><small>${num(item.events)} evento(s)</small></article>`).join('') : emptyState('Sem ossinhos ainda', 'Quando o tutor agendar, indicar ou compartilhar, os eventos aparecem aqui.')}
+                </div>
+              </div>
+              <div>
+                <h3>Top tutores</h3>
+                <div class="engagement-list">
+                  ${topTutors.length ? topTutors.map(item => `<article><span>${esc(item.name)}</span><strong>${num(item.points)} 🦴</strong><small>${num(item.appointments)} atendimento(s)</small></article>`).join('') : emptyState('Sem ranking ainda', 'Os tutores com maior vínculo aparecem aqui.')}
+                </div>
+              </div>
+            </div>
+            <div class="engagement-insights">
+              ${insights.map(item => `<article><span>✨</span><p>${esc(item)}</p></article>`).join('')}
+            </div>
+          </article>
+        </section>`;
+    }
+
     function renderDashboard(summary) {
       currentSummary = summary;
       agendaItems = summary.agendaToday || [];
@@ -923,6 +998,13 @@
       showLoading('Atualizando painel PetFunny...');
       try {
         const summary = await api.get('/dashboard/summary');
+        try {
+          const engagementPayload = await api.get('/dashboard/engagement');
+          summary.engagementDashboard = engagementPayload.engagementDashboard || engagementPayload;
+        } catch (engagementError) {
+          console.warn('[dashboard] Engajamento 360 indisponível:', engagementError.message);
+          summary.engagementDashboard = { metrics: {}, retention: [], rewards: [], topTutors: [], insights: ['Engajamento 360 será exibido quando as rotas estiverem disponíveis.'] };
+        }
         renderDashboard(summary);
       } catch (error) {
         buildShell({

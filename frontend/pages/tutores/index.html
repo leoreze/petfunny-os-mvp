@@ -257,6 +257,7 @@
             <button type="button" class="pets-btn" data-id="${item.id}">🐾 Pets</button>
             <button type="button" class="schedule-btn" data-id="${item.id}">＋ Agendar</button>
             <button type="button" class="app-message-btn" data-id="${item.id}">📱 Mensagem do app</button>
+            <button type="button" class="access-log-btn" data-id="${item.id}">📊 Acessos do App</button>
             <button type="button" class="crm-message-btn" data-kind="auto" data-id="${item.id}">🤖 Mensagem CRM sugerida</button>
             <button type="button" class="crm-message-btn" data-kind="lead" data-id="${item.id}">🌱 Convite 1º agendamento</button>
             <button type="button" class="crm-message-btn" data-kind="active" data-id="${item.id}">💚 Retorno ativo</button>
@@ -444,6 +445,78 @@
     if (!phone) return toast('Este tutor não possui WhatsApp cadastrado.', 'warning');
     window.open(`https://wa.me/55${phone.replace(/^55/, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
   }
+
+  function formatDateTimeBR(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  }
+  function accessEventLabel(type = '') {
+    const labels = {
+      login: 'Login no app',
+      logout: 'Saiu do app',
+      page_view: 'Abriu o app',
+      timeline_open: 'Abriu Timeline',
+      agenda_open: 'Abriu Agenda',
+      roleta_open: 'Abriu Roleta',
+      packages_open: 'Visualizou Pacotes',
+      payment_attempt: 'Tentou pagamento',
+      payment_completed: 'Pagamento concluído',
+      profile_update: 'Editou perfil',
+      pet_update: 'Editou pet',
+      media_view: 'Visualizou momentos',
+      moments_open: 'Abriu Momentos',
+      referral_open: 'Abriu Indique',
+      health360_open: 'Abriu Saúde 360'
+    };
+    return labels[type] || type || 'Ação no app';
+  }
+  function accessStatusBadge(status = {}) {
+    const tone = status.tone === 'danger' ? 'danger' : status.tone === 'warning' ? 'warning' : status.tone === 'success' ? 'ok' : status.tone === 'ok' ? 'ok' : 'muted-pill';
+    return `<span class="status-pill ${tone}">${esc(status.label || 'Nunca acessou')}</span>`;
+  }
+  function ensureAccessModal() {
+    let modal = document.getElementById('app-access-modal');
+    if (modal) return modal;
+    modal = document.createElement('dialog');
+    modal.className = 'premium-modal';
+    modal.id = 'app-access-modal';
+    modal.innerHTML = `<div class="modal-card tutor-history-modal-card">
+      <header class="modal-header"><div><p class="eyebrow">Acessos do App</p><h3 id="app-access-title">Uso do App do Tutor</h3><p class="modal-subtitle">Veja primeiro acesso, último acesso, total de acessos e últimas ações do tutor no app.</p></div><button class="icon-btn" type="button" id="close-app-access-modal">×</button></header>
+      <div class="modal-body custom-scroll"><div id="app-access-content"><p>Carregando acessos...</p></div></div>
+      <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-app-access-modal">Fechar</button></footer>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#close-app-access-modal').addEventListener('click', () => modal.close());
+    modal.querySelector('#cancel-app-access-modal').addEventListener('click', () => modal.close());
+    return modal;
+  }
+  async function openAppAccessModal(tutorId) {
+    const modal = ensureAccessModal();
+    const content = modal.querySelector('#app-access-content');
+    const title = modal.querySelector('#app-access-title');
+    try {
+      content.innerHTML = '<article class="module-card empty-state"><strong>Carregando acessos...</strong><p>Consultando eventos reais registrados pelo App do Tutor.</p></article>';
+      if (!modal.open) modal.showModal();
+      const data = await api.get(`/app-access/tutors/${tutorId}`);
+      title.textContent = `Acessos de ${data.tutor?.name || 'tutor'}`;
+      const items = data.items || [];
+      content.innerHTML = `
+        <section class="grid metrics-grid app-access-summary-grid">
+          <article class="metric-card"><span>Primeiro acesso</span><strong>${esc(formatDateTimeBR(data.firstAccessAt))}</strong><small>quando começou a usar</small></article>
+          <article class="metric-card"><span>Último acesso</span><strong>${esc(formatDateTimeBR(data.lastAccessAt))}</strong><small>atividade mais recente</small></article>
+          <article class="metric-card"><span>Total de acessos</span><strong>${Number(data.totalAccesses || 0)}</strong><small>eventos registrados</small></article>
+          <article class="metric-card"><span>Status</span><strong>${accessStatusBadge(data.status)}</strong><small>uso do App do Tutor</small></article>
+        </section>
+        ${items.length ? `<div class="table-scroll custom-scroll"><table class="premium-table"><thead><tr><th>Data</th><th>Ação</th><th>Página</th><th>Dispositivo</th></tr></thead><tbody>${items.map(item => `<tr><td>${esc(formatDateTimeBR(item.createdAt))}</td><td><strong>${esc(accessEventLabel(item.eventType))}</strong></td><td>${esc(item.page || '—')}</td><td><small>${esc(String(item.userAgent || '').slice(0, 90) || '—')}</small></td></tr>`).join('')}</tbody></table></div>` : '<article class="module-card empty-state"><strong>Nunca acessou o app.</strong><p>Envie a mensagem de ativação pelo WhatsApp para convidar este tutor.</p></article>'}
+      `;
+      setupPremiumInteractions(modal);
+    } catch (error) {
+      content.innerHTML = `<article class="module-card empty-state"><strong>Não foi possível carregar os acessos.</strong><p>${esc(error.message)}</p></article>`;
+      toast(error.message, 'error');
+    }
+  }
+
   async function loadPetOptions() {
     if (state.petOptions.types.length || state.petOptions.sizes.length) return;
     try {
@@ -627,6 +700,7 @@
     const pets = event.target.closest('.pets-btn');
     const schedule = event.target.closest('.schedule-btn');
     const appMessage = event.target.closest('.app-message-btn');
+    const accessLog = event.target.closest('.access-log-btn');
     const crmMessage = event.target.closest('.crm-message-btn');
     const del = event.target.closest('.delete-btn');
     if (menuBtn) { event.preventDefault(); event.stopPropagation(); openTutorMenu(menuBtn); return; }
@@ -637,6 +711,11 @@
       closeTutorMenus();
       const tutor = tutorById(appMessage.dataset.id);
       openWhatsappToTutor(tutor, appAccessMessage(tutor));
+      return;
+    }
+    if (accessLog) {
+      closeTutorMenus();
+      await openAppAccessModal(accessLog.dataset.id);
       return;
     }
     if (crmMessage) {

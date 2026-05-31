@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Acessos do App · PetFunny OS</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid } from '/assets/js/shell.js';
+  import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>\"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]));
+  const dateTime = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' });
+  };
+  const phone = (value = '') => {
+    const d = String(value || '').replace(/\D/g, '').replace(/^55/, '');
+    if (d.length <= 2) return d;
+    if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+    return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
+  };
+  const eventLabel = (type = '') => ({
+    login:'Login no app', logout:'Saiu do app', page_view:'Abriu o app', timeline_open:'Abriu Timeline', agenda_open:'Abriu Agenda', roleta_open:'Abriu Roleta', packages_open:'Visualizou Pacotes', payment_attempt:'Tentou pagamento', payment_completed:'Pagamento concluído', profile_update:'Editou perfil', pet_update:'Editou pet', media_view:'Visualizou momentos', moments_open:'Abriu Momentos', referral_open:'Abriu Indique', health360_open:'Abriu Saúde 360'
+  }[type] || type || 'Ação no app');
+  const statusBadge = (status = {}) => {
+    const tone = status.tone === 'danger' ? 'danger' : status.tone === 'warning' ? 'warning' : status.tone === 'success' ? 'ok' : status.tone === 'ok' ? 'ok' : 'muted-pill';
+    return `<span class="status-pill ${tone}">${esc(status.label || 'Nunca acessou')}</span>`;
+  };
+
+  const state = { page: 1, limit: 100, total: 0, items: [], status: 'all', search: '' };
+
+  buildShell({
+    active: 'Acessos do App',
+    eyebrow: 'App do Tutor',
+    title: 'Acessos do App',
+    subtitle: 'Veja quais tutores acessaram o App, quando acessaram e quais ações realizaram.',
+    content: `
+      <section class="hero-panel stack-lg">
+        <div class="page-heading-row between"><div><p class="eyebrow">Engajamento real</p><h1>Acessos do App</h1><p>Monitore adoção, reativação e comportamento dos tutores no App PetFunny.</p></div><a class="btn btn-secondary" href="/admin/tutores">👥 Ver tutores</a></div>
+        <div id="access-metrics">${bigNumberGrid([['Tutores monitorados','--','base atual'],['Já acessaram','--','com evento registrado'],['Acessaram hoje','--','ativos hoje'],['Nunca acessaram','--','precisam ativação']])}</div>
+      </section>
+      <section class="module-card stack-md">
+        <div class="section-toolbar"><div><h3>Lista de acessos</h3><p>Use os filtros para encontrar tutores que precisam receber WhatsApp de ativação.</p></div></div>
+        <div class="filter-row"><input class="input" id="search" placeholder="Buscar por nome ou WhatsApp"><select class="select" id="status"><option value="all">Todos</option><option value="never">Nunca acessou</option><option value="today">Acessou hoje</option><option value="active">Ativo</option><option value="inactive_7">Inativo 7 dias</option><option value="inactive_30">Inativo 30 dias</option></select><button class="btn btn-secondary" id="reload">Atualizar</button></div>
+        <div class="table-scroll custom-scroll"><table class="premium-table"><thead><tr><th>Tutor</th><th>WhatsApp</th><th>Primeiro acesso</th><th>Último acesso</th><th>Total</th><th>Pets</th><th>Última ação</th><th>Status</th><th>Ações</th></tr></thead><tbody id="rows"><tr><td colspan="9">Carregando...</td></tr></tbody></table></div>
+      </section>`
+  });
+
+  const rows = document.getElementById('rows');
+  const metrics = document.getElementById('access-metrics');
+  async function load() {
+    try {
+      showLoading('Carregando acessos...', 'Consultando eventos reais do App do Tutor.');
+      const params = new URLSearchParams({ page: '1', limit: String(state.limit), status: state.status });
+      if (state.search) params.set('search', state.search);
+      const data = await api.get(`/app-access/tutors?${params}`);
+      state.items = data.items || [];
+      const s = data.summary || {};
+      metrics.innerHTML = bigNumberGrid([
+        ['Tutores monitorados', s.total || 0, 'base atual'],
+        ['Já acessaram', s.withAccess || 0, 'com evento registrado'],
+        ['Acessaram hoje', s.today || 0, 'ativos hoje'],
+        ['Nunca acessaram', s.never || 0, 'precisam ativação']
+      ]);
+      rows.innerHTML = state.items.length ? state.items.map(item => `<tr><td><strong>${esc(item.name)}</strong></td><td>${esc(phone(item.whatsapp))}</td><td>${esc(dateTime(item.firstAccessAt))}</td><td>${esc(dateTime(item.lastAccessAt))}</td><td><strong>${Number(item.totalAccesses || 0)}</strong></td><td>${Number(item.petsCount || 0)}</td><td>${esc(eventLabel(item.lastEventType))}<br><small>${esc(item.lastPage || '—')}</small></td><td>${statusBadge(item.status)}</td><td><a class="btn btn-small btn-secondary" href="/admin/tutores">Abrir tutor</a></td></tr>`).join('') : '<tr><td colspan="9">Nenhum tutor encontrado.</td></tr>';
+    } catch (error) { rows.innerHTML = `<tr><td colspan="9">${esc(error.message)}</td></tr>`; toast(error.message, 'error'); }
+    finally { hideLoading(); finishPageLoading(); }
+  }
+  document.getElementById('reload').addEventListener('click', load);
+  document.getElementById('status').addEventListener('change', (e) => { state.status = e.target.value; load(); });
+  document.getElementById('search').addEventListener('input', (e) => { state.search = e.target.value.trim(); clearTimeout(window.__accessSearch); window.__accessSearch = setTimeout(load, 350); });
+  await load();
+</script>
+</body>
+</html>

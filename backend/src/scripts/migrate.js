@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS tutors (
   deleted_at TIMESTAMPTZ
 );
 
+
+
 CREATE TABLE IF NOT EXISTS pets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
@@ -327,6 +329,26 @@ CREATE TABLE IF NOT EXISTS appointments (
   deleted_at TIMESTAMPTZ
 );
 
+
+CREATE TABLE IF NOT EXISTS appointment_media (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  appointment_id UUID REFERENCES appointments(id) ON DELETE CASCADE,
+  tutor_id UUID REFERENCES tutors(id) ON DELETE CASCADE,
+  pet_id UUID REFERENCES pets(id) ON DELETE SET NULL,
+  media_type TEXT NOT NULL DEFAULT 'photo' CHECK (media_type IN ('photo','video')),
+  url TEXT NOT NULL,
+  caption TEXT,
+  is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_appointment_media_appointment ON appointment_media(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_media_tutor ON appointment_media(tutor_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_media_pet ON appointment_media(pet_id);
+CREATE INDEX IF NOT EXISTS idx_appointment_media_created ON appointment_media(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS appointment_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   appointment_id UUID NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
@@ -430,6 +452,91 @@ CREATE TABLE IF NOT EXISTS payment_statuses (
   deleted_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS tutor_rewards (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+  points_balance INTEGER NOT NULL DEFAULT 0 CHECK (points_balance >= 0),
+  level TEXT NOT NULL DEFAULT 'inicial',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tutor_id)
+);
+
+CREATE TABLE IF NOT EXISTS tutor_reward_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+  pet_id UUID REFERENCES pets(id) ON DELETE SET NULL,
+  appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
+  customer_package_id UUID REFERENCES customer_packages(id) ON DELETE SET NULL,
+  event_type TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  description TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tutor_reward_events_appointment_once_idx
+  ON tutor_reward_events (tutor_id, event_type, appointment_id)
+  WHERE appointment_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS tutor_reward_events_package_once_idx
+  ON tutor_reward_events (tutor_id, event_type, customer_package_id)
+  WHERE customer_package_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS tutor_reward_events_tutor_created_idx ON tutor_reward_events (tutor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS tutor_reward_events_pet_idx ON tutor_reward_events (pet_id);
+
+
+
+CREATE TABLE IF NOT EXISTS app_access_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  phone TEXT,
+  event_type TEXT NOT NULL DEFAULT 'page_view',
+  page TEXT,
+  user_agent TEXT,
+  ip_address TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS app_access_logs_tutor_created_idx ON app_access_logs (tutor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS app_access_logs_event_created_idx ON app_access_logs (event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS app_access_logs_phone_idx ON app_access_logs (phone);
+
+CREATE TABLE IF NOT EXISTS tutor_engagement_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+  pet_id UUID REFERENCES pets(id) ON DELETE SET NULL,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT,
+  cta_label TEXT,
+  cta_url TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  read_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS tutor_engagement_events_tutor_created_idx ON tutor_engagement_events (tutor_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS tutor_referrals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+  referred_name TEXT,
+  referred_phone TEXT,
+  referred_tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  referral_code TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'created',
+  reward_points INTEGER NOT NULL DEFAULT 5,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  converted_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS tutor_referrals_code_idx ON tutor_referrals(referral_code);
+CREATE INDEX IF NOT EXISTS tutor_referrals_referrer_idx ON tutor_referrals(referrer_tutor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS tutor_referrals_phone_idx ON tutor_referrals(referred_phone);
+CREATE INDEX IF NOT EXISTS tutor_referrals_status_idx ON tutor_referrals(status);
+
+
+
 CREATE TABLE IF NOT EXISTS financial_transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
@@ -446,6 +553,28 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ
 );
+
+
+
+-- v1.6.25 Financeiro v2: competência das entradas por data de vencimento.
+-- Mantém dados antigos consistentes: lançamentos vindos de agendamentos passam a usar a data do atendimento como vencimento quando due_date ainda estiver vazio.
+UPDATE financial_transactions ft
+SET due_date = a.starts_at::date,
+    updated_at = NOW()
+FROM appointments a
+WHERE ft.appointment_id = a.id
+  AND ft.deleted_at IS NULL
+  AND ft.type = 'income'
+  AND ft.due_date IS NULL
+  AND a.starts_at IS NOT NULL;
+
+-- Fallback seguro para entradas antigas sem agendamento: usa a data de lançamento apenas quando não houver outra referência.
+UPDATE financial_transactions
+SET due_date = created_at::date,
+    updated_at = NOW()
+WHERE deleted_at IS NULL
+  AND type = 'income'
+  AND due_date IS NULL;
 
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
