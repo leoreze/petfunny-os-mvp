@@ -6760,9 +6760,20 @@ function saoPauloLocalToIso(dateValue, timeValue) {
   return parsed.toISOString();
 }
 
+function addDaysToDateString(dateValue, days = 0) {
+  const date = String(dateValue || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Date().toISOString().slice(0, 10);
+  const parsed = new Date(`${date}T12:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + Number(days || 0));
+  return parsed.toISOString().slice(0, 10);
+}
+
 function toIsoOrNull(value) {
   const text = String(value || '').trim();
   if (!text) return null;
+  const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
+  const localMatch = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/);
+  if (localMatch && !hasExplicitTimezone) return saoPauloLocalToIso(localMatch[1], localMatch[2]);
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
@@ -8023,9 +8034,9 @@ async function generateAppointmentsForCustomerPackage(customerPackageId, { start
   const packageTotal = Number(contract.amount_cents || contract.price_cents || 0);
   let created = 0;
   for (let i = 0; i < totalSessions; i += 1) {
-    const appointmentDate = new Date(`${cycleStart}T${firstTime || '09:00'}:00`);
-    appointmentDate.setDate(appointmentDate.getDate() + i * intervalDays);
-    const startsAt = appointmentDate.toISOString();
+    const sessionDate = addDaysToDateString(cycleStart, i * intervalDays);
+    const startsAt = saoPauloLocalToIso(sessionDate, firstTime || '09:00') || new Date(`${sessionDate}T${firstTime || '09:00'}:00`).toISOString();
+    const appointmentDate = new Date(startsAt);
     const endsAt = new Date(appointmentDate.getTime() + duration * 60000).toISOString();
     const sessionStatus = historicalImport && appointmentDate.getTime() < Date.now() ? 'finalizado' : 'agendado';
     const appointmentSource = historicalImport ? 'historical_package' : 'package';
@@ -8384,10 +8395,10 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     const finalAmount = amountCents;
     const perMonth = Number(packageRow.appointments_per_month || 4);
     const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
-    const contractStartForCount = new Date(`${startsOn}T${firstTime || '09:00'}:00`);
     const computedUsedSessions = Array.from({ length: sessions }).filter((_, idx) => {
-      const d = new Date(contractStartForCount.getTime());
-      d.setDate(d.getDate() + idx * intervalDays);
+      const sessionDate = addDaysToDateString(startsOn, idx * intervalDays);
+      const sessionStartsAt = saoPauloLocalToIso(sessionDate, firstTime || '09:00');
+      const d = sessionStartsAt ? new Date(sessionStartsAt) : new Date(`${sessionDate}T${firstTime || '09:00'}:00`);
       return d.getTime() < Date.now();
     }).length;
     const usedSessions = Math.min(computedUsedSessions, sessions);

@@ -1,6 +1,6 @@
 {
   "name": "petfunny-os",
-  "version": "1.6.49",
+  "version": "1.6.50",
   "private": true,
   "type": "module",
   "scripts": {
