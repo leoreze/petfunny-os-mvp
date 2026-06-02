@@ -607,28 +607,27 @@
     const media = data.mediaPreview || [];
     const latest = data.upcomingAppointments?.[0] || data.history?.[0] || null;
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Momentos do atendimento</h2><p>Fotos, vídeos e lembranças afetivas dos cuidados PetFunny.</p></div>${media.length ? `<div class="client-moments-grid">${media.map(renderMomentMediaCard).join('')}</div>` : empty('📸', 'Nenhum momento publicado ainda', 'Depois do próximo banho, os melhores momentos do seu pet aparecem aqui.')}</section>
-    <section class="client-mobile-section"><div class="client-section-title"><h2>Timeline do cuidado</h2><p>Acompanhe cada carinho, cada etapa e cada finalização.</p></div>${latest ? `<article class="client-list-card"><div class="client-list-icon">${latest.petPhotoUrl ? `<img src="${escapeHtml(latest.petPhotoUrl)}" alt="${escapeHtml(latest.petName || 'Pet')}">` : '🐶'}</div><div class="client-list-body"><h3>${escapeHtml(latest.petName || 'Pet')}</h3><p>${escapeHtml(latest.services || 'Atendimento PetFunny')} · ${dateTime(latest.startsAt)}</p>${renderDetailedAppointmentTimeline(latest)}</div></article>` : empty('🛁', 'Sem atendimento ativo', 'Quando houver agendamento, a timeline detalhada aparece aqui.')}</section>
+    <section class="client-mobile-section"><div class="client-section-title"><h2>Timeline do cuidado</h2><p>Acompanhe cada carinho, cada etapa e cada finalização.</p></div>${latest ? `<article class="client-list-card client-moment-timeline-card"><div class="client-list-icon client-pet-mini-avatar">${latest.petPhotoUrl ? `<img src="${escapeHtml(latest.petPhotoUrl)}" alt="${escapeHtml(latest.petName || 'Pet')}">` : '🐶'}</div><div class="client-list-body"><h3>${escapeHtml(latest.petName || 'Pet')}</h3><p>${escapeHtml(latest.services || 'Atendimento PetFunny')} · ${dateTime(latest.startsAt)}</p>${renderDetailedAppointmentTimeline(latest)}</div></article>` : empty('🛁', 'Sem atendimento ativo', 'Quando houver agendamento, a timeline detalhada aparece aqui.')}</section>
     <section class="client-mobile-section"><div class="client-section-title"><h2>Meus pets</h2><p>Escolha um pet para ver momentos futuros.</p></div><div class="client-pet-list">${pets.map((pet) => `<article class="client-list-card client-moment-pet-card"><div class="client-list-icon client-pet-mini-avatar">${pet.photoUrl ? `<img src="${escapeHtml(pet.photoUrl)}" alt="${escapeHtml(pet.name)}">` : '🐾'}</div><div class="client-list-body"><h3>${escapeHtml(pet.name)}</h3><p>${escapeHtml(pet.breed || pet.size || 'PetFunny')}</p><div class="client-card-actions"><a class="btn btn-sm" href="/app/agenda?petId=${escapeHtml(pet.id)}">Agendar próximo banho</a></div></div></article>`).join('') || empty('🐶','Cadastre seu pet','Os momentos ficam organizados por pet.')}</div></section>`;
   }
 
+  function lazyHomeBlock(html = '', index = 0) {
+    return `<div class="client-home-lazy" data-home-lazy data-lazy-index="${index}">${html}</div>`;
+  }
+
   function renderHome() {
-    return `
-      ${renderMeuPetHero()}
-      ${renderCareInsightCard()}
-      ${renderMomentsPreview()}
-      ${renderPushActivationCard()}
-      <section class="client-timeline" id="client-timeline-list">
-        ${renderTimelineItems()}
-      </section>
-      <div class="client-timeline-loader" id="client-timeline-loader">Carregando mais atualizações...</div>
-      <div class="client-timeline-sentinel" id="client-timeline-sentinel" aria-hidden="true"></div>
-      <div class="client-kpi-grid">
-        <article><strong>${data.stats.pets}</strong><span>pets cadastrados</span></article>
-        <article><strong>${data.stats.upcomingAppointments}</strong><span>próximos horários</span></article>
-        <article><strong>${data.stats.activePackages}</strong><span>pacotes ativos</span></article>
-      </div>
-      <section class="client-mobile-section"><div class="client-section-title"><h2>Acessos rápidos</h2><p>Tudo que o tutor precisa em poucos toques.</p></div>${clientCards()}</section>
-    `;
+    const quickAccess = `<section class="client-mobile-section client-quick-access-section"><div class="client-section-title"><h2>Acessos rápidos</h2><p>Tudo que o tutor precisa em poucos toques.</p></div>${clientCards()}</section>`;
+    const bigNumbers = `<div class="client-kpi-grid client-home-big-numbers"><article><strong>${data.stats.pets}</strong><span>pets cadastrados</span></article><article><strong>${data.stats.upcomingAppointments}</strong><span>próximos horários</span></article><article><strong>${data.stats.activePackages}</strong><span>pacotes ativos</span></article></div>`;
+    const timeline = `<section class="client-mobile-section client-home-timeline-section"><div class="client-section-title"><h2>Timeline do cuidado</h2><p>Atualizações do app carregam conforme você rola.</p></div><section class="client-timeline" id="client-timeline-list">${renderTimelineItems()}</section><div class="client-timeline-loader" id="client-timeline-loader">Carregando mais atualizações...</div><div class="client-timeline-sentinel" id="client-timeline-sentinel" aria-hidden="true"></div></section>`;
+    return [
+      renderMeuPetHero(),
+      quickAccess,
+      bigNumbers,
+      renderPushActivationCard(),
+      renderCareInsightCard(),
+      renderMomentsPreview(),
+      timeline
+    ].filter(Boolean).join('');
   }
 
   function renderAgenda() {
@@ -721,6 +720,44 @@
         }
       }
     });
+  }
+
+
+  function setupHomeInfiniteReveal() {
+    const blocks = Array.from(document.querySelectorAll('[data-home-lazy]'));
+    if (!blocks.length) return;
+    blocks.forEach((block, index) => {
+      block.classList.toggle('is-visible', index < 3);
+    });
+    const revealNext = (count = 2) => {
+      const hidden = blocks.filter((block) => !block.classList.contains('is-visible')).slice(0, count);
+      hidden.forEach((block) => block.classList.add('is-visible'));
+    };
+    const sentinel = document.getElementById('client-home-lazy-sentinel') || document.createElement('div');
+    sentinel.id = 'client-home-lazy-sentinel';
+    sentinel.className = 'client-home-lazy-sentinel';
+    document.querySelector('.client-mobile-content')?.appendChild(sentinel);
+    if (!('IntersectionObserver' in window)) {
+      blocks.forEach((block) => block.classList.add('is-visible'));
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) revealNext(2);
+      if (blocks.every((block) => block.classList.contains('is-visible'))) observer.disconnect();
+    }, { rootMargin: '180px 0px' });
+    observer.observe(sentinel);
+    window.setTimeout(() => revealNext(1), 350);
+  }
+
+  function queueAiPushReminder(insight = null) {
+    if (!insight || window.__petfunnyAiPushReminderQueued) return;
+    window.__petfunnyAiPushReminderQueued = true;
+    clientApi.post('/app/ai-push-reminder', {
+      title: insight.title || 'Dica de cuidado PetFunny',
+      message: insight.message || 'A IA PetFunny gerou uma nova recomendação para o seu pet.',
+      url: insight.url || '/app/saude-360',
+      petId: insight.petId || data.engagement?.activePet?.id || data.pets?.[0]?.id || ''
+    }).catch(() => null);
   }
 
   function breedDatalistHtml() {
@@ -1246,7 +1283,7 @@
       <form class="client-form-card" id="profile-form">
         ${photoUploadField('Foto do tutor', 'photoDataUrl', tutor.photoUrl || '', '👤')}
         ${field('Nome', 'name', tutor.name || '')}
-        ${field('WhatsApp', 'whatsapp', tutor.whatsapp || data.account?.whatsapp || '', 'disabled')}
+        ${field('WhatsApp', 'whatsapp', tutor.whatsapp || data.account?.whatsapp || '', 'data-mask="whatsapp" disabled')}
         ${field('E-mail', 'email', tutor.email || '', 'type="email"')}
         <div class="client-form-subtitle">Endereço</div>
         ${field('CEP', 'addressZipcode', tutor.addressZipcode || '', 'data-mask="cep" placeholder="14000-000"')}
@@ -1279,6 +1316,10 @@
     const activeSection = sectionOverride || currentClientSection();
     const [title, subtitle] = heroFor[activeSection] || heroFor.home;
     buildClientApp({ title, subtitle, active: activeSection, content: (renderers[activeSection] || renderHome)() });
+    if (activeSection === 'home') {
+      setupHomeInfiniteReveal();
+      queueAiPushReminder(data.careInsight || data.engagement?.careInsight || null);
+    }
     bindEvents();
   }
 

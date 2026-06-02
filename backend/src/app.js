@@ -1954,6 +1954,46 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
   }
 });
 
+
+app.get('/api/tutores/check-whatsapp', requireAuth, async (req, res, next) => {
+  try {
+    const whatsapp = normalizeWhatsapp(req.query.whatsapp);
+    const excludeId = cleanText(req.query.excludeId);
+    if (!whatsapp || whatsapp.length < 10) {
+      return res.json({ exists: false, tutor: null });
+    }
+
+    const params = [whatsapp];
+    let excludeSql = '';
+    if (excludeId) {
+      params.push(excludeId);
+      excludeSql = ` AND id <> $${params.length}::uuid`;
+    }
+
+    const result = await query(`
+      SELECT id, name, whatsapp, email, status, photo_url, created_at, updated_at
+      FROM tutors
+      WHERE deleted_at IS NULL
+        AND whatsapp = $1
+        ${excludeSql}
+      LIMIT 1
+    `, params);
+
+    const tutor = result.rows[0] || null;
+    res.json({
+      exists: Boolean(tutor),
+      tutor: tutor ? {
+        ...sanitizeTutor(tutor),
+        status: tutor.status,
+        createdAt: tutor.created_at,
+        updatedAt: tutor.updated_at
+      } : null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/tutores/:id', requireAuth, async (req, res, next) => {
   try {
     const tutor = await getTutorById(req.params.id);
@@ -1992,23 +2032,17 @@ app.post('/api/tutores', requireAuth, async (req, res, next) => {
     if (!name) return res.status(400).json({ error: 'Informe o nome do tutor.' });
     if (!whatsapp) return res.status(400).json({ error: 'Informe o WhatsApp do tutor.' });
 
+    const existing = await query('SELECT id, name, whatsapp FROM tutors WHERE whatsapp = $1 AND deleted_at IS NULL LIMIT 1', [whatsapp]);
+    if (existing.rows[0]) {
+      return res.status(409).json({
+        error: 'Já existe um tutor cadastrado com este WhatsApp.',
+        tutor: sanitizeTutor(existing.rows[0])
+      });
+    }
+
     const result = await query(`
       INSERT INTO tutors (name, whatsapp, phone, email, document_number, address, city, state, tags, notes, status, photo_url)
       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'Ribeirão Preto'), COALESCE($8, 'SP'), $9::text[], $10, COALESCE($11, 'active'), $12)
-      ON CONFLICT (whatsapp) DO UPDATE
-      SET name = EXCLUDED.name,
-          phone = EXCLUDED.phone,
-          email = EXCLUDED.email,
-          document_number = EXCLUDED.document_number,
-          address = EXCLUDED.address,
-          city = EXCLUDED.city,
-          state = EXCLUDED.state,
-          tags = EXCLUDED.tags,
-          notes = EXCLUDED.notes,
-          status = EXCLUDED.status,
-          photo_url = EXCLUDED.photo_url,
-          deleted_at = NULL,
-          updated_at = NOW()
       RETURNING *
     `, [
       name,
@@ -2027,6 +2061,7 @@ app.post('/api/tutores', requireAuth, async (req, res, next) => {
 
     res.status(201).json({ tutor: sanitizeTutor(result.rows[0]), message: 'Tutor salvo com sucesso.' });
   } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ error: 'Já existe um tutor cadastrado com este WhatsApp.' });
     next(error);
   }
 });
@@ -2040,6 +2075,14 @@ app.put('/api/tutores/:id', requireAuth, async (req, res, next) => {
     const whatsapp = normalizeWhatsapp(req.body.whatsapp);
     if (!name) return res.status(400).json({ error: 'Informe o nome do tutor.' });
     if (!whatsapp) return res.status(400).json({ error: 'Informe o WhatsApp do tutor.' });
+
+    const duplicate = await query('SELECT id, name, whatsapp FROM tutors WHERE whatsapp = $1 AND id <> $2::uuid AND deleted_at IS NULL LIMIT 1', [whatsapp, req.params.id]);
+    if (duplicate.rows[0]) {
+      return res.status(409).json({
+        error: 'Já existe outro tutor cadastrado com este WhatsApp.',
+        tutor: sanitizeTutor(duplicate.rows[0])
+      });
+    }
 
     const result = await query(`
       UPDATE tutors
@@ -5654,6 +5697,28 @@ app.get('/api/app/pets/:petId/care-insights', requireClientAuth, async (req, res
   } catch (error) { next(error); }
 });
 
+
+app.post('/api/app/ai-push-reminder', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const title = cleanText(req.body?.title) || 'Dica de cuidado PetFunny 🧠';
+    const body = cleanText(req.body?.message || req.body?.body) || 'A IA PetFunny gerou uma nova recomendação para o seu pet.';
+    const url = cleanText(req.body?.url) || '/app/saude-360';
+    const petId = cleanText(req.body?.petId) || 'pet';
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const tag = `ai-care-${tutorId}-${petId}-${todayKey}`.slice(0, 120);
+    const already = await query(`
+      SELECT id FROM push_notification_logs
+      WHERE tutor_id=$1::uuid AND payload->>'tag'=$2::text AND created_at::date=CURRENT_DATE
+      LIMIT 1
+    `, [tutorId, tag]).catch(() => ({ rowCount: 0 }));
+    if (already.rowCount) return res.json({ ok: true, skipped: true, reason: 'already_sent_today' });
+    const pushTargets = await query(`SELECT * FROM push_subscriptions WHERE tutor_id=$1::uuid AND status='active' AND deleted_at IS NULL`, [tutorId]).catch(() => ({ rows: [] }));
+    const stats = await sendPushToSubscriptions(pushTargets.rows || [], { title, body, url, tag, type: 'ai-care' });
+    res.json({ ok: true, stats });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/app/health360/summary', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
@@ -5892,6 +5957,12 @@ function sanitizeAdminTeleSlot(row = {}) {
   };
 }
 
+
+function normalizeBulkUuidIds(value) {
+  const ids = Array.isArray(value) ? value : [];
+  return [...new Set(ids.map(id => cleanText(id)).filter(id => /^[0-9a-fA-F-]{36}$/.test(id)))];
+}
+
 app.get('/api/admin/health360/summary', requireAuth, async (req, res, next) => {
   try {
     const [vets, slots, triages, teles, finance] = await Promise.all([
@@ -5922,6 +5993,15 @@ app.post('/api/admin/health360/veterinarians', requireAuth, async (req, res, nex
     res.status(201).json({ veterinarian: sanitizeAdminVeterinarian(result.rows[0]) });
   } catch (error) { next(error); }
 });
+app.post('/api/admin/health360/veterinarians/bulk-delete', requireAuth, async (req, res, next) => {
+  try {
+    const ids = normalizeBulkUuidIds(req.body?.ids);
+    if (!ids.length) return res.status(400).json({ error: 'Selecione ao menos um veterinário.' });
+    const result = await query(`UPDATE veterinarians SET deleted_at=NOW(), is_active=FALSE, updated_at=NOW() WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, [ids]);
+    res.json({ ok: true, deleted: result.rowCount || 0 });
+  } catch (error) { next(error); }
+});
+
 app.put('/api/admin/health360/veterinarians/:id', requireAuth, async (req, res, next) => {
   try {
     const isActive = req.body?.isActive === false || req.body?.is_active === false ? false : true;
@@ -5952,6 +6032,15 @@ app.post('/api/admin/health360/slots', requireAuth, async (req, res, next) => {
     res.status(201).json({ slot: sanitizeAdminTeleSlot(result.rows[0]) });
   } catch (error) { next(error); }
 });
+app.post('/api/admin/health360/slots/bulk-delete', requireAuth, async (req, res, next) => {
+  try {
+    const ids = normalizeBulkUuidIds(req.body?.ids);
+    if (!ids.length) return res.status(400).json({ error: 'Selecione ao menos um horário.' });
+    const result = await query(`UPDATE teleconsultation_slots SET deleted_at=NOW(), updated_at=NOW() WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, [ids]);
+    res.json({ ok: true, deleted: result.rowCount || 0 });
+  } catch (error) { next(error); }
+});
+
 app.put('/api/admin/health360/slots/:id', requireAuth, async (req, res, next) => {
   try {
     const vetId = cleanText(req.body?.veterinarianId);
@@ -5973,12 +6062,30 @@ app.delete('/api/admin/health360/slots/:id', requireAuth, async (req, res, next)
   try { await query(`UPDATE teleconsultation_slots SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1::uuid`, [req.params.id]); res.json({ ok: true }); } catch (error) { next(error); }
 });
 
+app.post('/api/admin/health360/triages/bulk-delete', requireAuth, async (req, res, next) => {
+  try {
+    const ids = normalizeBulkUuidIds(req.body?.ids);
+    if (!ids.length) return res.status(400).json({ error: 'Selecione ao menos uma triagem.' });
+    const result = await query(`UPDATE pet_health_triages SET deleted_at=NOW(), updated_at=NOW() WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, [ids]);
+    res.json({ ok: true, deleted: result.rowCount || 0 });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/admin/health360/triages', requireAuth, async (req, res, next) => {
   try {
     const result = await query(`SELECT ht.*, t.name AS tutor_name, p.name AS pet_name FROM pet_health_triages ht LEFT JOIN tutors t ON t.id=ht.tutor_id LEFT JOIN pets p ON p.id=ht.pet_id WHERE ht.deleted_at IS NULL ORDER BY ht.created_at DESC LIMIT 200`);
     res.json({ items: result.rows.map((row) => ({ ...sanitizeHealthTriage(row), tutorName: row.tutor_name || '' })) });
   } catch (error) { next(error); }
 });
+app.post('/api/admin/health360/teleconsultations/bulk-delete', requireAuth, async (req, res, next) => {
+  try {
+    const ids = normalizeBulkUuidIds(req.body?.ids);
+    if (!ids.length) return res.status(400).json({ error: 'Selecione ao menos uma teleconsulta.' });
+    const result = await query(`UPDATE teleconsultations SET deleted_at=NOW(), updated_at=NOW() WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, [ids]);
+    res.json({ ok: true, deleted: result.rowCount || 0 });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/admin/health360/teleconsultations', requireAuth, async (req, res, next) => {
   try {
     const result = await query(`SELECT tc.*, t.name AS tutor_name, p.name AS pet_name, v.name AS veterinarian_name, v.crmv AS veterinarian_crmv, v.specialty FROM teleconsultations tc LEFT JOIN tutors t ON t.id=tc.tutor_id LEFT JOIN pets p ON p.id=tc.pet_id LEFT JOIN veterinarians v ON v.id=tc.veterinarian_id WHERE tc.deleted_at IS NULL ORDER BY tc.created_at DESC LIMIT 200`);
@@ -6999,6 +7106,7 @@ app.post('/api/agenda/historical', requireAuth, async (req, res, next) => {
     const date = cleanText(req.body?.date);
     const time = cleanText(req.body?.time) || '09:00';
     const description = cleanText(req.body?.description) || 'Atendimento antigo importado';
+    const serviceIds = Array.isArray(req.body?.serviceIds) ? req.body.serviceIds.map(cleanText).filter(Boolean) : [];
     const amountCents = Math.max(0, Number.parseInt(req.body?.amountCents || '0', 10));
     const paymentStatus = cleanText(req.body?.paymentStatus) || 'paid';
     const paymentMethodId = cleanText(req.body?.paymentMethodId);
@@ -7011,28 +7119,47 @@ app.post('/api/agenda/historical', requireAuth, async (req, res, next) => {
       const methodExists = await query('SELECT id FROM payment_methods WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [paymentMethodId]);
       if (!methodExists.rowCount) return res.status(400).json({ error: 'Forma de pagamento inválida.' });
     }
+    let selectedServices = [];
+    if (serviceIds.length) {
+      const serviceResult = await query(`
+        SELECT id, name
+        FROM services
+        WHERE deleted_at IS NULL AND id = ANY($1::uuid[])
+        ORDER BY name
+      `, [serviceIds]);
+      selectedServices = serviceResult.rows;
+    }
     const startsAt = toIsoOrNull(`${date}T${time}:00`);
     if (!startsAt) return res.status(400).json({ error: 'Data e horário inválidos.' });
     const endsAt = new Date(new Date(startsAt).getTime() + 60 * 60000).toISOString();
     await query('BEGIN');
     const created = await query(`
-      INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id, checked_in_at, checked_out_at)
-      VALUES ($1::uuid, $2::uuid, NULL, $3::timestamptz, $4::timestamptz, 'finalizado', 'historical_import', $5::integer, 0, 0, $5::integer, $6::text, $7::text, NULLIF($8::text,'')::uuid, $3::timestamptz, $4::timestamptz)
+      INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id, checked_in_at, checked_out_at, created_at, updated_at)
+      VALUES ($1::uuid, $2::uuid, NULL, $3::timestamptz, $4::timestamptz, 'finalizado', 'historical_import', $5::integer, 0, 0, $5::integer, $6::text, $7::text, NULLIF($8::text,'')::uuid, $3::timestamptz, $4::timestamptz, $3::timestamptz, NOW())
       RETURNING id
     `, [tutorId, petId, startsAt, endsAt, amountCents, [description, notes].filter(Boolean).join(' · '), paymentStatus, paymentMethodId || '']);
+    if (selectedServices.length) {
+      for (const service of selectedServices) {
+        await query(`
+          INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents, created_at, updated_at)
+          VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, 1, 0, 0, 0, $5::timestamptz, NOW())
+        `, [created.rows[0].id, petId, service.id, service.name, startsAt]);
+      }
+    } else {
+      await query(`
+        INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents, created_at, updated_at)
+        VALUES ($1::uuid, $2::uuid, NULL, $3::text, 1, 0, 0, 0, $4::timestamptz, NOW())
+      `, [created.rows[0].id, petId, description, startsAt]);
+    }
     await query(`
-      INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents)
-      VALUES ($1::uuid, $2::uuid, NULL, $3::text, 1, $4::integer, 0, $4::integer)
-    `, [created.rows[0].id, petId, description, amountCents]);
-    await query(`
-      INSERT INTO financial_transactions (tutor_id, appointment_id, type, category, description, amount_cents, due_date, status, paid_at)
-      VALUES ($1::uuid, $2::uuid, 'income', 'agendamento_antigo', $3::text, $4::integer, $5::date, $6::text, CASE WHEN $6::text='paid' THEN NOW() ELSE NULL END)
+      INSERT INTO financial_transactions (tutor_id, appointment_id, type, category, description, amount_cents, due_date, status, paid_at, created_at, updated_at)
+      VALUES ($1::uuid, $2::uuid, 'income', 'agendamento_antigo', $3::text, $4::integer, $5::date, $6::text, CASE WHEN $6::text='paid' THEN $7::timestamptz ELSE NULL END, $7::timestamptz, NOW())
       ON CONFLICT DO NOTHING
-    `, [tutorId, created.rows[0].id, `Agendamento antigo · ${description}`, amountCents, date, paymentStatus === 'paid' ? 'paid' : 'pending']);
+    `, [tutorId, created.rows[0].id, `Agendamento antigo · ${description}`, amountCents, date, paymentStatus === 'paid' ? 'paid' : 'pending', startsAt]);
     if (paymentStatus === 'paid') {
       const tx = await query(`SELECT id, amount_cents FROM financial_transactions WHERE appointment_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`, [created.rows[0].id]);
       if (tx.rows[0]) {
-        await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, NOW(), 'Pagamento histórico importado') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || amountCents)]);
+        await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, $4::timestamptz, 'Pagamento histórico importado') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || amountCents), startsAt]);
       }
     }
     await createOrUpdateReceiptForAppointment(created.rows[0].id, null).catch(() => null);
@@ -7088,6 +7215,25 @@ app.put('/api/agenda/:id', requireAuth, async (req, res, next) => {
   try {
     const current = await getAppointmentById(req.params.id);
     if (!current) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+    if (current.customer_package_id) {
+      const startsAt = toIsoOrNull(req.body?.startsAt);
+      if (!startsAt) return res.status(400).json({ error: 'Informe data e horário válidos.' });
+      await assertSlotAvailable(req.body?.startsAt || startsAt, current.status, req.params.id);
+      const previousStart = new Date(current.starts_at);
+      const previousEnd = current.ends_at ? new Date(current.ends_at) : new Date(previousStart.getTime() + 60 * 60000);
+      const durationMs = Math.max(15 * 60000, previousEnd.getTime() - previousStart.getTime());
+      const endsAt = new Date(new Date(startsAt).getTime() + durationMs).toISOString();
+      await query(`
+        UPDATE appointments
+        SET starts_at=$2::timestamptz,
+            ends_at=$3::timestamptz,
+            notes=$4::text,
+            updated_at=NOW()
+        WHERE id=$1::uuid AND deleted_at IS NULL
+      `, [req.params.id, startsAt, endsAt, cleanText(req.body?.notes)]);
+      const appointment = await getAppointmentById(req.params.id);
+      return res.json({ appointment: sanitizeAppointment(appointment), message: 'Sessão de pacote reagendada com sucesso.' });
+    }
     const tutorId = cleanText(req.body?.tutorId);
     const petId = cleanText(req.body?.petId);
     const collaboratorId = cleanText(req.body?.collaboratorId);
@@ -7442,7 +7588,7 @@ async function getPackageById(id) {
   return result.rows[0] || null;
 }
 
-async function generateAppointmentsForCustomerPackage(customerPackageId, { startsOn, firstTime = '09:00' } = {}) {
+async function generateAppointmentsForCustomerPackage(customerPackageId, { startsOn, firstTime = '09:00', historicalImport = false } = {}) {
   const contractResult = await query(`
     SELECT cp.*, pk.name AS package_name, pk.sessions_count, pk.appointments_per_month, pk.price_cents
     FROM customer_packages cp
@@ -7472,15 +7618,17 @@ async function generateAppointmentsForCustomerPackage(customerPackageId, { start
     appointmentDate.setDate(appointmentDate.getDate() + i * intervalDays);
     const startsAt = appointmentDate.toISOString();
     const endsAt = new Date(appointmentDate.getTime() + duration * 60000).toISOString();
+    const sessionStatus = historicalImport && appointmentDate.getTime() < Date.now() ? 'finalizado' : 'agendado';
+    const appointmentSource = historicalImport ? 'historical_package' : 'package';
     const allocatedTotal = i === totalSessions - 1
       ? Math.max(0, packageTotal - Math.floor(packageTotal / totalSessions) * (totalSessions - 1))
       : Math.floor(packageTotal / totalSessions);
     const discount = Math.max(0, subtotal - allocatedTotal);
     const appt = await query(`
       INSERT INTO appointments (tutor_id, pet_id, customer_package_id, package_session_number, package_total_sessions, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, package_session_label, notes, payment_status, payment_method_id)
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::integer, $6::timestamptz, $7::timestamptz, 'agendado', 'package', $8::integer, $9::numeric, $10::integer, $11::integer, $12::text, $13::text, $14::text, NULLIF($15::text,'')::uuid)
+      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::integer, $6::timestamptz, $7::timestamptz, $16::text, $17::text, $8::integer, $9::numeric, $10::integer, $11::integer, $12::text, $13::text, $14::text, NULLIF($15::text,'')::uuid)
       RETURNING id
-    `, [contract.tutor_id, contract.pet_id, contract.id, i + 1, totalSessions, startsAt, endsAt, subtotal, subtotal > 0 ? Number(((discount / subtotal) * 100).toFixed(2)) : 0, discount, allocatedTotal, `${i + 1} de ${totalSessions}`, `Sessão ${i + 1} de ${totalSessions} gerada automaticamente pelo pacote ${contract.package_name}. Valor total do pacote: ${(packageTotal / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`, contract.payment_status || 'pending', contract.payment_method_id || '']);
+    `, [contract.tutor_id, contract.pet_id, contract.id, i + 1, totalSessions, startsAt, endsAt, subtotal, subtotal > 0 ? Number(((discount / subtotal) * 100).toFixed(2)) : 0, discount, allocatedTotal, `${i + 1} de ${totalSessions}`, `${historicalImport ? 'Sessão histórica' : 'Sessão'} ${i + 1} de ${totalSessions} gerada automaticamente pelo pacote ${contract.package_name}. Valor total do pacote: ${(packageTotal / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`, contract.payment_status || 'pending', contract.payment_method_id || '', sessionStatus, appointmentSource]);
     for (const service of services.rows) {
       await query(`
         INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents)
@@ -7807,13 +7955,15 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     const petId = cleanText(req.body?.petId);
     const packageId = cleanText(req.body?.packageId);
     const startsOn = cleanText(req.body?.startsOn) || new Date().toISOString().slice(0, 10);
-    const totalSessions = Math.max(1, Number.parseInt(req.body?.totalSessions || '0', 10));
-    const usedSessionsRaw = Math.max(0, Number.parseInt(req.body?.usedSessions || '0', 10));
+    const firstTime = cleanText(req.body?.firstTime) || cleanText(req.body?.startsAtTime) || cleanText(req.body?.time) || '09:00';
+    const totalSessionsRaw = Number.parseInt(req.body?.totalSessions || '0', 10);
+    const totalSessions = Number.isFinite(totalSessionsRaw) && totalSessionsRaw > 0 ? totalSessionsRaw : 0;
     const amountCents = Math.max(0, Number.parseInt(req.body?.amountCents || '0', 10));
     const paymentStatus = cleanText(req.body?.paymentStatus) || 'paid';
     const paymentMethodId = cleanText(req.body?.paymentMethodId);
     const notes = cleanText(req.body?.notes);
-    if (!tutorId || !packageId) return res.status(400).json({ error: 'Selecione tutor e pacote.' });
+    if (!tutorId || !petId || !packageId) return res.status(400).json({ error: 'Selecione tutor, pet e pacote.' });
+    if (amountCents <= 0) return res.status(400).json({ error: 'Informe manualmente o valor final pago do pacote antigo.' });
     const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [packageId]);
     if (!pack.rowCount) return res.status(404).json({ error: 'Pacote não encontrado.' });
     if (paymentMethodId) {
@@ -7821,27 +7971,44 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       if (!methodExists.rowCount) return res.status(400).json({ error: 'Forma de pagamento inválida.' });
     }
     const packageRow = pack.rows[0];
-    const sessions = totalSessions || Number(packageRow.sessions_count || 1);
-    const usedSessions = Math.min(usedSessionsRaw, sessions);
-    const finalAmount = amountCents || Number(packageRow.price_cents || 0);
-    const status = usedSessions >= sessions ? 'completed' : 'active';
+    const sessions = Math.max(1, totalSessions || Number(packageRow.sessions_count || 1));
+    const finalAmount = amountCents;
+    const perMonth = Number(packageRow.appointments_per_month || 4);
+    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
+    const contractStartForCount = new Date(`${startsOn}T${firstTime || '09:00'}:00`);
+    const computedUsedSessions = Array.from({ length: sessions }).filter((_, idx) => {
+      const d = new Date(contractStartForCount.getTime());
+      d.setDate(d.getDate() + idx * intervalDays);
+      return d.getTime() < Date.now();
+    }).length;
+    const usedSessions = Math.min(computedUsedSessions, sessions);
+    const status = usedSessions >= sessions ? 'finished' : 'active';
     await query('BEGIN');
     const sold = await query(`
-      INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule)
-      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, $5::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, FALSE, $5::date, jsonb_build_object('historicalImport', true, 'notes', $11::text, 'doNotGenerateFutureAppointments', true))
+      INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule, created_at, updated_at)
+      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, FALSE, $5::date, jsonb_build_object('historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'intervalDays', $13::integer, 'reconstructedHistory', true), $5::date, NOW())
       RETURNING *
-    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes]);
+    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes, sessions, intervalDays, firstTime]);
+    let generated = { created: 0, totalSessions: sessions, finishedSessions: usedSessions, firstTime, intervalDays };
+    if (petId) {
+      generated = await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime, historicalImport: true });
+      const progress = await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: false });
+      if (progress) {
+        sold.rows[0].used_sessions = progress.usedSessions ?? progress.used_sessions ?? sold.rows[0].used_sessions;
+        generated.finishedSessions = Number(sold.rows[0].used_sessions || usedSessions);
+      }
+    }
     await query(`
-      INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status, paid_at)
-      VALUES ($1::uuid, $2::uuid, 'income', 'pacote_antigo', $3::text, $4::integer, $5::date, $6::text, CASE WHEN $6::text='paid' THEN NOW() ELSE NULL END)
+      INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status, paid_at, created_at, updated_at)
+      VALUES ($1::uuid, $2::uuid, 'income', 'pacote_antigo', $3::text, $4::integer, $5::date, $6::text, CASE WHEN $6::text='paid' THEN $5::date ELSE NULL END, $5::date, NOW())
       ON CONFLICT DO NOTHING
-    `, [tutorId, sold.rows[0].id, `Pacote antigo · ${packageRow.name} · ${usedSessions}/${sessions} sessões usadas`, finalAmount, startsOn, paymentStatus === 'paid' ? 'paid' : 'pending']);
+    `, [tutorId, sold.rows[0].id, `Pacote antigo · ${packageRow.name} · ${Number(sold.rows[0].used_sessions || usedSessions)}/${sessions} sessões usadas automaticamente`, finalAmount, startsOn, paymentStatus === 'paid' ? 'paid' : 'pending']);
     if (paymentStatus === 'paid') {
       const tx = await query(`SELECT id, amount_cents FROM financial_transactions WHERE customer_package_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`, [sold.rows[0].id]);
-      if (tx.rows[0]) await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, NOW(), 'Pagamento histórico de pacote') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || finalAmount)]);
+      if (tx.rows[0]) await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, $4::date, 'Pagamento histórico de pacote') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || finalAmount), startsOn]);
     }
     await query('COMMIT');
-    res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), message: 'Pacote antigo importado com sucesso.' });
+    res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), generatedAppointments: generated, message: 'Pacote antigo importado com histórico reconstruído.' });
   } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
 });
 

@@ -55,6 +55,13 @@
     .health360-page .tele-link-actions .mini-link { border:1px solid rgba(15,23,42,.1); background:#fff; color:#0f766e; border-radius:999px; padding:7px 10px; font-size:.78rem; font-weight:900; text-decoration:none; }
     .health360-page .tele-link-empty { color:#94a3b8; font-weight:800; font-size:.84rem; }
     .health360-page .health-finance-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+
+    .health360-page .select-cell { width:42px; text-align:center; }
+    .health360-page .select-cell input[type="checkbox"] { width:18px; height:18px; accent-color:#00a9b7; cursor:pointer; }
+    .health360-page .health-bulk-bar { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; border-radius:18px; background:linear-gradient(135deg,rgba(0,169,183,.10),rgba(249,161,151,.13)); border:1px solid rgba(0,169,183,.16); margin:12px 0 4px; }
+    .health360-page .health-bulk-bar strong { color:#0f172a; font-weight:1000; }
+    .health360-page .health-bulk-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .health360-page .btn-danger-soft { border:1px solid rgba(190,18,60,.18); background:#fff1f2; color:#be123c; }
     @media (max-width: 1100px){ .health360-page .health360-kpis, .health360-page .health-finance-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
     @media (max-width: 760px){ .health360-modal-card .form-grid { grid-template-columns:1fr; } .health360-page .health360-actions { width:100%; } .health360-page .health360-actions .btn { flex:1; } .health360-page .health360-kpis, .health360-page .health-finance-grid { grid-template-columns:1fr; } .health360-page .health-section-header { flex-direction:column; } .health360-page .health-section-header .btn { width:100%; margin-left:0; } }
   </style>
@@ -65,7 +72,7 @@ import { buildShell } from '/assets/js/shell.js';
 import { api } from '/assets/js/api.js';
 import { toast } from '/assets/js/toast.js';
 
-const state = { summary:{}, vets:[], slots:[], triages:[], teles:[], activeTab:'vets', visible:{vets:20, slots:20, triages:20, teles:20}, search:'' };
+const state = { summary:{}, vets:[], slots:[], triages:[], teles:[], activeTab:'vets', visible:{vets:20, slots:20, triages:20, teles:20}, selected:{vets:new Set(), slots:new Set(), triages:new Set(), teles:new Set()}, search:'' };
 const money = (c=0) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((Number(c)||0)/100);
 const esc = (v='') => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
 const dt = (v) => v ? new Date(v).toLocaleString('pt-BR') : 'Sem data';
@@ -130,31 +137,42 @@ function teleLink(url){
   return `<div class="tele-link-actions"><a class="mini-link" href="${esc(url)}" target="_blank" rel="noopener">Entrar</a><button class="mini-link" type="button" data-copy-link="${esc(url)}">Copiar</button></div>`;
 }
 
+function selectedFor(key){ if(!state.selected[key]) state.selected[key] = new Set(); return state.selected[key]; }
+function checkboxCell(key, id){ const checked = selectedFor(key).has(String(id)); return `<td class="select-cell"><input type="checkbox" data-select-row="${esc(key)}" value="${esc(id)}" ${checked?'checked':''} aria-label="Selecionar item"></td>`; }
+function selectAllHeader(key, items=[]){ const ids = items.map(item => String(item.id)); const selected = selectedFor(key); const checked = ids.length && ids.every(id => selected.has(id)); return `<th class="select-cell"><input type="checkbox" data-select-all="${esc(key)}" ${checked?'checked':''} aria-label="Selecionar todos"></th>`; }
+function bulkBar(key, singularLabel='item'){
+  const count = selectedFor(key).size;
+  if(!count) return '';
+  const label = count === 1 ? singularLabel : `${singularLabel}s`;
+  return `<div class="health-bulk-bar"><strong>${count} ${esc(label)} selecionado${count>1?'s':''}</strong><div class="health-bulk-actions"><button class="btn btn-secondary" type="button" data-clear-selection="${esc(key)}">Limpar seleção</button><button class="btn btn-danger-soft" type="button" data-bulk-delete="${esc(key)}">Excluir selecionados</button></div></div>`;
+}
+function selectionEndpoint(key){ return ({vets:'/admin/health360/veterinarians/bulk-delete', slots:'/admin/health360/slots/bulk-delete', triages:'/admin/health360/triages/bulk-delete', teles:'/admin/health360/teleconsultations/bulk-delete'}[key] || ''); }
+
 function vetsSection(){
   const visibleVets = state.vets.slice(0, currentLimit('vets'));
-  const rows = visibleVets.length ? visibleVets.map(v => `<tr>
+  const rows = visibleVets.length ? visibleVets.map(v => `<tr>${checkboxCell('vets', v.id)}
     <td><div class="vet-cell">${avatar(v.name, v.photoUrl)}<div><span class="vet-name">${esc(v.name)}</span><span class="vet-meta">${esc(v.email || v.whatsapp || 'Contato não informado')}</span></div></div></td>
     <td>${esc(v.crmv || '—')} ${esc(v.crmvUf || '')}</td><td>${esc(v.specialty || 'Clínica geral')}</td><td>${money(v.consultationPriceCents || 0)}</td><td>${pill(v.isActive?'Ativo':'Inativo', v.isActive?'active':'inactive')}</td><td>${rowMenu(v.id,'vet',v.isActive)}</td>
-  </tr>`).join('') : `<tr><td class="empty-row" colspan="6">Nenhum veterinário cadastrado.</td></tr>`;
+  </tr>`).join('') : `<tr><td class="empty-row" colspan="7">Nenhum veterinário cadastrado.</td></tr>`;
   return `<section class="module-card stack-md health-table-card">
     <div class="section-header health-section-header"><div><p class="eyebrow">Cadastro</p><h3>Veterinários cadastrados</h3><p>Gerencie profissionais, CRMV, especialidades, agenda e valores.</p></div><button class="btn" type="button" id="new-vet-inline">＋ Novo veterinário</button></div>
-    <div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Veterinário</th><th>CRMV</th><th>Especialidade</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('vets', state.vets.length)}
+    ${bulkBar('vets','veterinário')}<div class="health-table-wrap"><table class="premium-table"><thead><tr>${selectAllHeader('vets', visibleVets)}<th>Veterinário</th><th>CRMV</th><th>Especialidade</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('vets', state.vets.length)}
   </section>`;
 }
 function slotsSection(){
   const visibleSlots = state.slots.slice(0, currentLimit('slots'));
-  const rows = visibleSlots.length ? visibleSlots.map(s => `<tr><td>${esc(s.veterinarianName || 'Veterinário')}</td><td>${dt(s.startsAt)}</td><td>${dt(s.endsAt)}</td><td>${money(s.priceCents)}</td><td>${pill(statusLabel(s.status), s.status)}</td><td>${teleLink(s.meetingUrl)}</td><td>${rowMenu(s.id,'slot')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="7">Nenhum horário cadastrado.</td></tr>`;
-  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Agenda</p><h3>Agenda de teleconsultas</h3><p>Controle horários disponíveis, bloqueados, reservados, links de acesso e horários concluídos.</p></div><button class="btn" type="button" id="new-slot-inline">＋ Novo horário</button></div><div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Veterinário</th><th>Início</th><th>Fim</th><th>Valor</th><th>Status</th><th>Link Teleconsulta</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('slots', state.slots.length)}</section>`;
+  const rows = visibleSlots.length ? visibleSlots.map(s => `<tr>${checkboxCell('slots', s.id)}<td>${esc(s.veterinarianName || 'Veterinário')}</td><td>${dt(s.startsAt)}</td><td>${dt(s.endsAt)}</td><td>${money(s.priceCents)}</td><td>${pill(statusLabel(s.status), s.status)}</td><td>${teleLink(s.meetingUrl)}</td><td>${rowMenu(s.id,'slot')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="8">Nenhum horário cadastrado.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Agenda</p><h3>Agenda de teleconsultas</h3><p>Controle horários disponíveis, bloqueados, reservados, links de acesso e horários concluídos.</p></div><button class="btn" type="button" id="new-slot-inline">＋ Novo horário</button></div>${bulkBar('slots','horário')}<div class="health-table-wrap"><table class="premium-table"><thead><tr>${selectAllHeader('slots', visibleSlots)}<th>Veterinário</th><th>Início</th><th>Fim</th><th>Valor</th><th>Status</th><th>Link Teleconsulta</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('slots', state.slots.length)}</section>`;
 }
 function triagesSection(){
   const visibleTriages = state.triages.slice(0, currentLimit('triages'));
-  const rows = visibleTriages.length ? visibleTriages.map(t => `<tr><td>${dt(t.createdAt)}</td><td>${esc(t.tutorName || 'Tutor')}</td><td>${esc(t.petName || 'Pet')}</td><td>${pill(riskLabel(t.riskLevel), riskKind(t.riskLevel))}</td><td>${esc(t.summary || 'Sem resumo')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="5">Nenhuma triagem registrada.</td></tr>`;
-  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Histórico</p><h3>Últimas triagens</h3><p>Acompanhe risco, tutor, pet, orientação e data.</p></div></div><div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Data</th><th>Tutor</th><th>Pet</th><th>Risco</th><th>Resumo</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('triages', state.triages.length)}</section>`;
+  const rows = visibleTriages.length ? visibleTriages.map(t => `<tr>${checkboxCell('triages', t.id)}<td>${dt(t.createdAt)}</td><td>${esc(t.tutorName || 'Tutor')}</td><td>${esc(t.petName || 'Pet')}</td><td>${pill(riskLabel(t.riskLevel), riskKind(t.riskLevel))}</td><td>${esc(t.summary || 'Sem resumo')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="6">Nenhuma triagem registrada.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Histórico</p><h3>Últimas triagens</h3><p>Acompanhe risco, tutor, pet, orientação e data.</p></div></div>${bulkBar('triages','triagem')}<div class="health-table-wrap"><table class="premium-table"><thead><tr>${selectAllHeader('triages', visibleTriages)}<th>Data</th><th>Tutor</th><th>Pet</th><th>Risco</th><th>Resumo</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('triages', state.triages.length)}</section>`;
 }
 function telesSection(){
   const visibleTeles = state.teles.slice(0, currentLimit('teles'));
-  const rows = visibleTeles.length ? visibleTeles.map(t => `<tr><td>${dt(t.startsAt || t.createdAt)}</td><td>${esc(t.tutorName || 'Tutor')}</td><td>${esc(t.petName || 'Pet')}</td><td>${esc(t.veterinarianName || 'Veterinário')}</td><td>${money(t.priceCents || 0)}</td><td>${pill(paymentLabel(t.paymentStatus), t.paymentStatus)}</td><td>${pill(statusLabel(t.status), t.status)}</td><td>${teleLink(t.meetingUrl)}</td><td>${rowMenu(t.id,'tele')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="9">Nenhuma teleconsulta solicitada.</td></tr>`;
-  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Operação</p><h3>Teleconsultas</h3><p>Pagamentos, status, links e histórico de atendimentos remotos.</p></div></div><div class="health-table-wrap"><table class="premium-table"><thead><tr><th>Data</th><th>Tutor</th><th>Pet</th><th>Veterinário</th><th>Valor</th><th>Pagamento</th><th>Status</th><th>Link</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('teles', state.teles.length)}</section>`;
+  const rows = visibleTeles.length ? visibleTeles.map(t => `<tr>${checkboxCell('teles', t.id)}<td>${dt(t.startsAt || t.createdAt)}</td><td>${esc(t.tutorName || 'Tutor')}</td><td>${esc(t.petName || 'Pet')}</td><td>${esc(t.veterinarianName || 'Veterinário')}</td><td>${money(t.priceCents || 0)}</td><td>${pill(paymentLabel(t.paymentStatus), t.paymentStatus)}</td><td>${pill(statusLabel(t.status), t.status)}</td><td>${teleLink(t.meetingUrl)}</td><td>${rowMenu(t.id,'tele')}</td></tr>`).join('') : `<tr><td class="empty-row" colspan="10">Nenhuma teleconsulta solicitada.</td></tr>`;
+  return `<section class="module-card stack-md health-table-card"><div class="section-header health-section-header"><div><p class="eyebrow">Operação</p><h3>Teleconsultas</h3><p>Pagamentos, status, links e histórico de atendimentos remotos.</p></div></div>${bulkBar('teles','teleconsulta')}<div class="health-table-wrap"><table class="premium-table"><thead><tr>${selectAllHeader('teles', visibleTeles)}<th>Data</th><th>Tutor</th><th>Pet</th><th>Veterinário</th><th>Valor</th><th>Pagamento</th><th>Status</th><th>Link</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div>${loadMoreButton('teles', state.teles.length)}</section>`;
 }
 function financeSection(){
   const paid = state.teles.filter(t => String(t.paymentStatus || '').toLowerCase()==='paid');
@@ -277,6 +295,10 @@ function bind(){
   document.querySelectorAll('[data-slot-status]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/slots/${btn.dataset.slotStatus}/status`,{status:btn.dataset.status}); toast.success('Horário atualizado.'); await load(); } catch(error){ toast.error(error.message); } }));
   document.querySelectorAll('[data-tele-status]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/teleconsultations/${btn.dataset.teleStatus}/status`,{status:btn.dataset.status}); toast.success('Teleconsulta atualizada.'); await load(); } catch(error){ toast.error(error.message); } }));
   document.querySelectorAll('[data-tele-paid]').forEach(btn=>btn.addEventListener('click',async()=>{ try{ await api.patch(`/admin/health360/teleconsultations/${btn.dataset.telePaid}/paid`,{}); toast.success('Pagamento marcado.'); await load(); } catch(error){ toast.error(error.message); } }));
+  document.querySelectorAll('[data-select-row]').forEach(input=>input.addEventListener('change',()=>{ const key=input.dataset.selectRow; const set=selectedFor(key); const id=String(input.value); input.checked ? set.add(id) : set.delete(id); render(); }));
+  document.querySelectorAll('[data-select-all]').forEach(input=>input.addEventListener('change',()=>{ const key=input.dataset.selectAll; const visible = ({vets:state.vets, slots:state.slots, triages:state.triages, teles:state.teles}[key] || []).slice(0, currentLimit(key)); const set=selectedFor(key); visible.forEach(item=> input.checked ? set.add(String(item.id)) : set.delete(String(item.id))); render(); }));
+  document.querySelectorAll('[data-clear-selection]').forEach(btn=>btn.addEventListener('click',()=>{ selectedFor(btn.dataset.clearSelection).clear(); render(); }));
+  document.querySelectorAll('[data-bulk-delete]').forEach(btn=>btn.addEventListener('click',async()=>{ const key=btn.dataset.bulkDelete; const ids=[...selectedFor(key)]; if(!ids.length) return; if(!confirm(`Excluir ${ids.length} item(ns) selecionado(s)?`)) return; try{ await api.post(selectionEndpoint(key), { ids }); selectedFor(key).clear(); toast.success('Itens excluídos.'); await load(); } catch(error){ toast.error(error.message || 'Não foi possível excluir selecionados.'); } }));
 }
 load();
 </script>

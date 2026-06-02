@@ -35,7 +35,8 @@
     currentTutor: null,
     currentHistory: [],
     currentPets: [],
-    petOptions: { types: [], sizes: [], breeds: [] }
+    petOptions: { types: [], sizes: [], breeds: [] },
+    whatsappCheck: { timer: null, existingTutor: null, lastDigits: '' }
   };
   const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
   const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
@@ -145,6 +146,7 @@
               </div>
               <label class="form-field"><span>Nome completo</span><input class="input" id="name" required placeholder="Ex.: Mariana Souza"></label>
               <label class="form-field"><span>WhatsApp</span><input class="input" id="whatsapp" data-mask="whatsapp" required placeholder="(16) 99999-9999"></label>
+              <div class="form-field span-2 tutor-whatsapp-check" id="whatsapp-duplicate-feedback" hidden></div>
               <label class="form-field"><span>E-mail</span><input class="input" id="email" type="email" placeholder="cliente@email.com"></label>
               <label class="form-field"><span>Documento</span><input class="input" id="documentNumber" placeholder="CPF/CNPJ opcional"></label>
               <label class="form-field"><span>Cidade</span><input class="input" id="city" value="Ribeirão Preto"></label>
@@ -231,6 +233,7 @@
   const quickPetForm = document.getElementById('quick-pet-form');
   const form = document.getElementById('tutor-form');
   const fields = ['tutor-id','photoDataUrl','photoFile','name','whatsapp','email','documentNumber','city','state','address','tags','status','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
+  const whatsappDuplicateFeedback = document.getElementById('whatsapp-duplicate-feedback');
   function setTutorPhotoPreview(name, photoUrl) {
     const next = new DOMParser().parseFromString(avatarHtml(name || 'Tutor', photoUrl || '', 'photo-preview'), 'text/html').body.firstElementChild;
     next.id = 'tutor-photo-preview';
@@ -351,6 +354,68 @@
     }
   }
 
+
+  function clearWhatsappDuplicateFeedback() {
+    state.whatsappCheck.existingTutor = null;
+    state.whatsappCheck.lastDigits = '';
+    if (!whatsappDuplicateFeedback) return;
+    whatsappDuplicateFeedback.hidden = true;
+    whatsappDuplicateFeedback.className = 'form-field span-2 tutor-whatsapp-check';
+    whatsappDuplicateFeedback.innerHTML = '';
+  }
+
+  function showWhatsappDuplicateFeedback(tutor) {
+    state.whatsappCheck.existingTutor = tutor || null;
+    if (!whatsappDuplicateFeedback) return;
+    if (!tutor) return clearWhatsappDuplicateFeedback();
+    whatsappDuplicateFeedback.hidden = false;
+    whatsappDuplicateFeedback.className = 'form-field span-2 tutor-whatsapp-check is-warning';
+    whatsappDuplicateFeedback.innerHTML = `
+      <div class="duplicate-check-card">
+        <strong>⚠️ WhatsApp já cadastrado</strong>
+        <span>${esc(tutor.name || 'Tutor existente')} · ${formatWhatsapp(tutor.whatsapp || '')}</span>
+        <div class="duplicate-check-actions">
+          <button class="btn btn-secondary btn-sm" type="button" id="open-existing-tutor" data-id="${esc(tutor.id)}">Abrir cadastro existente</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="clear-existing-whatsapp">Alterar WhatsApp</button>
+        </div>
+      </div>`;
+  }
+
+  function showWhatsappAvailableFeedback() {
+    state.whatsappCheck.existingTutor = null;
+    if (!whatsappDuplicateFeedback) return;
+    whatsappDuplicateFeedback.hidden = false;
+    whatsappDuplicateFeedback.className = 'form-field span-2 tutor-whatsapp-check is-success';
+    whatsappDuplicateFeedback.innerHTML = '<div class="duplicate-check-card"><strong>✅ WhatsApp disponível</strong><span>Nenhum tutor ativo encontrado com este número.</span></div>';
+  }
+
+  async function checkWhatsappDuplicate({ silent = false } = {}) {
+    const digits = onlyDigits(fields.whatsapp?.value || '');
+    const currentId = fields['tutor-id']?.value || '';
+    if (!digits || digits.length < 10) {
+      clearWhatsappDuplicateFeedback();
+      return null;
+    }
+    if (state.whatsappCheck.lastDigits === `${digits}:${currentId}` && state.whatsappCheck.existingTutor) return state.whatsappCheck.existingTutor;
+    try {
+      const params = new URLSearchParams({ whatsapp: digits });
+      if (currentId) params.set('excludeId', currentId);
+      const data = await api.get(`/tutores/check-whatsapp?${params.toString()}`);
+      state.whatsappCheck.lastDigits = `${digits}:${currentId}`;
+      if (data.exists && data.tutor) {
+        showWhatsappDuplicateFeedback(data.tutor);
+        if (!silent) toast('Este WhatsApp já pertence a outro tutor.', 'warning');
+        return data.tutor;
+      }
+      if (!silent) showWhatsappAvailableFeedback();
+      else clearWhatsappDuplicateFeedback();
+      return null;
+    } catch (error) {
+      if (!silent) toast(error.message || 'Não foi possível verificar o WhatsApp.', 'warning');
+      return null;
+    }
+  }
+
   function openForm(item = null) {
     document.getElementById('modal-title').textContent = item ? 'Editar tutor' : 'Novo tutor';
     fields['tutor-id'].value = item?.id || '';
@@ -367,6 +432,7 @@
     fields.tags.value = (item?.tags || []).join(', ');
     fields.status.value = item?.status || 'active';
     fields.notes.value = item?.notes || '';
+    clearWhatsappDuplicateFeedback();
     setupPremiumInteractions(modal);
     modal.showModal();
   }
@@ -387,6 +453,12 @@
       notes: fields.notes.value,
       photoDataUrl: fields.photoDataUrl.value
     };
+    const duplicate = await checkWhatsappDuplicate({ silent: true });
+    if (duplicate) {
+      showWhatsappDuplicateFeedback(duplicate);
+      toast('Não salvei para evitar duplicidade. Abra o cadastro existente ou altere o WhatsApp.', 'warning');
+      return;
+    }
     try {
       showLoading('Salvando tutor...');
       if (id) await api.put(`/tutores/${id}`, payload); else await api.post('/tutores', payload);
@@ -691,6 +763,28 @@
     renderTutores();
   }));
   form.addEventListener('submit', saveTutor);
+  fields.whatsapp?.addEventListener('input', () => {
+    window.clearTimeout(state.whatsappCheck.timer);
+    state.whatsappCheck.existingTutor = null;
+    if (whatsappDuplicateFeedback) {
+      whatsappDuplicateFeedback.hidden = true;
+      whatsappDuplicateFeedback.innerHTML = '';
+    }
+    state.whatsappCheck.timer = window.setTimeout(() => checkWhatsappDuplicate({ silent: false }), 550);
+  });
+  fields.whatsapp?.addEventListener('blur', () => checkWhatsappDuplicate({ silent: true }));
+  whatsappDuplicateFeedback?.addEventListener('click', (event) => {
+    const openExisting = event.target.closest('#open-existing-tutor');
+    const clearExisting = event.target.closest('#clear-existing-whatsapp');
+    if (openExisting) {
+      const item = state.items.find((row) => row.id === openExisting.dataset.id) || state.whatsappCheck.existingTutor;
+      if (item) openForm(item);
+    }
+    if (clearExisting) {
+      fields.whatsapp.focus();
+      fields.whatsapp.select();
+    }
+  });
   document.getElementById('search-tutors').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__tutorSearch); window.__tutorSearch = window.setTimeout(() => loadTutores(true), 320); });
   document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadTutores(true); });
   body.addEventListener('click', async (event) => {

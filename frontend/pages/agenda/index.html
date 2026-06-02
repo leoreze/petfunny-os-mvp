@@ -10,6 +10,14 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
   <meta name="msapplication-TileColor" content="#26b9c7">
   <link rel="stylesheet" href="/assets/css/app.css">
+
+  <style>
+    .package-session-lock-note{border:1px solid rgba(38,185,199,.22);background:linear-gradient(135deg,rgba(38,185,199,.12),rgba(249,161,151,.12));border-radius:18px;padding:12px 14px;color:#475569;font-size:13px;line-height:1.45;margin-bottom:12px}
+    .package-session-lock-note strong{display:block;color:#0f172a;margin-bottom:3px}
+    .agenda-locked-field{opacity:.78}
+    .agenda-appointment-modal [disabled], .agenda-appointment-modal [readonly]{cursor:not-allowed}
+    .service-check-card.is-locked{opacity:.82;pointer-events:none}
+  </style>
 </head>
 <body>
 <script>window.__PETFUNNY_MANUAL_PAGE_READY = true;</script>
@@ -36,7 +44,8 @@
     statuses: [],
     collaborators: [],
     slots: [],
-    editing: null
+    editing: null,
+    packageEditLocked: false
   };
 
   const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -83,7 +92,7 @@
           <div><h3>Filtros rápidos</h3><p>Encontre atendimentos por data, status, colaborador, tutor, pet ou serviço.</p></div>
         </div>
         <div class="form-grid form-row-gap agenda-filter-grid">
-          <label class="form-field agenda-date-field"><span>Data base</span><div class="agenda-date-picker"><input class="input" type="date" id="agenda-date"><button class="agenda-date-picker-btn" id="agenda-date-picker-btn" type="button" aria-label="Abrir calendário">📅</button></div></label>
+          <label class="form-field agenda-date-field"><span>Data base</span><div class="agenda-date-picker"><input class="input" type="date" id="agenda-date"></div></label>
           <label class="form-field"><span>Status</span><select class="select" id="status-filter"><option value="all">Todos</option></select></label>
           <label class="form-field"><span>Colaborador</span><select class="select" id="collab-filter"><option value="all">Todos</option></select></label>
           <label class="form-field"><span>Busca rápida</span><input class="input" id="quick-search" placeholder="Tutor, pet ou serviço"></label>
@@ -210,6 +219,10 @@
           </header>
           <div class="modal-body custom-scroll">
             <input type="hidden" id="appointment-id">
+            <div class="package-session-lock-note" id="package-session-lock-note" hidden>
+              <strong>Sessão gerada por pacote</strong>
+              Este agendamento faz parte de uma venda de pacote. Para evitar divergência no financeiro, só é possível alterar data, hora e observações.
+            </div>
             <div class="module-card stack-sm soft-card appointment-lookup-card">
               <label class="form-field"><span>WhatsApp do cliente</span><input class="input" id="client-whatsapp-search" inputmode="tel" autocomplete="tel" placeholder="Digite o WhatsApp para buscar automaticamente"></label>
               <p class="muted-text">Digite o WhatsApp principal do tutor. Se ele já existir, os pets serão carregados automaticamente.</p>
@@ -258,6 +271,10 @@
               <div class="form-helper full-width" id="hist-whatsapp-feedback">Digite o WhatsApp para preencher automaticamente tutor e pets vinculados.</div>
               <label class="form-field"><span>Tutor</span><select class="select" id="hist-tutor-id" required></select></label>
               <label class="form-field"><span>Pet</span><select class="select" id="hist-pet-id" required><option value="">Selecione o tutor</option></select></label>
+              <div class="module-card stack-sm soft-card appointment-services-card full-width" id="hist-service-card" hidden>
+                <div class="section-heading compact"><div><p class="eyebrow">Serviços realizados</p><h4>Serviços do agendamento antigo</h4><p>Selecione apenas para registrar o histórico. Estes serviços não somam no valor final.</p></div></div>
+                <div class="service-check-grid" id="hist-service-checks"><p>Selecione um pet para carregar serviços compatíveis.</p></div>
+              </div>
               <label class="form-field"><span>Data original</span><input class="input" type="date" id="hist-date" required></label>
               <label class="form-field"><span>Horário aproximado</span><input class="input" type="time" id="hist-time" value="09:00"></label>
               <label class="form-field"><span>Descrição do atendimento</span><input class="input" id="hist-description" placeholder="Banho, tosa, pacote antigo..."></label>
@@ -307,7 +324,8 @@
     services: document.getElementById('service-checks'),
     discount: document.getElementById('discount-percent'),
     total: document.getElementById('total-preview'),
-    notes: document.getElementById('notes')
+    notes: document.getElementById('notes'),
+    packageLockNote: document.getElementById('package-session-lock-note')
   };
   const appointmentServiceCard = document.getElementById('appointment-service-card');
 
@@ -318,6 +336,8 @@
     whatsappFeedback: document.getElementById('hist-whatsapp-feedback'),
     tutorId: document.getElementById('hist-tutor-id'),
     petId: document.getElementById('hist-pet-id'),
+    serviceCard: document.getElementById('hist-service-card'),
+    services: document.getElementById('hist-service-checks'),
     date: document.getElementById('hist-date'),
     time: document.getElementById('hist-time'),
     description: document.getElementById('hist-description'),
@@ -495,11 +515,49 @@
     }
   }
 
-  function renderPetsForTutor({ autoSelectSingle = false } = {}) {
+  function isPackageAppointment(item = state.editing) {
+    return Boolean(item?.customerPackageId || item?.packageSessionNumber || item?.packageTotalSessions || item?.packageSessionLabel);
+  }
+
+  function ensureAppointmentTutorAndPetOptions(item = {}) {
+    if (item?.tutorId && !state.tutors.some(t => t.id === item.tutorId)) {
+      state.tutors.push({ id: item.tutorId, name: item.tutorName || 'Tutor do pacote', whatsapp: item.tutorWhatsapp || '' });
+    }
+    if (item?.petId && !state.pets.some(p => p.id === item.petId)) {
+      state.pets.push({ id: item.petId, tutorId: item.tutorId, name: item.petName || 'Pet do pacote', size: item.petSize || '', sizeName: item.petSize || '', photoUrl: item.petPhotoUrl || '' });
+    }
+  }
+
+  function setLockedClass(element, locked) {
+    element?.closest?.('.form-field')?.classList.toggle('agenda-locked-field', Boolean(locked));
+  }
+
+  function applyPackageEditLock(item = null) {
+    const locked = Boolean(item && isPackageAppointment(item));
+    state.packageEditLocked = locked;
+    if (fields.packageLockNote) {
+      fields.packageLockNote.hidden = !locked;
+      const label = item?.packageSessionLabel || (item?.packageSessionNumber && item?.packageTotalSessions ? `${item.packageSessionNumber} de ${item.packageTotalSessions}` : 'sessão de pacote');
+      fields.packageLockNote.innerHTML = `<strong>Sessão gerada por pacote · ${esc(label)}</strong>Este agendamento pertence a um pacote vendido. Para manter pacote, pagamento e recibo consistentes, altere apenas data, hora e observações.`;
+    }
+    [fields.whatsapp, fields.tutorId, fields.petId, fields.status, fields.collab, fields.paymentStatus, fields.paymentMethod, fields.discount].forEach(el => {
+      if (el) { el.disabled = locked; setLockedClass(el, locked); }
+    });
+    fields.services?.querySelectorAll('input[type="checkbox"]').forEach(input => { input.disabled = locked; input.closest('.service-check-card')?.classList.toggle('is-locked', locked); });
+    fields.total.readOnly = true;
+    if (locked) fields.total.value = money(item?.totalCents || item?.total_cents || 0);
+    if (appointmentServiceCard) appointmentServiceCard.classList.toggle('agenda-locked-field', locked);
+  }
+
+  function renderPetsForTutor({ autoSelectSingle = false, selectedPetId = '' } = {}) {
     const tutorId = fields.tutorId.value;
-    const pets = state.pets.filter(p => p.tutorId === tutorId);
-    fields.petId.innerHTML = '<option value="">Selecione</option>' + pets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.size || '')}</option>`).join('');
-    if (autoSelectSingle && pets.length === 1) fields.petId.value = pets[0].id;
+    const currentPetId = selectedPetId || fields.petId.value || state.editing?.petId || '';
+    let pets = state.pets.filter(p => p.tutorId === tutorId);
+    const currentPet = currentPetId ? petById(currentPetId) : null;
+    if (currentPet && !pets.some(p => p.id === currentPet.id)) pets = [currentPet, ...pets];
+    fields.petId.innerHTML = '<option value="">Selecione</option>' + pets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.sizeName || p.size || 'sem porte')}</option>`).join('');
+    if (currentPetId && pets.some(p => p.id === currentPetId)) fields.petId.value = currentPetId;
+    else if (autoSelectSingle && pets.length === 1) fields.petId.value = pets[0].id;
     completeFieldsFromSelection();
     renderServiceChecks();
   }
@@ -545,6 +603,9 @@
         </div>
       </div>
     `).join('') : '<p>Nenhum serviço ativo para o tipo e porte deste pet. Confira Tipos de Serviços, Portes e Serviços em Configurações.</p>';
+    if (state.packageEditLocked) {
+      fields.services?.querySelectorAll('input[type="checkbox"]').forEach(input => { input.disabled = true; input.closest('.service-check-card')?.classList.add('is-locked'); });
+    }
     updateTotal();
   }
 
@@ -574,6 +635,10 @@
   }
 
   function updateTotal() {
+    if (state.packageEditLocked && state.editing) {
+      fields.total.value = money(state.editing.totalCents || state.editing.total_cents || 0);
+      return;
+    }
     const ids = Array.from(fields.services.querySelectorAll('input:checked')).map(i => i.value);
     const subtotal = ids.reduce((sum, id) => sum + Number(serviceById(id)?.priceCents || 0), 0);
     const disc = Math.max(0, Math.min(100, Number(fields.discount.value || 0)));
@@ -1026,11 +1091,14 @@
     const prefill = item && item.__prefill ? item : null;
     if (prefill) item = null;
     state.editing = item;
+    state.packageEditLocked = false;
     document.getElementById('modal-title').textContent = item ? 'Editar agendamento' : 'Novo agendamento';
+    ensureAppointmentTutorAndPetOptions(item || {});
+    if (item) populateSelects();
     fields.id.value = item?.id || '';
     fields.whatsapp.value = item?.tutorWhatsapp || (state.tutors.find(t => t.id === item?.tutorId)?.whatsapp || '');
     fields.tutorId.value = item?.tutorId || '';
-    renderPetsForTutor();
+    renderPetsForTutor({ selectedPetId: item?.petId || '' });
     fields.petId.value = item?.petId || '';
     fields.date.value = item?.startsAt ? String(item.startsAt).slice(0,10) : (prefill?.date || state.date);
     if (fields.date.min !== undefined) fields.date.min = localToday();
@@ -1045,6 +1113,7 @@
     renderServiceChecks();
     const ids = new Set((item?.items || []).map(i => i.serviceId));
     fields.services.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = ids.has(input.value); });
+    applyPackageEditLock(item);
     updateTotal();
     setupPremiumInteractions(nodes.modal);
     nodes.modal.showModal();
@@ -1058,7 +1127,51 @@
       historicalFields.petId.innerHTML = '<option value="">Selecione o pet</option>' + pets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.sizeName || p.size || 'sem porte')}</option>`).join('');
       if (autoSelectSingle && pets.length === 1) historicalFields.petId.value = pets[0].id;
     }
+    renderHistoricalServiceChecks();
     return pets;
+  }
+
+  function renderHistoricalServiceChecks() {
+    if (!historicalFields.services) return;
+    const pet = petById(historicalFields.petId?.value || '');
+    if (!pet) {
+      if (historicalFields.serviceCard) historicalFields.serviceCard.hidden = true;
+      historicalFields.services.innerHTML = '<p>Selecione um pet para carregar os serviços compatíveis.</p>';
+      return;
+    }
+    if (historicalFields.serviceCard) historicalFields.serviceCard.hidden = false;
+    const petSize = pet?.size || 'todos';
+    const petType = pet?.species || '';
+    const selected = new Set(Array.from(historicalFields.services.querySelectorAll('input:checked')).map(i => i.value));
+    const services = state.services.filter(s => {
+      const serviceSizeOk = s.petSize === 'todos' || s.petSize === petSize;
+      const categorySizeOk = !s.categoryPetSizeCode || s.categoryPetSizeCode === petSize || s.categoryPetSizeCode === 'todos';
+      const categoryTypeOk = !s.categoryPetTypeCode || s.categoryPetTypeCode === petType;
+      return serviceSizeOk && categorySizeOk && categoryTypeOk;
+    });
+    const byCategory = new Map();
+    services.forEach(service => {
+      const key = service.categoryId || 'outros';
+      if (!byCategory.has(key)) byCategory.set(key, { name: service.categoryName || 'Outros serviços', items: [] });
+      byCategory.get(key).items.push(service);
+    });
+    historicalFields.services.innerHTML = services.length ? Array.from(byCategory.values()).map(group => `
+      <div class="service-type-group">
+        <div class="service-type-group-head">
+          <span class="service-type-icon" aria-hidden="true">✂️</span>
+          <div class="service-type-title"><strong>${esc(group.name)}</strong><small>${group.items.length} serviço(s) apenas para histórico, sem somar valor</small></div>
+        </div>
+        <div class="service-check-grid-inner">
+          ${group.items.map(s => `
+            <label class="service-check-card">
+              <input type="checkbox" value="${esc(s.id)}" ${selected.has(s.id) ? 'checked' : ''}>
+              <span><strong>${esc(s.name)}</strong><small>${esc(s.petSizeName || s.petSize)} · ${s.durationMinutes}min</small></span>
+              <b>Histórico</b>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `).join('') : '<p>Nenhum serviço ativo para o tipo e porte deste pet.</p>';
   }
 
   function setHistoricalWhatsappFeedback(message = '', type = 'muted') {
@@ -1123,6 +1236,7 @@
       date: historicalFields.date.value,
       time: historicalFields.time.value || '09:00',
       description: historicalFields.description.value || 'Atendimento antigo importado',
+      serviceIds: Array.from(historicalFields.services?.querySelectorAll('input:checked') || []).map(i => i.value),
       amountCents: centsFromMoneyInput(historicalFields.amount.value),
       paymentStatus: historicalFields.paymentStatus.value || 'paid',
       paymentMethodId: historicalFields.paymentMethod.value || '',
@@ -1145,7 +1259,12 @@
   async function saveAppointment(event) {
     event.preventDefault();
     const serviceIds = Array.from(fields.services.querySelectorAll('input:checked')).map(i => i.value);
-    const payload = {
+    const editing = Boolean(fields.id.value);
+    const payload = state.packageEditLocked && editing ? {
+      startsAt: `${fields.date.value}T${fields.time.value}:00`,
+      notes: fields.notes.value,
+      packageSessionEdit: true
+    } : {
       tutorId: fields.tutorId.value,
       petId: fields.petId.value,
       collaboratorId: fields.collab.value,
@@ -1157,7 +1276,6 @@
       discountPercent: fields.discount.value,
       notes: fields.notes.value
     };
-    const editing = Boolean(fields.id.value);
     if (!fields.time.value || fields.time.disabled || (!editing && isPastSlot(fields.date.value, fields.time.value))) {
       await showResultModal({ type: 'error', title: 'Horário indisponível', message: editing ? 'O horário original do agendamento não foi carregado. Feche o modal e tente editar novamente.' : 'Escolha uma data e horário disponíveis antes de salvar.', okText: 'OK' });
       return;
@@ -1230,8 +1348,8 @@
   });
   historicalFields.whatsapp?.addEventListener('blur', lookupHistoricalTutorByWhatsapp);
   historicalFields.form?.addEventListener('submit', saveHistoricalAppointment);
-  document.getElementById('close-modal').addEventListener('click', () => nodes.modal.close());
-  document.getElementById('cancel-modal').addEventListener('click', () => nodes.modal.close());
+  document.getElementById('close-modal').addEventListener('click', () => { applyPackageEditLock(null); nodes.modal.close(); });
+  document.getElementById('cancel-modal').addEventListener('click', () => { applyPackageEditLock(null); nodes.modal.close(); });
   document.getElementById('close-document-modal')?.addEventListener('click', () => document.getElementById('agenda-document-modal')?.close());
   messageModal.close?.addEventListener('click', () => messageModal.modal?.close());
   messageModal.cancel?.addEventListener('click', () => messageModal.modal?.close());

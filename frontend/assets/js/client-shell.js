@@ -1,5 +1,5 @@
 import { getClientUser, getClientToken, clientLogout, requireClientFrontendAuth } from './client-auth.js';
-import { finishPageLoading } from './loading.js';
+import { finishPageLoading, showLoading } from './loading.js';
 
 const navItems = [
   { key: 'home', label: 'Meu Pet', icon: '🐾', href: '/app/home', priority: 1 },
@@ -106,9 +106,16 @@ function trackClientAccess(eventType = 'page_view', metadata = {}) {
 
 function applyClientInputMasks(scope = document) {
   const digits = (value) => String(value || '').replace(/\D/g, '');
+  const normalizeBrazilMobileDigits = (value) => {
+    let d = digits(value);
+    // O banco pode guardar WhatsApp em formato internacional: 55 + DDD + número.
+    // Na interface do tutor exibimos somente DDD + número: (16) 98151-1992.
+    if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+    return d.slice(0, 11);
+  };
   const masks = {
     whatsapp(value) {
-      const d = digits(value).slice(0, 11);
+      const d = normalizeBrazilMobileDigits(value);
       if (d.length <= 2) return d;
       if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
       return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
@@ -198,6 +205,20 @@ function setupClientBottomNavOverflow() {
     moreButton.setAttribute('aria-expanded', String(willOpen));
     moreButton.classList.toggle('is-open', willOpen);
   };
+
+  const loadingMessageForLink = (link) => {
+    const label = link?.querySelector('small')?.textContent?.trim() || link?.textContent?.trim() || 'Meu PetFunny';
+    return label ? `Abrindo ${label}...` : 'Abrindo página...';
+  };
+
+  nav.addEventListener('click', (event) => {
+    const link = event.target.closest('a[href]');
+    if (!link) return;
+    const href = link.getAttribute('href') || '';
+    if (!href || href.startsWith('#') || href.startsWith('javascript:') || link.target === '_blank') return;
+    showLoading(loadingMessageForLink(link), 'Carregando dados e montando a tela completa.');
+    closeMoreMenu();
+  });
 
   document.addEventListener('click', (event) => {
     if (!nav.contains(event.target)) closeMoreMenu();

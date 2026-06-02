@@ -10651,3 +10651,307 @@ body:has(.client-app-shell.mobile-first) {
   display: block !important;
   border-radius: 999px !important;
 }
+
+/* v1.6.35 — Tutores: validação de WhatsApp duplicado no modal */
+.tutor-whatsapp-check[hidden] { display: none !important; }
+.tutor-whatsapp-check { margin-top: -8px; }
+.duplicate-check-card {
+  width: 100%;
+  border-radius: 18px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, .08);
+}
+.tutor-whatsapp-check.is-warning .duplicate-check-card {
+  border-color: rgba(249, 161, 151, .55);
+  background: linear-gradient(135deg, rgba(249, 161, 151, .16), rgba(255,255,255,.96));
+}
+.tutor-whatsapp-check.is-success .duplicate-check-card {
+  border-color: rgba(1, 173, 183, .45);
+  background: linear-gradient(135deg, rgba(1, 173, 183, .14), rgba(255,255,255,.96));
+}
+.duplicate-check-card strong { color: #0f172a; font-size: .94rem; }
+.duplicate-check-card span { color: rgba(15, 23, 42, .68); font-size: .86rem; }
+.duplicate-check-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.btn-sm { min-height: 34px; padding: 8px 12px; font-size: .82rem; border-radius: 12px; }
+.btn-ghost { background: rgba(255,255,255,.72); color: #0f172a; border: 1px solid rgba(15,23,42,.12); }
+
+
+/* v1.6.37 — Admin Modal Standardization + Agenda DatePicker Fix */
+body:not(.app-client) dialog.premium-modal[open],
+body:not(.app-client) dialog.modal-shell[open],
+body:not(.app-client) dialog.agenda-document-modal[open],
+body:not(.app-client) dialog.petfunny-result-modal[open] {
+  margin: 100px auto !important;
+  height: calc(100dvh - 200px) !important;
+  max-height: calc(100dvh - 200px) !important;
+  overflow: visible !important;
+}
+
+body:not(.app-client) dialog.premium-modal[open] > .modal-card,
+body:not(.app-client) dialog.modal-shell[open] > .modal-card,
+body:not(.app-client) dialog.modal-shell[open] > .agenda-appointment-modal-card,
+body:not(.app-client) dialog.agenda-document-modal[open] > .modal-card,
+body:not(.app-client) dialog.agenda-document-modal[open] > .agenda-document-modal-card,
+body:not(.app-client) dialog.petfunny-result-modal[open] > .petfunny-result-card {
+  height: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+body:not(.app-client) dialog.premium-modal[open] .modal-header,
+body:not(.app-client) dialog.premium-modal[open] .modal-footer,
+body:not(.app-client) dialog.modal-shell[open] .modal-header,
+body:not(.app-client) dialog.modal-shell[open] .modal-footer,
+body:not(.app-client) dialog.modal-shell[open] .agenda-modal-header,
+body:not(.app-client) dialog.agenda-document-modal[open] .modal-header,
+body:not(.app-client) dialog.agenda-document-modal[open] .modal-footer {
+  flex: 0 0 auto !important;
+}
+
+body:not(.app-client) dialog.premium-modal[open] .modal-body,
+body:not(.app-client) dialog.modal-shell[open] .modal-body,
+body:not(.app-client) dialog.agenda-document-modal[open] .modal-body,
+body:not(.app-client) dialog.petfunny-result-modal[open] .modal-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+
+/* Agenda: manter somente o ícone nativo do input date em Data Base */
+.agenda-date-picker { position: relative; }
+.agenda-date-picker .agenda-date-picker-btn { display: none !important; }
+.agenda-date-picker input[type="date"] { padding-right: 14px !important; }
+
+
+/* v1.6.39 — App footer salmão, layout ícone + texto, lazy home e Momentos avatar */
+.client-app-shell.mobile-first .client-bottom-nav {
+  background: linear-gradient(135deg, #F8A198 0%, #F6A49F 55%, #F4B2AB 100%) !important;
+  border: 1px solid rgba(255,255,255,.45) !important;
+  box-shadow: 0 20px 55px rgba(248,161,152,.36), 0 8px 18px rgba(39,49,65,.12) !important;
+  grid-template-columns: none !important;
+  justify-content: stretch !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a,
+.client-app-shell.mobile-first .client-bottom-more {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  text-align: left !important;
+  color: #fff !important;
+  background: rgba(255,255,255,.13) !important;
+  border: 1px solid rgba(255,255,255,.20) !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  padding: 10px 8px !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a span,
+.client-app-shell.mobile-first .client-bottom-more span {
+  flex: 0 0 auto !important;
+  font-size: 1.03rem !important;
+  color: #fff !important;
+  margin: 0 !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a small,
+.client-app-shell.mobile-first .client-bottom-more small {
+  width: auto !important;
+  min-width: 0 !important;
+  display: inline !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  color: #fff !important;
+  font-size: .68rem !important;
+  line-height: 1.05 !important;
+  text-align: left !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a.is-active,
+.client-app-shell.mobile-first .client-bottom-nav a:hover,
+.client-app-shell.mobile-first .client-bottom-more:hover,
+.client-app-shell.mobile-first .client-bottom-more.is-open {
+  color: #17313F !important;
+  background: rgba(255,255,255,.86) !important;
+  border-color: rgba(255,255,255,.96) !important;
+}
+.client-app-shell.mobile-first .client-bottom-nav a.is-active span,
+.client-app-shell.mobile-first .client-bottom-nav a.is-active small,
+.client-app-shell.mobile-first .client-bottom-nav a:hover span,
+.client-app-shell.mobile-first .client-bottom-nav a:hover small,
+.client-app-shell.mobile-first .client-bottom-more:hover span,
+.client-app-shell.mobile-first .client-bottom-more:hover small,
+.client-app-shell.mobile-first .client-bottom-more.is-open span,
+.client-app-shell.mobile-first .client-bottom-more.is-open small {
+  color: #17313F !important;
+}
+.client-bottom-more-menu a { display: grid !important; grid-template-columns: 34px 1fr !important; }
+.client-home-lazy { opacity: 0; transform: translateY(18px); max-height: 0; overflow: hidden; transition: opacity .28s var(--pf-ease), transform .28s var(--pf-ease), max-height .34s var(--pf-ease); }
+.client-home-lazy.is-visible { opacity: 1; transform: none; max-height: 4000px; overflow: visible; }
+.client-home-lazy-sentinel { height: 1px; }
+.client-moment-pet-card .client-pet-mini-avatar,
+.client-moment-pet-card .client-list-icon.client-pet-mini-avatar {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+  display: grid !important;
+  place-items: center !important;
+  font-size: 1.12rem !important;
+  box-shadow: 0 10px 24px rgba(7,27,44,.12) !important;
+}
+.client-moment-pet-card .client-pet-mini-avatar img,
+.client-moment-pet-card .client-list-icon.client-pet-mini-avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 999px !important;
+  display: block !important;
+}
+@media (max-width: 420px) {
+  .client-app-shell.mobile-first .client-bottom-nav { gap: 4px !important; padding-inline: 6px !important; }
+  .client-app-shell.mobile-first .client-bottom-nav a,
+  .client-app-shell.mobile-first .client-bottom-more { gap: 4px !important; padding: 9px 5px !important; }
+  .client-app-shell.mobile-first .client-bottom-nav a small,
+  .client-app-shell.mobile-first .client-bottom-more small { font-size: .58rem !important; }
+}
+
+/* v1.6.40 — Meu Pet: acessos rápidos no topo, uma rolagem e timeline com scroll infinito */
+body.app-client,
+body.app-client html {
+  overflow-x: hidden !important;
+}
+body.app-client .client-app-shell,
+body.app-client .client-main,
+body.app-client .client-page,
+body.app-client .client-content,
+body.app-client main {
+  max-height: none !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+body.app-client .client-mobile-section,
+body.app-client .client-meupet-hero,
+body.app-client .client-engagement-grid,
+body.app-client .client-kpi-grid {
+  overflow: visible !important;
+}
+.client-quick-access-section {
+  margin-top: 14px !important;
+  margin-bottom: 12px !important;
+}
+.client-home-big-numbers {
+  margin: 12px 0 16px !important;
+}
+.client-home-timeline-section {
+  padding-bottom: 92px !important;
+}
+.client-home-timeline-section .client-timeline {
+  overflow: visible !important;
+  max-height: none !important;
+}
+.client-home-timeline-section .client-timeline-loader {
+  display: block;
+  text-align: center;
+  padding: 14px;
+  color: rgba(37, 48, 70, .62);
+  font-weight: 800;
+}
+.client-home-timeline-section .client-timeline-loader[hidden] { display: none !important; }
+.client-moment-timeline-card .client-pet-mini-avatar,
+.client-moment-timeline-card .client-list-icon.client-pet-mini-avatar {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+  display: grid !important;
+  place-items: center !important;
+  font-size: 1.12rem !important;
+  box-shadow: 0 10px 24px rgba(7,27,44,.12) !important;
+}
+.client-moment-timeline-card .client-pet-mini-avatar img,
+.client-moment-timeline-card .client-list-icon.client-pet-mini-avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 999px !important;
+  display: block !important;
+}
+
+
+/* v1.6.41 — App Footer More Menu Style Fix + WhatsApp Normalization Fix */
+.client-app-shell.mobile-first .client-bottom-more-menu {
+  background: linear-gradient(135deg, #F8A198 0%, #F6A49F 55%, #F4B2AB 100%) !important;
+  border: 1px solid rgba(255,255,255,.50) !important;
+  box-shadow: 0 20px 55px rgba(248,161,152,.36), 0 12px 30px rgba(39,49,65,.16) !important;
+  border-radius: 24px !important;
+  padding: 10px !important;
+  gap: 8px !important;
+}
+.client-app-shell.mobile-first .client-bottom-more-menu a {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  grid-template-columns: none !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-height: 48px !important;
+  padding: 11px 12px !important;
+  border-radius: 16px !important;
+  text-decoration: none !important;
+  color: #fff !important;
+  background: rgba(255,255,255,.13) !important;
+  border: 1px solid rgba(255,255,255,.22) !important;
+}
+.client-app-shell.mobile-first .client-bottom-more-menu a span {
+  flex: 0 0 34px !important;
+  width: 34px !important;
+  height: 34px !important;
+  display: grid !important;
+  place-items: center !important;
+  margin: 0 !important;
+  border-radius: 12px !important;
+  background: rgba(255,255,255,.18) !important;
+  color: #fff !important;
+  font-size: 1.05rem !important;
+}
+.client-app-shell.mobile-first .client-bottom-more-menu a small {
+  flex: 1 1 auto !important;
+  display: block !important;
+  color: #fff !important;
+  font-size: .82rem !important;
+  font-weight: 900 !important;
+  line-height: 1.1 !important;
+  text-align: left !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+.client-app-shell.mobile-first .client-bottom-more-menu a:hover,
+.client-app-shell.mobile-first .client-bottom-more-menu a.is-active {
+  background: rgba(255,255,255,.88) !important;
+  border-color: rgba(255,255,255,.98) !important;
+  color: #17313F !important;
+}
+.client-app-shell.mobile-first .client-bottom-more-menu a:hover span,
+.client-app-shell.mobile-first .client-bottom-more-menu a:hover small,
+.client-app-shell.mobile-first .client-bottom-more-menu a.is-active span,
+.client-app-shell.mobile-first .client-bottom-more-menu a.is-active small {
+  color: #17313F !important;
+}
+.client-field input[name="whatsapp"][disabled],
+.client-field input[data-mask="whatsapp"][disabled] {
+  color: #17313F !important;
+  -webkit-text-fill-color: #17313F !important;
+  opacity: 1 !important;
+  font-weight: 900 !important;
+}

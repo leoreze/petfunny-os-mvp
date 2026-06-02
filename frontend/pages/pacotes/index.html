@@ -217,24 +217,26 @@
           <div>
             <p class="eyebrow">Importação histórica</p>
             <h3>Pacote antigo</h3>
-            <p>Cadastre pacotes vendidos antes do sistema, registre sessões usadas e pagamento sem gerar agenda futura.</p>
+            <p>Cadastre pacotes vendidos antes do sistema, escolha data e horário originais, e deixe o PetFunny OS reconstruir o histórico automaticamente.</p>
           </div>
           <button class="icon-btn" type="button" id="close-historical-package-modal">×</button>
         </header>
         <div class="modal-body custom-scroll">
           <div class="form-grid form-row-gap">
+            <label class="form-field span-2"><span>WhatsApp do tutor</span><input class="input" id="hist-package-whatsapp-search" inputmode="tel" autocomplete="tel" placeholder="Digite o WhatsApp para buscar automaticamente"></label>
+            <p class="muted-text span-2" id="hist-package-whatsapp-feedback">Digite o WhatsApp principal do tutor. Se ele já existir, o tutor e os pets serão preenchidos automaticamente.</p>
             <label class="form-field"><span>Tutor</span><select class="select" id="hist-package-tutor" required></select></label>
-            <label class="form-field"><span>Pet</span><select class="select" id="hist-package-pet"><option value="">Selecione o tutor</option></select></label>
+            <label class="form-field"><span>Pet</span><select class="select" id="hist-package-pet" required><option value="">Selecione o tutor</option></select></label>
             <label class="form-field"><span>Pacote</span><select class="select" id="hist-package-id" required></select></label>
             <label class="form-field"><span>Data original da venda</span><input class="input" id="hist-package-starts" type="date" value="${today}" required></label>
+            <label class="form-field"><span>Horário da contratação</span><input class="input" id="hist-package-time" type="time" value="09:00" required></label>
             <label class="form-field"><span>Total de sessões</span><input class="input" id="hist-package-total-sessions" type="number" min="1" value="4" required></label>
-            <label class="form-field"><span>Sessões já usadas</span><input class="input" id="hist-package-used-sessions" type="number" min="0" value="0"></label>
             <label class="form-field"><span>Valor final pago</span><input class="input" id="hist-package-amount" inputmode="decimal" placeholder="0,00" required></label>
             <label class="form-field"><span>Status do pagamento</span><select class="select" id="hist-package-payment"><option value="pending">Pendente</option><option value="paid" selected>Pago</option></select></label>
             <label class="form-field"><span>Forma de pagamento</span><select class="select" id="hist-package-payment-method"></select></label>
           </div>
-          <label class="form-field mt-20"><span>Observações internas</span><textarea class="textarea" id="hist-package-notes" rows="4" placeholder="Ex.: pacote vendido no balcão, sessões usadas antes da implantação..."></textarea></label>
-          <p class="muted mt-20">Este cadastro não gera agenda futura automaticamente e não dispara notificações para o tutor.</p>
+          <label class="form-field mt-20"><span>Observações internas</span><textarea class="textarea" id="hist-package-notes" rows="4" placeholder="Ex.: pacote vendido no balcão antes da implantação do sistema..."></textarea></label>
+          <p class="muted mt-20">O sistema gera as sessões a partir da data e horário escolhidos: datas passadas entram como finalizadas e datas futuras ficam agendadas. Nenhuma notificação é disparada para o tutor.</p>
         </div>
         <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-package-modal">Cancelar</button><button class="btn" type="submit">Salvar pacote antigo</button></footer>
       </form>
@@ -441,7 +443,7 @@
     const paymentMethodOptions = optionHtml('', 'Selecione a forma') + (state.options.paymentMethods || []).map((m) => optionHtml(m.id, m.name)).join('');
     if (ids('sell-payment-method')) ids('sell-payment-method').innerHTML = paymentMethodOptions;
     if (ids('hist-package-tutor')) ids('hist-package-tutor').innerHTML = optionHtml('', 'Selecione o tutor') + state.options.tutors.map((t) => optionHtml(t.id, `${t.name} · ${t.whatsapp || 'sem WhatsApp'}`)).join('');
-    if (ids('hist-package-id')) ids('hist-package-id').innerHTML = optionHtml('', 'Selecione o pacote') + state.options.packages.map((p) => optionHtml(p.id, `${p.name} · ${money(p.priceCents)} · ${p.sessionsCount} sessões`)).join('');
+    if (ids('hist-package-id')) ids('hist-package-id').innerHTML = optionHtml('', 'Selecione o pacote') + state.options.packages.map((p) => optionHtml(p.id, `${p.name} · ${p.sessionsCount} sessões`)).join('');
     if (ids('hist-package-payment-method')) ids('hist-package-payment-method').innerHTML = paymentMethodOptions;
     const statusOptions = (state.options.paymentStatuses || []).length ? (state.options.paymentStatuses || []).map((st) => optionHtml(st.code, st.name || st.code)).join('') : optionHtml('pending', 'Pendente') + optionHtml('paid', 'Pago');
     if (ids('sale-payment-status')) ids('sale-payment-status').innerHTML = statusOptions;
@@ -450,12 +452,23 @@
   }
 
 
+  function setHistoricalPackageWhatsappFeedback(message, type = 'muted') {
+    const feedback = ids('hist-package-whatsapp-feedback');
+    if (!feedback) return;
+    feedback.textContent = message || 'Digite o WhatsApp principal do tutor. Se ele já existir, o tutor e os pets serão preenchidos automaticamente.';
+    feedback.classList.remove('ok', 'danger', 'warning');
+    if (type && type !== 'muted') feedback.classList.add(type);
+  }
+
   function renderHistoricalPackagePets() {
     const tutorId = ids('hist-package-tutor')?.value || '';
+    const tutor = state.options.tutors.find((t) => t.id === tutorId);
+    if (tutor?.whatsapp && ids('hist-package-whatsapp-search')) ids('hist-package-whatsapp-search').value = tutor.whatsapp;
     const selectedPackage = state.options.packages.find((p) => p.id === ids('hist-package-id')?.value);
     if (selectedPackage) {
       ids('hist-package-total-sessions').value = selectedPackage.sessionsCount || 4;
-      ids('hist-package-amount').value = (Number(selectedPackage.priceCents || 0) / 100).toFixed(2).replace('.', ',');
+      // Importação histórica: pacote serve apenas como referência.
+      // Não puxar preço nem desconto aplicado automaticamente; o valor pago é informado manualmente.
     }
     const packageSize = selectedPackage?.petSize || 'todos';
     const pets = state.options.pets.filter((p) => {
@@ -464,6 +477,49 @@
       return tutorOk && sizeOk;
     });
     if (ids('hist-package-pet')) ids('hist-package-pet').innerHTML = optionHtml('', 'Selecione o pet') + pets.map((p) => optionHtml(p.id, `${p.name} · ${p.sizeName || p.size || 'sem porte'}`)).join('');
+  }
+
+  async function lookupHistoricalPackageTutorByWhatsapp() {
+    const input = ids('hist-package-whatsapp-search');
+    const whatsapp = String(input?.value || '').replace(/\D/g, '');
+    if (!whatsapp) {
+      setHistoricalPackageWhatsappFeedback('Digite o WhatsApp principal do tutor. Se ele já existir, o tutor e os pets serão preenchidos automaticamente.');
+      return;
+    }
+    if (whatsapp.length < 10) {
+      setHistoricalPackageWhatsappFeedback('Digite o WhatsApp com DDD para buscar o tutor.', 'warning');
+      return;
+    }
+    try {
+      await withLoading(async () => {
+        const data = await api.get(`/agenda/client-lookup?whatsapp=${encodeURIComponent(whatsapp)}`);
+        if (!data.found) {
+          ids('hist-package-tutor').value = '';
+          ids('hist-package-pet').innerHTML = '<option value="">Tutor não encontrado</option>';
+          setHistoricalPackageWhatsappFeedback('Tutor não encontrado. Cadastre o tutor antes de importar o pacote antigo.', 'warning');
+          toast.warning ? toast.warning('Tutor não encontrado. Cadastre o tutor antes de importar o pacote antigo.') : toast('Tutor não encontrado. Cadastre o tutor antes de importar o pacote antigo.', 'warning');
+          return;
+        }
+        if (!state.options.tutors.some((t) => t.id === data.tutor.id)) state.options.tutors.push(data.tutor);
+        (data.pets || []).forEach((pet) => { if (!state.options.pets.some((p) => p.id === pet.id)) state.options.pets.push(pet); });
+        const currentPackage = ids('hist-package-id')?.value || '';
+        const currentPayment = ids('hist-package-payment')?.value || '';
+        const currentPaymentMethod = ids('hist-package-payment-method')?.value || '';
+        renderOptions();
+        ids('hist-package-id').value = currentPackage;
+        ids('hist-package-payment').value = currentPayment || ids('hist-package-payment').value;
+        ids('hist-package-payment-method').value = currentPaymentMethod;
+        ids('hist-package-whatsapp-search').value = data.tutor.whatsapp || input.value;
+        ids('hist-package-tutor').value = data.tutor.id;
+        renderHistoricalPackagePets();
+        if ((data.pets || []).length === 1) ids('hist-package-pet').value = data.pets[0].id;
+        setHistoricalPackageWhatsappFeedback(`Tutor localizado: ${data.tutor.name || 'Tutor'} · ${data.pets?.length || 0} pet(s) carregado(s).`, 'ok');
+        toast.success('Tutor localizado. Pets carregados automaticamente.');
+      }, 'Buscando tutor pelo WhatsApp...');
+    } catch (error) {
+      setHistoricalPackageWhatsappFeedback('Não foi possível buscar o tutor pelo WhatsApp.', 'danger');
+      showPackageError(error, 'Não foi possível buscar o tutor pelo WhatsApp.');
+    }
   }
 
   function renderSellPets() {
@@ -669,9 +725,14 @@
 
   function openHistoricalPackageModal() {
     ids('historical-package-form')?.reset();
+    if (ids('hist-package-whatsapp-search')) ids('hist-package-whatsapp-search').value = '';
+    setHistoricalPackageWhatsappFeedback('Digite o WhatsApp principal do tutor. Se ele já existir, o tutor e os pets serão preenchidos automaticamente.');
     if (ids('hist-package-starts')) ids('hist-package-starts').value = today;
+    if (ids('hist-package-time')) ids('hist-package-time').value = '09:00';
+    if (ids('hist-package-amount')) ids('hist-package-amount').value = '';
     renderHistoricalPackagePets();
     ids('historical-package-modal')?.showModal();
+    setTimeout(() => ids('hist-package-whatsapp-search')?.focus(), 80);
   }
 
   async function saveHistoricalPackage(ev) {
@@ -681,15 +742,15 @@
       petId: ids('hist-package-pet').value,
       packageId: ids('hist-package-id').value,
       startsOn: ids('hist-package-starts').value,
+      firstTime: ids('hist-package-time').value || '09:00',
       totalSessions: ids('hist-package-total-sessions').value,
-      usedSessions: ids('hist-package-used-sessions').value,
       amountCents: histCentsFromInput(ids('hist-package-amount').value),
       paymentStatus: ids('hist-package-payment').value,
       paymentMethodId: ids('hist-package-payment-method')?.value || '',
       notes: ids('hist-package-notes')?.value || ''
     };
-    if (!payload.tutorId || !payload.packageId || !payload.startsOn || payload.amountCents <= 0) {
-      showPackageError(new Error('Preencha tutor, pacote, data original e valor final.'));
+    if (!payload.tutorId || !payload.petId || !payload.packageId || !payload.startsOn || !payload.firstTime || payload.amountCents <= 0) {
+      showPackageError(new Error('Preencha tutor, pet, pacote, data original, horário e valor final.'));
       return;
     }
     await withLoading(async () => {
@@ -870,6 +931,8 @@
     ids('close-historical-package-modal')?.addEventListener('click', () => ids('historical-package-modal')?.close());
     ids('cancel-historical-package-modal')?.addEventListener('click', () => ids('historical-package-modal')?.close());
     ids('historical-package-form')?.addEventListener('submit', saveHistoricalPackage);
+    ids('hist-package-whatsapp-search')?.addEventListener('input', debounce(lookupHistoricalPackageTutorByWhatsapp, 520));
+    ids('hist-package-whatsapp-search')?.addEventListener('blur', lookupHistoricalPackageTutorByWhatsapp);
     ids('hist-package-tutor')?.addEventListener('change', renderHistoricalPackagePets);
     ids('hist-package-id')?.addEventListener('change', renderHistoricalPackagePets);
     ids('sell-package-secondary').addEventListener('click', () => ids('sell-modal').showModal());
