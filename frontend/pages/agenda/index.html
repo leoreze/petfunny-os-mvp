@@ -17,6 +17,13 @@
     .agenda-locked-field{opacity:.78}
     .agenda-appointment-modal [disabled], .agenda-appointment-modal [readonly]{cursor:not-allowed}
     .service-check-card.is-locked{opacity:.82;pointer-events:none}
+
+    .appointment-media-share{margin-top:14px;border:1px solid rgba(38,185,199,.26);background:linear-gradient(135deg,rgba(38,185,199,.10),rgba(249,161,151,.12));border-radius:18px;padding:14px;display:grid;gap:10px}
+    .appointment-media-share[hidden]{display:none!important}
+    .appointment-media-share strong{color:#0f172a;font-size:14px}
+    .appointment-media-share p{margin:0;color:#475569;font-size:13px;line-height:1.45}
+    .appointment-media-share-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .appointment-media-share .input{background:#fff}
   </style>
 </head>
 <body>
@@ -178,8 +185,18 @@
               <label class="form-field full-width"><span>Legenda</span><textarea class="textarea" id="appointment-media-caption" rows="4" placeholder="Ex.: Luna depois do banho, cheirosa e pronta para ganhar carinho. 💚"></textarea></label>
             </div>
             <div class="form-helper">Use este modal pelo menu de 3 pontinhos do agendamento. O tutor verá o conteúdo em <strong>Momentos</strong> e na Home Meu Pet.</div>
+            <div class="appointment-media-share" id="appointment-media-share" hidden>
+              <strong>Link Momentos Especiais gerado</strong>
+              <p>Este link abre direto a página <strong>Momentos</strong> do App do Tutor, validando o acesso pelo WhatsApp do cliente.</p>
+              <input class="input" id="appointment-media-share-link" readonly value="">
+              <div class="appointment-media-share-actions">
+                <a class="btn btn-secondary" id="appointment-media-open-link" href="#" target="_blank" rel="noopener">Abrir página</a>
+                <button class="btn btn-secondary" type="button" id="appointment-media-copy-link">Copiar link</button>
+                <a class="btn" id="appointment-media-send-whatsapp" href="#" target="_blank" rel="noopener">Enviar link no WhatsApp</a>
+              </div>
+            </div>
           </div>
-          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-appointment-media-modal">Cancelar</button><button class="btn" type="submit">Salvar momento</button></footer>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-appointment-media-modal">Cancelar</button><button class="btn" type="submit">Salvar e gerar link</button></footer>
         </form>
       </dialog>
 
@@ -372,6 +389,11 @@
     type: document.getElementById('appointment-media-type'),
     featured: document.getElementById('appointment-media-featured'),
     caption: document.getElementById('appointment-media-caption'),
+    shareBox: document.getElementById('appointment-media-share'),
+    shareLink: document.getElementById('appointment-media-share-link'),
+    openLink: document.getElementById('appointment-media-open-link'),
+    copyLink: document.getElementById('appointment-media-copy-link'),
+    sendWhatsapp: document.getElementById('appointment-media-send-whatsapp'),
     close: document.getElementById('close-appointment-media-modal'),
     cancel: document.getElementById('cancel-appointment-media-modal')
   };
@@ -779,11 +801,28 @@
     if (!mediaModal.modal || !id) return;
     mediaModal.id.value = id;
     mediaModal.form?.reset();
+    resetAppointmentMediaShare();
     if (mediaModal.type) mediaModal.type.value = 'photo';
     if (mediaModal.featured) mediaModal.featured.value = 'false';
     if (mediaModal.title) mediaModal.title.textContent = `Momento de ${appointment.petName || 'pet'}`;
     if (mediaModal.subtitle) mediaModal.subtitle.textContent = `${appointment.tutorName || 'Tutor'} · ${appointment.startsAt ? dt(appointment.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : 'Atendimento PetFunny'}`;
     if (!mediaModal.modal.open) mediaModal.modal.showModal();
+  }
+
+  function resetAppointmentMediaShare() {
+    if (mediaModal.shareBox) mediaModal.shareBox.hidden = true;
+    if (mediaModal.shareLink) mediaModal.shareLink.value = '';
+    if (mediaModal.openLink) mediaModal.openLink.href = '#';
+    if (mediaModal.sendWhatsapp) mediaModal.sendWhatsapp.href = '#';
+  }
+
+  function showAppointmentMediaShare(share = {}) {
+    const link = share.momentsLink || share.url || '';
+    if (!link) return;
+    if (mediaModal.shareBox) mediaModal.shareBox.hidden = false;
+    if (mediaModal.shareLink) mediaModal.shareLink.value = link;
+    if (mediaModal.openLink) mediaModal.openLink.href = link;
+    if (mediaModal.sendWhatsapp) mediaModal.sendWhatsapp.href = share.whatsappUrl || `https://wa.me/?text=${encodeURIComponent(share.message || link)}`;
   }
 
   async function saveAppointmentMedia(event) {
@@ -796,15 +835,15 @@
     try {
       showLoading('Salvando momento...', 'Publicando foto ou vídeo no App do Tutor.');
       const dataUrl = file ? await fileToDataUrl(file) : '';
-      await api.post(`/agenda/${id}/media`, {
+      const response = await api.post(`/agenda/${id}/media`, {
         dataUrl,
         url,
         mediaType: mediaModal.type?.value || (file?.type?.startsWith('video/') ? 'video' : 'photo'),
         caption: mediaModal.caption?.value || '',
         featured: mediaModal.featured?.value === 'true'
       });
-      mediaModal.modal?.close();
-      toast('Momento publicado no App do Tutor.', 'success');
+      showAppointmentMediaShare(response.share || {});
+      toast(response.share?.momentsLink ? 'Momento publicado e link para o tutor gerado.' : 'Momento publicado no App do Tutor.', 'success');
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o momento.', 'error');
     } finally {
@@ -1361,6 +1400,17 @@
     const file = mediaModal.file?.files?.[0];
     if (file?.type?.startsWith('video/') && mediaModal.type) mediaModal.type.value = 'video';
     if (file?.type?.startsWith('image/') && mediaModal.type) mediaModal.type.value = 'photo';
+  });
+  mediaModal.copyLink?.addEventListener('click', async () => {
+    const link = mediaModal.shareLink?.value || '';
+    if (!link) return toast('Gere o link salvando um momento primeiro.', 'warning');
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Link Momentos Especiais copiado.', 'success');
+    } catch (_) {
+      toast('Não foi possível copiar automaticamente. Selecione o campo e copie manualmente.', 'warning');
+      mediaModal.shareLink?.select?.();
+    }
   });
   document.getElementById('print-agenda-document')?.addEventListener('click', () => window.print());
   document.getElementById('copy-agenda-document-link')?.addEventListener('click', async (event) => {

@@ -17,7 +17,7 @@
 <script type="module">
   import { buildClientApp, clientCards, currentClientSection, renderAppointmentCard, renderPetCard, renderPackageCard, money, dateTime, shortDate } from '/assets/js/client-shell.js';
   import { clientApi } from '/assets/js/client-api.js';
-  import { setClientUser } from '/assets/js/client-auth.js';
+  import { setClientUser, setClientToken } from '/assets/js/client-auth.js';
   import { finishPageLoading } from '/assets/js/loading.js';
   import { getPushState, enablePushNotifications, disablePushNotifications, registerClientServiceWorker } from '/assets/js/client-push.js';
     import { initClientInstallPrompt } from '/assets/js/client-pwa-install.js';
@@ -47,6 +47,21 @@
     const date = String(dateValue || '').slice(0, 10);
     const time = String(timeValue || '').slice(0, 5);
     return date && time ? `${date}T${time}` : '';
+  }
+
+
+  async function consumeMomentsAccessFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('momentsAccess') || params.get('ml') || '';
+    if (!accessToken) return;
+    const response = await clientApi.post('/app/auth/moments-access', { token: accessToken });
+    if (response.token) setClientToken(response.token);
+    if (response.tutor || response.account) setClientUser({ account: response.account, tutor: response.tutor });
+    const url = new URL(window.location.href);
+    url.searchParams.delete('momentsAccess');
+    url.searchParams.delete('ml');
+    if (response.focusMediaId) url.searchParams.set('focus', response.focusMediaId);
+    window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''));
   }
 
   function getRoletaScheduleContext() {
@@ -599,7 +614,10 @@
     const isVideo = String(item.mediaType || item.media_type || '').toLowerCase() === 'video';
     const url = item.url || '';
     const caption = item.caption || (isVideo ? 'Vídeo do atendimento' : 'Momento PetFunny');
-    return `<article class="client-moment-card"><div class="client-moment-media">${url ? (isVideo ? `<video src="${escapeHtml(url)}" controls playsinline preload="metadata"></video>` : `<img src="${escapeHtml(url)}" alt="${escapeHtml(caption)}">`) : '<span>📸</span>'}</div><div class="client-moment-copy"><strong>${escapeHtml(item.petName || item.pet_name || 'PetFunny')}</strong><p>${escapeHtml(caption)}</p><small>${shortDate(item.createdAt || item.created_at)}</small><div class="client-card-actions"><a class="btn btn-sm btn-secondary" href="${escapeHtml(url || '#')}" ${url ? 'download target="_blank" rel="noopener"' : ''}>Salvar</a><button class="btn btn-sm" type="button" data-share-moment="${escapeHtml(url)}" data-share-caption="${escapeHtml(caption)}">Compartilhar</button></div></div></article>`;
+    const focusId = new URLSearchParams(window.location.search).get('focus') || '';
+    const itemId = item.id || item.mediaId || '';
+    const focusedClass = focusId && String(focusId) === String(itemId) ? ' is-focus-moment' : '';
+    return `<article class="client-moment-card${focusedClass}" id="moment-${escapeHtml(itemId)}"><div class="client-moment-media">${url ? (isVideo ? `<video src="${escapeHtml(url)}" controls playsinline preload="metadata"></video>` : `<img src="${escapeHtml(url)}" alt="${escapeHtml(caption)}">`) : '<span>📸</span>'}</div><div class="client-moment-copy"><strong>${escapeHtml(item.petName || item.pet_name || 'PetFunny')}</strong><p>${escapeHtml(caption)}</p><small>${shortDate(item.createdAt || item.created_at)}</small><div class="client-card-actions"><a class="btn btn-sm btn-secondary" href="${escapeHtml(url || '#')}" ${url ? 'download target="_blank" rel="noopener"' : ''}>Salvar</a><button class="btn btn-sm" type="button" data-share-moment="${escapeHtml(url)}" data-share-caption="${escapeHtml(caption)}">Compartilhar</button></div></div></article>`;
   }
 
   function renderMomentos() {
@@ -1316,6 +1334,8 @@
     const activeSection = sectionOverride || currentClientSection();
     const [title, subtitle] = heroFor[activeSection] || heroFor.home;
     buildClientApp({ title, subtitle, active: activeSection, content: (renderers[activeSection] || renderHome)() });
+    const focusId = new URLSearchParams(window.location.search).get('focus') || '';
+    if (focusId) window.requestAnimationFrame(() => document.getElementById(`moment-${focusId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }));
     if (activeSection === 'home') {
       setupHomeInfiniteReveal();
       queueAiPushReminder(data.careInsight || data.engagement?.careInsight || null);
@@ -1983,6 +2003,7 @@
   }
 
   try {
+    await consumeMomentsAccessFromUrl();
     await reload(section);
   } catch (error) {
     document.body.innerHTML = `<main class="page-center"><section class="card"><h1>Não foi possível carregar o app.</h1><p>${escapeHtml(error.message)}</p><a class="btn" href="/app/login">Voltar ao login</a></section></main>`;

@@ -2802,6 +2802,68 @@ app.delete('/api/pets/:id', requireAuth, async (req, res, next) => {
 
 
 
+
+app.post('/api/app/auth/moments-access', async (req, res, next) => {
+  try {
+    const token = String(req.body?.token || req.query?.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'Link de momentos inválido ou ausente.' });
+
+    let payload;
+    try {
+      payload = jwt.verify(token, env.jwtSecret);
+    } catch {
+      return res.status(401).json({ error: 'Link de momentos expirado. Peça um novo link para a PetFunny.' });
+    }
+
+    if (payload.scope !== 'client_app_moments_access' || !payload.tutorId || !payload.whatsapp) {
+      return res.status(401).json({ error: 'Link de momentos não autorizado.' });
+    }
+
+    const whatsapp = normalizeWhatsapp(payload.whatsapp);
+    const tutorResult = await query(`
+      SELECT id, name, whatsapp, email, city, state, tags, photo_url
+      FROM tutors
+      WHERE id=$1::uuid
+        AND whatsapp=$2::text
+        AND deleted_at IS NULL
+      LIMIT 1
+    `, [payload.tutorId, whatsapp]);
+
+    const tutor = tutorResult.rows[0] || null;
+    if (!tutor) return res.status(404).json({ error: 'Tutor não encontrado para este link de momentos.' });
+
+    const account = await ensureClientAccountForTutor(tutor.id, tutor.whatsapp);
+    if (!account?.id) return res.status(500).json({ error: 'Não foi possível liberar o acesso ao App do Tutor.' });
+
+    const clientToken = jwt.sign(
+      { sub: account.id, tutorId: tutor.id, scope: 'client_app', channel: 'whatsapp_moments_link', tenant: false },
+      env.jwtSecret,
+      { expiresIn: env.jwtExpiresIn }
+    );
+
+    await logClientAppAccess(req, {
+      tutorId: tutor.id,
+      phone: tutor.whatsapp,
+      eventType: 'moments_magic_link',
+      page: '/app/momentos',
+      metadata: { appointmentId: payload.appointmentId || null, mediaId: payload.mediaId || null }
+    }).catch(() => null);
+
+    res.json({
+      ok: true,
+      token: clientToken,
+      tokenType: 'Bearer',
+      expiresIn: env.jwtExpiresIn,
+      account: { id: account.id, status: account.status || 'active', whatsapp: account.whatsapp },
+      tutor: sanitizeTutor(tutor),
+      redirectPath: `/app/momentos${payload.mediaId ? `?focus=${encodeURIComponent(payload.mediaId)}` : ''}`,
+      focusMediaId: payload.mediaId || ''
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/app/auth/request-code', async (req, res, next) => {
   try {
     const whatsapp = normalizeWhatsapp(req.body?.whatsapp);
@@ -5599,6 +5661,89 @@ app.post('/api/app/roleta/spin', requireClientAuth, async (req, res, next) => {
 
 
 
+
+function buildPublicBaseUrl(req) {
+  const configured = String(env.appUrl || process.env.APP_URL || process.env.PUBLIC_APP_URL || '').trim().replace(/\/$/, '');
+  if (configured) return configured;
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const proto = forwardedProto || req.protocol || 'http';
+  const host = req.get('host') || `localhost:${env.port || process.env.PORT || 3000}`;
+  return `${proto}://${host}`.replace(/\/$/, '');
+}
+
+function signClientMomentsAccessToken({ tutorId, whatsapp, appointmentId = null, mediaId = null }) {
+  return jwt.sign(
+    {
+      scope: 'client_app_moments_access',
+      tutorId,
+      whatsapp: normalizeWhatsapp(whatsapp),
+      appointmentId,
+      mediaId,
+      tenant: false
+    },
+    env.jwtSecret,
+    { expiresIn: '14d' }
+  );
+}
+
+async function ensureClientAccountForTutor(tutorId, whatsapp) {
+  const cleanWhatsapp = normalizeWhatsapp(whatsapp);
+  if (!tutorId || !cleanWhatsapp) return null;
+  const result = await query(`
+    INSERT INTO client_accounts (tutor_id, whatsapp, status, is_active, created_at, updated_at)
+    VALUES ($1::uuid, $2::text, 'active', TRUE, NOW(), NOW())
+    ON CONFLICT (whatsapp) DO UPDATE
+    SET tutor_id = EXCLUDED.tutor_id,
+        is_active = TRUE,
+        status = CASE
+          WHEN client_accounts.status IS NULL OR client_accounts.status IN ('', 'pending_first_access') THEN 'active'
+          ELSE client_accounts.status
+        END,
+        updated_at = NOW()
+    RETURNING id, tutor_id, whatsapp, status, is_active
+  `, [tutorId, cleanWhatsapp]);
+  return result.rows[0] || null;
+}
+
+async function buildAppointmentMomentsSharePayload(req, appointmentRow = {}, mediaRow = {}) {
+  const tutorId = appointmentRow.tutor_id;
+  const whatsapp = normalizeWhatsapp(appointmentRow.tutor_whatsapp || appointmentRow.whatsapp || '');
+  if (!tutorId || !whatsapp) return null;
+
+  await ensureClientAccountForTutor(tutorId, whatsapp);
+
+  const token = signClientMomentsAccessToken({
+    tutorId,
+    whatsapp,
+    appointmentId: appointmentRow.id || mediaRow.appointment_id || null,
+    mediaId: mediaRow.id || null
+  });
+  const baseUrl = buildPublicBaseUrl(req);
+  const appPath = `/app/momentos?momentsAccess=${encodeURIComponent(token)}${mediaRow.id ? `&focus=${encodeURIComponent(mediaRow.id)}` : ''}`;
+  const momentsLink = `${baseUrl}${appPath}`;
+  const petName = appointmentRow.pet_name || 'seu pet';
+  const tutorFirstName = String(appointmentRow.tutor_name || '').trim().split(/\s+/)[0] || '';
+  const message = [
+    `Oi${tutorFirstName ? `, ${tutorFirstName}` : ''}! 🐾✨`,
+    `Acabamos de publicar um momento especial do ${petName} no App PetFunny.`,
+    '',
+    'Veja as fotos e vídeos aqui:',
+    momentsLink,
+    '',
+    'Com carinho, PetFunny Banho e Tosa 💚'
+  ].join('\n');
+
+  return {
+    momentsLink,
+    appPath,
+    whatsapp,
+    whatsappUrl: `https://wa.me/${whatsapp}?text=${encodeURIComponent(message)}`,
+    message,
+    tokenExpiresIn: '14d'
+  };
+}
+
+
 function parseDataUrlMedia(dataUrl = '') {
   const match = String(dataUrl || '').match(/^data:([\w/+.-]+);base64,(.+)$/);
   if (!match) return null;
@@ -5615,8 +5760,12 @@ app.post('/api/agenda/:id/media', requireAuth, async (req, res, next) => {
     const appointmentId = req.params.id;
     const { caption = '', mediaType = 'photo', url = '', dataUrl = '', featured = false } = req.body || {};
     const appointment = await query(`
-      SELECT a.id, a.tutor_id, a.pet_id
+      SELECT a.id, a.tutor_id, a.pet_id,
+             t.name AS tutor_name, t.whatsapp AS tutor_whatsapp,
+             p.name AS pet_name
       FROM appointments a
+      LEFT JOIN tutors t ON t.id = a.tutor_id
+      LEFT JOIN pets p ON p.id = a.pet_id
       WHERE a.id = $1 AND a.deleted_at IS NULL
       LIMIT 1
     `, [appointmentId]);
@@ -5647,7 +5796,11 @@ app.post('/api/agenda/:id/media', requireAuth, async (req, res, next) => {
       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
       RETURNING id, appointment_id, pet_id, media_type, url, caption, is_featured, created_at
     `, [appointmentId, row.tutor_id, row.pet_id, finalMediaType, finalUrl, String(caption || '').trim(), Boolean(featured)]);
-    res.status(201).json({ ok: true, media: result.rows[0] });
+    const share = await buildAppointmentMomentsSharePayload(req, row, result.rows[0]).catch((error) => {
+      console.warn('[agenda:media] não foi possível gerar link de momentos:', error.message);
+      return null;
+    });
+    res.status(201).json({ ok: true, media: result.rows[0], share });
   } catch (error) {
     next(error);
   }

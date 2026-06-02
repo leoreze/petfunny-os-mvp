@@ -11029,3 +11029,9 @@ body.app-client .client-kpi-grid {
   .ai-task-link { grid-column: 1 / -1; min-height: 44px; }
   .ai-task-title-row { display: grid; }
 }
+
+.client-moment-card.is-focus-moment {
+  outline: 3px solid rgba(38,185,199,.42);
+  box-shadow: 0 18px 50px rgba(38,185,199,.18), 0 12px 32px rgba(249,161,151,.16);
+  transform: translateY(-2px);
+}
