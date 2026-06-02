@@ -15,7 +15,7 @@
 <script type="module">
   import { buildShell, setupPremiumInteractions } from '/assets/js/shell.js';
   import { api } from '/assets/js/api.js';
-  import { showLoading, hideLoading } from '/assets/js/loading.js';
+  import { showLoading, hideLoading, waitForPagePaintAndImages } from '/assets/js/loading.js';
   import { showToast } from '/assets/js/toast.js';
 
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -26,7 +26,10 @@
     step: 12,
     filters: { search: '', type: 'all', period: 'month', month: currentMonth },
     sortBy: 'priority',
-    sortDir: 'asc'
+    sortDir: 'asc',
+    requestSeq: 0,
+    loading: false,
+    debounceTimer: null
   };
 
   const esc = (v='') => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -169,6 +172,18 @@
   }
 
   buildShell({ active:'Relatórios', eyebrow:'PetFunny OS · Relatórios', title:'Relatórios', subtitle:'Leitura prática da operação para tomada de decisão.', content: layout() });
+
+  function renderReportSkeleton() {
+    $('#report-metrics').innerHTML = ['Período', 'Entradas', 'Saídas', 'Pacotes'].map((label) => `<article class="big-number-card"><span>${label}</span><strong>...</strong><small>carregando</small></article>`).join('');
+    ['#growth-comparison-chart', '#monthly-evolution-chart', '#services-pie-chart', '#monthly-line-chart', '#decision-insights', '#finance-comparison-chart', '#appointments-status-chart', '#services-chart', '#packages-chart'].forEach((target) => {
+      const el = $(target);
+      if (el) el.innerHTML = '<div class="empty-state compact"><strong>Carregando...</strong><p>Preparando leitura rápida do período.</p></div>';
+    });
+    $('#reports-list').innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Carregando relatórios...</strong><p>A tela será montada assim que os dados principais chegarem.</p></div></td></tr>';
+    $('#reports-loader').hidden = true;
+  }
+
+  renderReportSkeleton();
 
   function metricRows() {
     const cards = state.data?.dashboard?.cards || {};
@@ -365,8 +380,8 @@
     `).join('') : '<tr><td colspan="5"><div class="empty-state"><strong>Nenhum relatório encontrado.</strong><p>Revise os filtros ou atualize os dados.</p></div></td></tr>';
     $('#reports-loader').hidden = visible.length >= rows.length;
     updateSortArrows();
-    setupPremiumInteractions(document);
-    bindReportModalTriggers(document);
+    setupPremiumInteractions($('#reports-list'));
+    bindReportModalTriggers($('#reports-list'));
   }
 
   function modalPayload(key) {
@@ -453,29 +468,52 @@
   }
 
   async function load() {
-    showLoading('Gerando relatórios...', 'Comparando períodos, agenda, caixa, pacotes e serviços.');
+    const seq = ++state.requestSeq;
+    state.loading = true;
+    const refresh = $('#refresh-reports');
+    if (refresh) {
+      refresh.disabled = true;
+      refresh.textContent = 'Gerando...';
+    }
+    showLoading('Gerando relatórios...', 'Carregando dados otimizados e montando a tela completa.', { timeoutMs: 45000 });
     try {
       const params = buildReportParams();
       state.data = await api.get(`/relatorios/insights?${params}`);
+      if (seq !== state.requestSeq) return;
       state.rows = buildRows();
       state.visibleCount = state.step;
       renderMetrics();
       renderCharts();
       renderRows();
       bindReportModalTriggers(document);
+      await waitForPagePaintAndImages();
       window.dispatchEvent(new Event('petfunny:page-ready'));
     } catch (error) {
-      showToast(error.message || 'Erro ao carregar relatórios.', 'error');
-    } finally { hideLoading(); }
+      if (seq === state.requestSeq) showToast(error.message || 'Erro ao carregar relatórios.', 'error');
+    } finally {
+      if (seq === state.requestSeq) {
+        state.loading = false;
+        if (refresh) {
+          refresh.disabled = false;
+          refresh.textContent = '↻ Atualizar relatórios';
+        }
+        hideLoading();
+      }
+    }
+  }
+
+  function scheduleLoad(delay = 450) {
+    window.clearTimeout(state.debounceTimer);
+    state.debounceTimer = window.setTimeout(() => load(), delay);
   }
 
   $('#refresh-reports').addEventListener('click', load);
   $('#report-search').addEventListener('input', () => { state.filters.search = $('#report-search').value; state.visibleCount = state.step; renderRows(); });
   $('#report-type').addEventListener('input', () => { state.filters.type = $('#report-type').value; state.visibleCount = state.step; renderRows(); });
-  $('#report-period').addEventListener('input', async () => { state.filters.period = $('#report-period').value; applyReportPeriodVisibility(); await load(); });
-  $('#report-month').addEventListener('input', async () => { state.filters.month = $('#report-month').value || currentMonth; await load(); });
-  $('#report-start-date').addEventListener('input', async () => { if (state.filters.period === 'custom') await load(); });
-  $('#report-end-date').addEventListener('input', async () => { if (state.filters.period === 'custom') await load(); });
+  $('#report-period').addEventListener('input', () => { state.filters.period = $('#report-period').value; applyReportPeriodVisibility(); scheduleLoad(180); });
+  $('#report-month').addEventListener('input', () => { state.filters.month = $('#report-month').value || currentMonth; scheduleLoad(250); });
+  $('#report-start-date').addEventListener('input', () => { if (state.filters.period === 'custom') scheduleLoad(650); });
+  $('#report-end-date').addEventListener('input', () => { if (state.filters.period === 'custom') scheduleLoad(650); });
   document.querySelectorAll('[data-close-report-modal]').forEach((button) => button.addEventListener('click', closeReportModal));
   $('#report-modal').addEventListener('click', (event) => { if (event.target.id === 'report-modal') closeReportModal(); });
   document.querySelectorAll('.report-sort').forEach((btn) => btn.addEventListener('click', () => {

@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { env } from './config/env.js';
-import { healthcheckDb, query } from './config/db.js';
+import { healthcheckDb, query, pool } from './config/db.js';
 import { errorMiddleware, notFoundMiddleware } from './middlewares/errorMiddleware.js';
 import { requireAuth } from './middlewares/authMiddleware.js';
 import { getPetFunnyAiSystemPrompt, getPetFunnyAiPromptMetadata } from './modules/assistente-ia/systemPrompt.js';
@@ -11282,6 +11282,7 @@ app.get('/api/financeiro/inadimplentes', requireAuth, async (req, res, next) => 
   } catch (error) { next(error); }
 });
 
+
 async function safeInsightTask(label, task, fallback) {
   try {
     return await task();
@@ -11291,54 +11292,76 @@ async function safeInsightTask(label, task, fallback) {
   }
 }
 
+async function reportInsightQuery(label, sql, params = [], fallback = { rows: [] }, timeoutMs = 3500) {
+  if (!pool) return fallback;
+  const safeTimeout = Math.min(8000, Math.max(800, Number(timeoutMs || 3500)));
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL statement_timeout = ${Math.trunc(safeTimeout)}`);
+    const result = await client.query(sql, params);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch {}
+    }
+    console.warn(`[relatorios] bloco ${label} ignorado/timeout: ${error.message}`);
+    return fallback;
+  } finally {
+    if (client) client.release();
+  }
+}
+
+function emptyReportFallback(periodWindow) {
+  return {
+    generatedAt: new Date().toISOString(),
+    optimized: true,
+    period: periodWindow,
+    insights: [],
+    dashboard: {
+      cards: {
+        appointmentsToday: { value: 0 },
+        activePackages: { value: 0 }
+      }
+    },
+    topServices: [],
+    comparisons: {
+      finance: { income_cents: 0, expense_cents: 0, income_count: 0, expense_count: 0 },
+      previousFinance: { income_cents: 0, expense_cents: 0 },
+      appointmentsByStatus: [],
+      packagesProgress: [],
+      periodServices: [],
+      periodFlow: [],
+      monthlyEvolution: [],
+      growth: {
+        current: { appointments_count: 0, packages_count: 0, services_count: 0 },
+        previous: { appointments_count: 0, packages_count: 0, services_count: 0 }
+      }
+    }
+  };
+}
+
 app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
   try {
     const periodWindow = resolvePeriodWindow({ period: req.query.period, month: req.query.month, startDate: req.query.startDate, endDate: req.query.endDate });
     const periodParams = [periodWindow.start, periodWindow.end];
     const previousParams = [periodWindow.previousStart, periodWindow.previousEnd];
-    const [dashboard, overdue, packages, services, crm] = await Promise.all([
-      safeInsightTask('dashboard', () => getDashboardSummary(), { cards: {} }),
-      safeInsightTask('inadimplencia', () => query(`
-        SELECT COUNT(*)::int AS count, COALESCE(SUM(amount_cents),0)::int AS total_cents
-        FROM financial_transactions
-        WHERE deleted_at IS NULL
-          AND type='income'
-          AND status <> 'paid'
-          AND due_date < CURRENT_DATE
-      `), { rows: [{ count: 0, total_cents: 0 }] }),
-      safeInsightTask('pacotes', () => query(`
-        SELECT COUNT(*)::int AS count
-        FROM customer_packages
-        WHERE deleted_at IS NULL
-          AND status='active'
-          AND (COALESCE(total_sessions, 0) - COALESCE(used_sessions, 0)) <= 1
-      `), { rows: [{ count: 0 }] }),
-      safeInsightTask('servicos', () => query(`
-        SELECT s.name, COUNT(ai.id)::int AS sold_count, COALESCE(SUM(ai.total_cents),0)::int AS total_cents
-        FROM appointment_items ai
-        LEFT JOIN services s ON s.id=ai.service_id
-        GROUP BY s.name
-        ORDER BY total_cents DESC NULLS LAST
-        LIMIT 5
-      `), { rows: [] }),
-      safeInsightTask('crm', () => query(`
-        SELECT COUNT(*)::int AS open_leads
-        FROM crm_leads
-        WHERE deleted_at IS NULL
-          AND stage NOT IN ('fechado', 'perdido', 'closed')
-      `), { rows: [{ open_leads: 0 }] })
-    ]);
+    const baseFallback = emptyReportFallback(periodWindow);
 
-    const overdueRow = overdue.rows?.[0] || {};
-    const insights = [];
-    insights.push({ title: 'Agenda de hoje', diagnosis: `Hoje existem ${dashboard.cards?.appointmentsToday?.value || 0} agendamento(s).`, impact: 'A agenda define ocupação, equipe e previsão de faturamento do dia.', action: 'Confirme presença dos tutores pelo WhatsApp e acompanhe check-in/check-out.' });
-    if (Number(overdueRow.count || 0) > 0) insights.push({ title: 'Inadimplência ativa', diagnosis: `Há ${overdueRow.count} cobrança(s) vencida(s), somando ${(Number(overdueRow.total_cents || 0)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}.`, impact: 'Valores vencidos reduzem previsibilidade de caixa.', action: 'Acesse Financeiro > Inadimplentes e envie cobrança amigável.' });
-    if (Number(packages.rows?.[0]?.count || 0) > 0) insights.push({ title: 'Pacotes perto do fim', diagnosis: `${packages.rows[0].count} pacote(s) ativo(s) têm uma sessão ou menos.`, impact: 'É uma oportunidade direta de renovação antes do cliente encerrar a recorrência.', action: 'Aborde o tutor antes do último atendimento com oferta de renovação.' });
-    insights.push({ title: 'Serviços mais fortes', diagnosis: services.rows?.length ? `Serviço com maior receita: ${services.rows[0].name || 'não identificado'}.` : 'Ainda não há volume suficiente de serviços vendidos.', impact: 'Entender serviços fortes ajuda a criar combos e campanhas.', action: 'Use os serviços com melhor desempenho como base para pacotes e promoções.' });
-    insights.push({ title: 'CRM e oportunidades', diagnosis: `Existem ${crm.rows?.[0]?.open_leads || 0} lead(s) em aberto no CRM.`, impact: 'Leads parados representam faturamento que ainda não virou agenda.', action: 'Priorize leads com WhatsApp e histórico recente.' });
+    const [quick, finance, previousFinance, appointmentsByStatus, packagesProgress, periodServices, periodFlow, growthCurrent, growthPrevious, monthlyEvolution] = await Promise.all([
+      reportInsightQuery('resumo_rapido', `
+        SELECT
+          (SELECT COUNT(*)::int FROM appointments WHERE deleted_at IS NULL AND starts_at >= CURRENT_DATE AND starts_at < CURRENT_DATE + INTERVAL '1 day') AS appointments_today,
+          (SELECT COUNT(*)::int FROM customer_packages WHERE deleted_at IS NULL AND status = 'active') AS active_packages,
+          (SELECT COUNT(*)::int FROM financial_transactions WHERE deleted_at IS NULL AND type='income' AND status <> 'paid' AND due_date < CURRENT_DATE) AS overdue_count,
+          (SELECT COALESCE(SUM(amount_cents),0)::int FROM financial_transactions WHERE deleted_at IS NULL AND type='income' AND status <> 'paid' AND due_date < CURRENT_DATE) AS overdue_total_cents,
+          (SELECT COUNT(*)::int FROM customer_packages WHERE deleted_at IS NULL AND status='active' AND (COALESCE(total_sessions,0) - COALESCE(used_sessions,0)) <= 1) AS packages_ending_count,
+          (SELECT COUNT(*)::int FROM crm_leads WHERE deleted_at IS NULL AND stage NOT IN ('fechado', 'perdido', 'closed')) AS open_leads
+      `, [], { rows: [{ appointments_today: 0, active_packages: 0, overdue_count: 0, overdue_total_cents: 0, packages_ending_count: 0, open_leads: 0 }] }, 2500),
 
-    const [periodFinance, previousFinance, appointmentsByStatus, packagesProgress, periodServices, periodFlow] = await Promise.all([
-      safeInsightTask('financeiro_periodo', () => query(`
+      reportInsightQuery('financeiro_periodo', `
         SELECT
           COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'canceled'),0)::int AS income_cents,
           COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'canceled'),0)::int AS expense_cents,
@@ -11346,117 +11369,216 @@ app.get('/api/relatorios/insights', requireAuth, async (req, res, next) => {
           COUNT(*) FILTER (WHERE type='expense' AND status <> 'canceled')::int AS expense_count
         FROM financial_transactions
         WHERE deleted_at IS NULL
-          AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
-          AND COALESCE(due_date, paid_at::date, created_at::date) < $2::date
-      `, periodParams), { rows: [{ income_cents: 0, expense_cents: 0, income_count: 0, expense_count: 0 }] }),
-      safeInsightTask('financeiro_periodo_anterior', () => query(`
+          AND (
+            (due_date >= $1::date AND due_date < $2::date)
+            OR (due_date IS NULL AND paid_at >= $1::date AND paid_at < $2::date)
+            OR (due_date IS NULL AND paid_at IS NULL AND created_at >= $1::date AND created_at < $2::date)
+          )
+      `, periodParams, { rows: [baseFallback.comparisons.finance] }, 3000),
+
+      reportInsightQuery('financeiro_periodo_anterior', `
         SELECT
           COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'canceled'),0)::int AS income_cents,
           COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'canceled'),0)::int AS expense_cents
         FROM financial_transactions
         WHERE deleted_at IS NULL
-          AND COALESCE(due_date, paid_at::date, created_at::date) >= $1::date
-          AND COALESCE(due_date, paid_at::date, created_at::date) < $2::date
-      `, previousParams), { rows: [{ income_cents: 0, expense_cents: 0 }] }),
-      safeInsightTask('agenda_status_periodo', () => query(`
-        SELECT status, COUNT(*)::int AS count
+          AND (
+            (due_date >= $1::date AND due_date < $2::date)
+            OR (due_date IS NULL AND paid_at >= $1::date AND paid_at < $2::date)
+            OR (due_date IS NULL AND paid_at IS NULL AND created_at >= $1::date AND created_at < $2::date)
+          )
+      `, previousParams, { rows: [baseFallback.comparisons.previousFinance] }, 3000),
+
+      reportInsightQuery('agenda_status_periodo', `
+        SELECT COALESCE(status, 'sem_status') AS status, COUNT(*)::int AS count
         FROM appointments
         WHERE deleted_at IS NULL
-          AND starts_at::date >= $1::date
-          AND starts_at::date < $2::date
-        GROUP BY status
+          AND starts_at >= $1::date
+          AND starts_at < $2::date
+        GROUP BY COALESCE(status, 'sem_status')
         ORDER BY count DESC
-      `, periodParams), { rows: [] }),
-      safeInsightTask('pacotes_periodo', () => query(`
-        SELECT status, COUNT(*)::int AS count, COALESCE(SUM(total_sessions),0)::int AS total_sessions, COALESCE(SUM(used_sessions),0)::int AS used_sessions
+      `, periodParams, { rows: [] }, 2500),
+
+      reportInsightQuery('pacotes_periodo', `
+        SELECT COALESCE(status, 'sem_status') AS status,
+               COUNT(*)::int AS count,
+               COALESCE(SUM(total_sessions),0)::int AS total_sessions,
+               COALESCE(SUM(used_sessions),0)::int AS used_sessions
         FROM customer_packages
         WHERE deleted_at IS NULL
-          AND created_at::date >= $1::date
-          AND created_at::date < $2::date
-        GROUP BY status
+          AND created_at >= $1::date
+          AND created_at < $2::date
+        GROUP BY COALESCE(status, 'sem_status')
         ORDER BY count DESC
-      `, periodParams), { rows: [] }),
-      safeInsightTask('servicos_periodo', () => query(`
-        SELECT s.name, COUNT(ai.id)::int AS sold_count, COALESCE(SUM(ai.total_cents),0)::int AS total_cents
+      `, periodParams, { rows: [] }, 2500),
+
+      reportInsightQuery('servicos_periodo', `
+        SELECT COALESCE(s.name, 'Serviço não identificado') AS name,
+               COUNT(ai.id)::int AS sold_count,
+               COALESCE(SUM(ai.total_cents),0)::int AS total_cents
         FROM appointment_items ai
-        LEFT JOIN services s ON s.id=ai.service_id
-        LEFT JOIN appointments a ON a.id=ai.appointment_id
-        WHERE a.deleted_at IS NULL
-          AND a.starts_at::date >= $1::date
-          AND a.starts_at::date < $2::date
-        GROUP BY s.name
-        ORDER BY total_cents DESC NULLS LAST
+        INNER JOIN appointments a ON a.id = ai.appointment_id AND a.deleted_at IS NULL
+        LEFT JOIN services s ON s.id = ai.service_id
+        WHERE a.starts_at >= $1::date
+          AND a.starts_at < $2::date
+        GROUP BY COALESCE(s.name, 'Serviço não identificado')
+        ORDER BY total_cents DESC NULLS LAST, sold_count DESC
         LIMIT 8
-      `, periodParams), { rows: [] }),
-      safeInsightTask('fluxo_periodo', () => query(`
-        SELECT to_char(day, 'DD/MM') AS label,
-               COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'canceled'),0)::int AS income_cents,
-               COALESCE(SUM(amount_cents) FILTER (WHERE type='expense' AND status <> 'canceled'),0)::int AS expense_cents
-        FROM generate_series($1::date, ($2::date - INTERVAL '1 day'), INTERVAL '1 day') day
-        LEFT JOIN financial_transactions ft ON ft.deleted_at IS NULL AND COALESCE(ft.due_date, ft.paid_at::date, ft.created_at::date) = day::date
-        GROUP BY day
-        ORDER BY day ASC
-      `, periodParams), { rows: [] })
+      `, periodParams, { rows: [] }, 3000),
+
+      reportInsightQuery('fluxo_periodo', `
+        WITH days AS (
+          SELECT generate_series($1::date, ($2::date - INTERVAL '1 day'), INTERVAL '1 day')::date AS day
+        ), tx AS (
+          SELECT
+            COALESCE(due_date, paid_at::date, created_at::date) AS tx_day,
+            type,
+            status,
+            amount_cents
+          FROM financial_transactions
+          WHERE deleted_at IS NULL
+            AND (
+              (due_date >= $1::date AND due_date < $2::date)
+              OR (due_date IS NULL AND paid_at >= $1::date AND paid_at < $2::date)
+              OR (due_date IS NULL AND paid_at IS NULL AND created_at >= $1::date AND created_at < $2::date)
+            )
+        )
+        SELECT to_char(d.day, 'DD/MM') AS label,
+               COALESCE(SUM(tx.amount_cents) FILTER (WHERE tx.type='income' AND tx.status <> 'canceled'),0)::int AS income_cents,
+               COALESCE(SUM(tx.amount_cents) FILTER (WHERE tx.type='expense' AND tx.status <> 'canceled'),0)::int AS expense_cents
+        FROM days d
+        LEFT JOIN tx ON tx.tx_day = d.day
+        GROUP BY d.day
+        ORDER BY d.day ASC
+      `, periodParams, { rows: [] }, 3500),
+
+      reportInsightQuery('crescimento_periodo_atual', `
+        SELECT
+          (SELECT COUNT(*)::int FROM appointments WHERE deleted_at IS NULL AND starts_at >= $1::date AND starts_at < $2::date) AS appointments_count,
+          (SELECT COUNT(*)::int FROM customer_packages WHERE deleted_at IS NULL AND created_at >= $1::date AND created_at < $2::date) AS packages_count,
+          (SELECT COUNT(*)::int FROM appointment_items ai INNER JOIN appointments a ON a.id=ai.appointment_id AND a.deleted_at IS NULL WHERE a.starts_at >= $1::date AND a.starts_at < $2::date) AS services_count
+      `, periodParams, { rows: [baseFallback.comparisons.growth.current] }, 3000),
+
+      reportInsightQuery('crescimento_periodo_anterior', `
+        SELECT
+          (SELECT COUNT(*)::int FROM appointments WHERE deleted_at IS NULL AND starts_at >= $1::date AND starts_at < $2::date) AS appointments_count,
+          (SELECT COUNT(*)::int FROM customer_packages WHERE deleted_at IS NULL AND created_at >= $1::date AND created_at < $2::date) AS packages_count,
+          (SELECT COUNT(*)::int FROM appointment_items ai INNER JOIN appointments a ON a.id=ai.appointment_id AND a.deleted_at IS NULL WHERE a.starts_at >= $1::date AND a.starts_at < $2::date) AS services_count
+      `, previousParams, { rows: [baseFallback.comparisons.growth.previous] }, 3000),
+
+      reportInsightQuery('evolucao_mensal_operacao', `
+        WITH months AS (
+          SELECT generate_series(
+            date_trunc('month', $1::date) - INTERVAL '5 months',
+            date_trunc('month', $1::date),
+            INTERVAL '1 month'
+          )::date AS month_start
+        ), appointments_m AS (
+          SELECT date_trunc('month', starts_at)::date AS month_start, COUNT(*)::int AS appointments_count
+          FROM appointments
+          WHERE deleted_at IS NULL
+            AND starts_at >= (date_trunc('month', $1::date) - INTERVAL '5 months')
+            AND starts_at < (date_trunc('month', $1::date) + INTERVAL '1 month')
+          GROUP BY 1
+        ), tutors_m AS (
+          SELECT date_trunc('month', created_at)::date AS month_start, COUNT(*)::int AS new_tutors_count
+          FROM tutors
+          WHERE deleted_at IS NULL
+            AND created_at >= (date_trunc('month', $1::date) - INTERVAL '5 months')
+            AND created_at < (date_trunc('month', $1::date) + INTERVAL '1 month')
+          GROUP BY 1
+        ), pets_m AS (
+          SELECT date_trunc('month', created_at)::date AS month_start, COUNT(*)::int AS new_pets_count
+          FROM pets
+          WHERE deleted_at IS NULL
+            AND created_at >= (date_trunc('month', $1::date) - INTERVAL '5 months')
+            AND created_at < (date_trunc('month', $1::date) + INTERVAL '1 month')
+          GROUP BY 1
+        ), gifts_m AS (
+          SELECT date_trunc('month', spun_at)::date AS month_start, COUNT(*)::int AS gifts_count
+          FROM gift_spins
+          WHERE spun_at >= (date_trunc('month', $1::date) - INTERVAL '5 months')
+            AND spun_at < (date_trunc('month', $1::date) + INTERVAL '1 month')
+          GROUP BY 1
+        )
+        SELECT to_char(m.month_start, 'MM/YYYY') AS label,
+               COALESCE(a.appointments_count,0)::int AS appointments_count,
+               COALESCE(t.new_tutors_count,0)::int AS new_tutors_count,
+               COALESCE(p.new_pets_count,0)::int AS new_pets_count,
+               COALESCE(g.gifts_count,0)::int AS gifts_count
+        FROM months m
+        LEFT JOIN appointments_m a ON a.month_start = m.month_start
+        LEFT JOIN tutors_m t ON t.month_start = m.month_start
+        LEFT JOIN pets_m p ON p.month_start = m.month_start
+        LEFT JOIN gifts_m g ON g.month_start = m.month_start
+        ORDER BY m.month_start ASC
+      `, [periodWindow.end], { rows: [] }, 3500)
     ]);
 
-    const [currentGrowth, previousGrowth] = await Promise.all([
-      safeInsightTask('crescimento_periodo_atual', () => query(`
-        SELECT
-          (SELECT COUNT(*)::int FROM appointments WHERE deleted_at IS NULL AND starts_at::date >= $1::date AND starts_at::date < $2::date) AS appointments_count,
-          (SELECT COUNT(*)::int FROM customer_packages WHERE deleted_at IS NULL AND created_at::date >= $1::date AND created_at::date < $2::date) AS packages_count,
-          (SELECT COUNT(*)::int FROM appointment_items ai LEFT JOIN appointments a ON a.id=ai.appointment_id WHERE a.deleted_at IS NULL AND a.starts_at::date >= $1::date AND a.starts_at::date < $2::date) AS services_count
-      `, periodParams), { rows: [{ appointments_count: 0, packages_count: 0, services_count: 0 }] }),
-      safeInsightTask('crescimento_periodo_anterior', () => query(`
-        SELECT
-          (SELECT COUNT(*)::int FROM appointments WHERE deleted_at IS NULL AND starts_at::date >= $1::date AND starts_at::date < $2::date) AS appointments_count,
-          (SELECT COUNT(*)::int FROM customer_packages WHERE deleted_at IS NULL AND created_at::date >= $1::date AND created_at::date < $2::date) AS packages_count,
-          (SELECT COUNT(*)::int FROM appointment_items ai LEFT JOIN appointments a ON a.id=ai.appointment_id WHERE a.deleted_at IS NULL AND a.starts_at::date >= $1::date AND a.starts_at::date < $2::date) AS services_count
-      `, previousParams), { rows: [{ appointments_count: 0, packages_count: 0, services_count: 0 }] })
-    ]);
-
-    const growth = {
-      current: currentGrowth.rows?.[0] || {},
-      previous: previousGrowth.rows?.[0] || {}
+    const quickRow = quick.rows?.[0] || {};
+    const dashboard = {
+      cards: {
+        appointmentsToday: { value: Number(quickRow.appointments_today || 0) },
+        activePackages: { value: Number(quickRow.active_packages || 0) }
+      }
     };
 
-    const monthlyEvolution = await safeInsightTask('evolucao_mensal_operacao', () => query(`
-      WITH months AS (
-        SELECT generate_series(
-          date_trunc('month', $1::date) - INTERVAL '5 months',
-          date_trunc('month', $1::date),
-          INTERVAL '1 month'
-        )::date AS month_start
-      )
-      SELECT
-        to_char(m.month_start, 'MM/YYYY') AS label,
-        COUNT(DISTINCT a.id)::int AS appointments_count,
-        COUNT(DISTINCT t.id)::int AS new_tutors_count,
-        COUNT(DISTINCT p.id)::int AS new_pets_count,
-        COUNT(DISTINCT gs.id)::int AS gifts_count
-      FROM months m
-      LEFT JOIN appointments a ON a.deleted_at IS NULL AND date_trunc('month', a.starts_at)::date = m.month_start
-      LEFT JOIN tutors t ON t.deleted_at IS NULL AND date_trunc('month', t.created_at)::date = m.month_start
-      LEFT JOIN pets p ON p.deleted_at IS NULL AND date_trunc('month', p.created_at)::date = m.month_start
-      LEFT JOIN gift_spins gs ON date_trunc('month', gs.spun_at)::date = m.month_start
-      GROUP BY m.month_start
-      ORDER BY m.month_start ASC
-    `, [periodWindow.end]), { rows: [] });
+    const topServices = periodServices.rows || [];
+    const insights = [];
+    insights.push({
+      title: 'Agenda de hoje',
+      diagnosis: `Hoje existem ${dashboard.cards.appointmentsToday.value || 0} agendamento(s).`,
+      impact: 'A agenda define ocupação, equipe e previsão de faturamento do dia.',
+      action: 'Confirme presença dos tutores pelo WhatsApp e acompanhe check-in/check-out.'
+    });
+    if (Number(quickRow.overdue_count || 0) > 0) {
+      insights.push({
+        title: 'Inadimplência ativa',
+        diagnosis: `Há ${quickRow.overdue_count} cobrança(s) vencida(s), somando ${(Number(quickRow.overdue_total_cents || 0)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}.`,
+        impact: 'Valores vencidos reduzem previsibilidade de caixa.',
+        action: 'Acesse Financeiro > Inadimplentes e envie cobrança amigável.'
+      });
+    }
+    if (Number(quickRow.packages_ending_count || 0) > 0) {
+      insights.push({
+        title: 'Pacotes perto do fim',
+        diagnosis: `${quickRow.packages_ending_count} pacote(s) ativo(s) têm uma sessão ou menos.`,
+        impact: 'É uma oportunidade direta de renovação antes do cliente encerrar a recorrência.',
+        action: 'Aborde o tutor antes do último atendimento com oferta de renovação.'
+      });
+    }
+    insights.push({
+      title: 'Serviços mais fortes',
+      diagnosis: topServices.length ? `Serviço com maior receita: ${topServices[0].name || 'não identificado'}.` : 'Ainda não há volume suficiente de serviços vendidos no período.',
+      impact: 'Entender serviços fortes ajuda a criar combos e campanhas.',
+      action: 'Use os serviços com melhor desempenho como base para pacotes e promoções.'
+    });
+    insights.push({
+      title: 'CRM e oportunidades',
+      diagnosis: `Existem ${quickRow.open_leads || 0} lead(s) em aberto no CRM.`,
+      impact: 'Leads parados representam faturamento que ainda não virou agenda.',
+      action: 'Priorize leads com WhatsApp e histórico recente.'
+    });
 
     res.json({
       generatedAt: new Date().toISOString(),
+      optimized: true,
       period: periodWindow,
       insights,
       dashboard,
-      topServices: services.rows || [],
+      topServices,
       comparisons: {
-        finance: periodFinance.rows?.[0] || {},
-        previousFinance: previousFinance.rows?.[0] || {},
+        finance: finance.rows?.[0] || baseFallback.comparisons.finance,
+        previousFinance: previousFinance.rows?.[0] || baseFallback.comparisons.previousFinance,
         appointmentsByStatus: appointmentsByStatus.rows || [],
         packagesProgress: packagesProgress.rows || [],
-        periodServices: periodServices.rows || [],
+        periodServices: topServices,
         periodFlow: periodFlow.rows || [],
         monthlyEvolution: monthlyEvolution.rows || [],
-        growth
+        growth: {
+          current: growthCurrent.rows?.[0] || baseFallback.comparisons.growth.current,
+          previous: growthPrevious.rows?.[0] || baseFallback.comparisons.growth.previous
+        }
       }
     });
   } catch (error) { next(error); }
