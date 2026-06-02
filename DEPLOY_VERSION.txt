@@ -1,1 +1,1 @@
-FunnyOS v1.6.45 — Pacote Antigo Horário Manual + Sessões Usadas Automáticas
+FunnyOS v1.6.48 — Dashboard Loading Render Completo + IA Timeout Seguro

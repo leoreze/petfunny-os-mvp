@@ -12,10 +12,13 @@
   <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
+  <script>
+    window.__PETFUNNY_MANUAL_PAGE_READY = true;
+  </script>
   <script type="module">
     import { api } from '/assets/js/api.js';
     import { buildShell, setupPremiumInteractions } from '/assets/js/shell.js';
-    import { showLoading, hideLoading, showSuccessModal, showResultModal } from '/assets/js/loading.js';
+    import { showLoading, hideLoading, finishPageLoading, waitForPagePaintAndImages, showSuccessModal, showResultModal } from '/assets/js/loading.js';
 
     let currentSummary = null;
     let agendaItems = [];
@@ -38,6 +41,92 @@
     const paymentText = (item) => `${item.paymentStatusName || (item.paymentStatus === 'paid' ? 'Pago' : 'Pendente')} · ${item.paymentMethodName || 'A definir'}`;
     const initials = (name = '') => String(name || '?').trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || '').join('') || '?';
     const esc = (value = '') => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
+    const DASHBOARD_LOADING_TIMEOUT_MS = 45000;
+    const DASHBOARD_OPTIONAL_TIMEOUT_MS = 18000;
+
+    function withClientTimeout(promise, timeoutMs, label = 'requisição') {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(`${label} demorou demais para responder.`)), timeoutMs);
+      });
+      return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+    }
+
+    async function waitForDashboardVisualReady() {
+      await waitForPagePaintAndImages();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+
+    function fallbackAiGrowthPlan(reason = 'O plano de crescimento será atualizado quando a API responder.') {
+      return {
+        openaiConfigured: false,
+        openaiUsed: false,
+        generatedAt: new Date().toISOString(),
+        plan: {
+          title: 'Gerente IA de Crescimento PetFunny',
+          dateLabel: 'Hoje',
+          score: 52,
+          mood: 'fallback seguro',
+          mainGoal: 'Manter operação, agenda e financeiro sob controle enquanto a IA conclui a análise.',
+          diagnosis: reason,
+          tasks: [
+            { title: 'Revisar agenda do dia', description: 'Confira horários, status, atrasos e pagamentos antes de iniciar os atendimentos.', priority: 'alta', module: 'Agenda', due: 'Agora', effort: '10 min', kpi: 'agenda conferida', route: '/admin/agenda' },
+            { title: 'Baixar recebimentos pendentes', description: 'Abra o financeiro e confira pagamentos em aberto para não fechar o dia com caixa distorcido.', priority: 'alta', module: 'Financeiro', due: 'Hoje', effort: '15 min', kpi: 'pendências reduzidas', route: '/admin/financeiro' }
+          ],
+          campaigns: [],
+          risks: ['A IA demorou para responder e o dashboard usou o plano seguro local.'],
+          opportunities: ['Atualize somente a IA pelo botão do card depois que a página estiver aberta.'],
+          routine: { morning: 'Conferir agenda e confirmações.', afternoon: 'Registrar atendimentos e vender próximo banho.', closing: 'Dar baixa financeira e preparar reativações.' }
+        }
+      };
+    }
+
+    function fallbackEngagementDashboard(reason = 'Engajamento 360 será exibido quando a rota estiver disponível.') {
+      return { metrics: {}, retention: [], rewards: [], topTutors: [], insights: [reason] };
+    }
+
+
+    const ADMIN_MODULE_ROUTES = [
+      { route: '/admin/agenda', terms: ['agenda', 'agendamento', 'horário', 'horario', 'encaixe', 'confirmar'] },
+      { route: '/admin/tutores', terms: ['tutor', 'tutores', 'cliente', 'clientes', 'responsável', 'responsavel'] },
+      { route: '/admin/pets', terms: ['pet', 'pets', 'animal'] },
+      { route: '/admin/servicos', terms: ['serviço', 'servico', 'serviços', 'servicos', 'banho', 'tosa', 'hidratação', 'hidratacao'] },
+      { route: '/admin/pacotes', terms: ['pacote', 'pacotes', 'recorrência', 'recorrencia', 'renovação', 'renovacao', 'sessão', 'sessao'] },
+      { route: '/admin/assinaturas', terms: ['assinatura', 'assinaturas'] },
+      { route: '/admin/financeiro', terms: ['financeiro', 'pagamento', 'recebimento', 'pendência', 'pendencia', 'caixa', 'faturamento', 'cobrança', 'cobranca'] },
+      { route: '/admin/comandas-recibos', terms: ['comanda', 'recibo', 'documento'] },
+      { route: '/admin/crm', terms: ['crm', 'marketing', 'lead', 'reativação', 'reativacao', 'campanha', 'whatsapp comercial'] },
+      { route: '/admin/promocoes', terms: ['promoção', 'promocao', 'promoções', 'promocoes', 'oferta', 'desconto'] },
+      { route: '/admin/bem-estar', terms: ['petfunny 360', 'diagnóstico', 'diagnostico', 'avaliação', 'avaliacao', 'bem-estar', 'bem estar'] },
+      { route: '/admin/saude-360', terms: ['saúde', 'saude', 'teleconsulta', 'veterinário', 'veterinario'] },
+      { route: '/admin/roleta-de-mimos', terms: ['roleta', 'mimo', 'mimos', 'sorteio', 'brinde'] },
+      { route: '/admin/relatorios', terms: ['relatório', 'relatorio', 'relatórios', 'relatorios', 'indicador', 'kpi'] },
+      { route: '/admin/notificacoes', terms: ['notificação', 'notificacao', 'notificações', 'notificacoes', 'alerta', 'push'] },
+      { route: '/admin/app-acessos', terms: ['app do tutor', 'acessos do app', 'app', 'engajamento', 'momentos', 'foto', 'fotos', 'vídeo', 'video', 'timeline'] },
+      { route: '/admin/whatsapp', terms: ['whatsapp', 'mensagem', 'mensagens'] },
+      { route: '/admin/assistente-ia', terms: ['ia', 'assistente', 'gerente ia'] },
+      { route: '/admin/configuracoes', terms: ['configuração', 'configuracao', 'configurações', 'configuracoes', 'capacidade'] }
+    ];
+    const ADMIN_ALLOWED_ROUTES = new Set(['/admin/dashboard', ...ADMIN_MODULE_ROUTES.map(item => item.route)]);
+
+    function normalizeAdminRoute(route = '') {
+      const value = String(route || '').trim();
+      if (!value) return '';
+      const pathWithQuery = value.replace(/^https?:\/\/[^/]+/i, '').startsWith('/') ? value.replace(/^https?:\/\/[^/]+/i, '') : `/${value.replace(/^https?:\/\/[^/]+/i, '')}`;
+      const [pathname, query = ''] = pathWithQuery.split('?');
+      const normalizedPath = pathname.replace(/\/+/g, '/').replace(/\/$/, '') || '/admin/dashboard';
+      if (!ADMIN_ALLOWED_ROUTES.has(normalizedPath)) return '';
+      return query ? `${normalizedPath}?${query.slice(0, 80)}` : normalizedPath;
+    }
+
+    function getAiTaskRoute(task = {}) {
+      const direct = normalizeAdminRoute(task.route || task.rota);
+      if (direct) return direct;
+      const text = [task.module, task.modulo, task.title, task.titulo, task.description, task.descricao, task.kpi].filter(Boolean).join(' ').toLowerCase();
+      const found = ADMIN_MODULE_ROUTES.find(item => item.terms.some(term => text.includes(term)));
+      return found?.route || '/admin/dashboard';
+    }
 
     const statusLabels = {
       agendado: 'Agendado',
@@ -519,6 +608,155 @@
         </article>`;
     }
 
+    function priorityLabel(priority = '') {
+      const value = String(priority || '').toLowerCase();
+      if (value.includes('alta')) return 'Alta';
+      if (value.includes('baixa')) return 'Baixa';
+      return 'Média';
+    }
+
+    function renderAiGrowthPlan(summary) {
+      const payload = summary.aiGrowthPlan || {};
+      const plan = payload.plan || payload || {};
+      const tasks = Array.isArray(plan.tasks) ? plan.tasks : [];
+      const campaigns = Array.isArray(plan.campaigns) ? plan.campaigns : [];
+      const risks = Array.isArray(plan.risks) ? plan.risks : [];
+      const opportunities = Array.isArray(plan.opportunities) ? plan.opportunities : [];
+      const routine = plan.routine || {};
+      const score = Math.max(0, Math.min(100, Number(plan.score || 0)));
+      const aiMode = payload.openaiUsed ? 'IA real conectada' : (payload.openaiConfigured ? 'IA local + fallback seguro' : 'Plano local seguro');
+      const generatedAt = payload.generatedAt ? dateTime(payload.generatedAt) : 'agora';
+      return `
+        <section class="dashboard-full-row ai-growth-section">
+          <article class="surface-panel ai-growth-panel">
+            <div class="panel-heading ai-growth-heading">
+              <div>
+                <p class="eyebrow">Gerente IA de Crescimento</p>
+                <h2>${esc(plan.title || 'Plano diário para crescer o PetFunny')}</h2>
+                <p>${esc(plan.diagnosis || 'A IA analisa agenda, financeiro, pacotes, clientes e oportunidades para transformar dados em tarefas diárias.')}</p>
+              </div>
+              <div class="ai-growth-score" style="--score:${score}">
+                <strong>${score}</strong>
+                <small>${esc(plan.mood || 'em análise')}</small>
+              </div>
+            </div>
+            <div class="ai-growth-meta">
+              <span>📅 ${esc(plan.dateLabel || 'Hoje')}</span>
+              <span>⚡ ${esc(aiMode)}</span>
+              <span>🕒 Atualizado ${esc(generatedAt)}</span>
+            </div>
+            <div class="ai-growth-goal">
+              <span>🎯 Objetivo do dia</span>
+              <strong>${esc(plan.mainGoal || 'Aumentar agenda, recorrência e recebimentos hoje.')}</strong>
+            </div>
+            <div class="ai-growth-grid">
+              <div class="ai-growth-main">
+                <div class="section-toolbar compact"><div><h3>Ações e tarefas de hoje</h3><p>Checklist prático para a equipe executar e acompanhar.</p></div><button class="btn btn-secondary" id="copy-ai-growth-plan" type="button">Copiar plano</button></div>
+                <div class="ai-task-list">
+                  ${tasks.length ? tasks.map((task, index) => {
+                    const taskRoute = getAiTaskRoute(task);
+                    return `
+                    <article class="ai-task-card priority-${esc(String(task.priority || 'media').toLowerCase().replace('é','e'))}">
+                      <div class="ai-task-index">${String(index + 1).padStart(2, '0')}</div>
+                      <div class="ai-task-content">
+                        <div class="ai-task-title-row"><strong>${esc(task.title)}</strong><span>${priorityLabel(task.priority)}</span></div>
+                        <p>${esc(task.description)}</p>
+                        <div class="ai-task-tags"><small>📍 ${esc(task.module || 'Dashboard')}</small><small>⏱ ${esc(task.due || 'Hoje')}</small><small>💪 ${esc(task.effort || '15 min')}</small><small>📊 ${esc(task.kpi || 'crescimento')}</small></div>
+                      </div>
+                      <a class="ai-task-link" href="${esc(taskRoute)}" data-ai-task-route="${esc(taskRoute)}">Abrir módulo</a>
+                    </article>`;
+                  }).join('') : emptyState('Plano ainda não carregado', 'Atualize o painel para gerar as tarefas do dia.')}
+                </div>
+              </div>
+              <aside class="ai-growth-side">
+                <div class="ai-side-card">
+                  <h3>Rotina sugerida</h3>
+                  <p><b>Manhã:</b> ${esc(routine.morning || 'Confirmar agenda e olhar pendências.')}</p>
+                  <p><b>Tarde:</b> ${esc(routine.afternoon || 'Acompanhar atendimentos e vender próximos banhos.')}</p>
+                  <p><b>Fechamento:</b> ${esc(routine.closing || 'Baixar financeiro e preparar amanhã.')}</p>
+                </div>
+                <div class="ai-side-card">
+                  <h3>Riscos</h3>
+                  <div class="ai-mini-list">${risks.length ? risks.map(item => `<span>⚠️ ${esc(item)}</span>`).join('') : '<span>Nenhum risco crítico identificado.</span>'}</div>
+                </div>
+                <div class="ai-side-card">
+                  <h3>Oportunidades</h3>
+                  <div class="ai-mini-list">${opportunities.length ? opportunities.map(item => `<span>💡 ${esc(item)}</span>`).join('') : '<span>Sem oportunidades novas no momento.</span>'}</div>
+                </div>
+              </aside>
+            </div>
+            <div class="ai-campaign-block">
+              <div class="section-toolbar compact"><div><h3>Campanhas prontas para WhatsApp</h3><p>Textos gerados para reativar, vender pacote e preencher agenda.</p></div><button class="btn" id="refresh-ai-growth-plan" type="button">Atualizar IA</button></div>
+              <div class="ai-campaign-grid">
+                ${campaigns.length ? campaigns.map((campaign) => `
+                  <article class="ai-campaign-card">
+                    <span>${esc(campaign.channel || 'WhatsApp')}</span>
+                    <strong>${esc(campaign.title)}</strong>
+                    <small>${esc(campaign.target || 'tutores')}</small>
+                    <p>${esc(campaign.message || '')}</p>
+                  </article>`).join('') : emptyState('Sem campanhas geradas', 'Configure dados de CRM e agenda para a IA montar campanhas mais específicas.')}
+              </div>
+            </div>
+          </article>
+        </section>`;
+    }
+
+    function getAiGrowthPlanText() {
+      const payload = currentSummary?.aiGrowthPlan || {};
+      const plan = payload.plan || payload || {};
+      const lines = [
+        `${plan.title || 'Gerente IA de Crescimento PetFunny'} — ${plan.dateLabel || 'Hoje'}`,
+        `Score: ${plan.score || '--'} · ${plan.mood || ''}`,
+        `Objetivo: ${plan.mainGoal || ''}`,
+        '',
+        'Diagnóstico:',
+        plan.diagnosis || '',
+        '',
+        'Tarefas de hoje:'
+      ];
+      (plan.tasks || []).forEach((task, index) => {
+        lines.push(`${index + 1}. ${task.title} [${priorityLabel(task.priority)}]`);
+        lines.push(`   ${task.description}`);
+        lines.push(`   Prazo: ${task.due || 'Hoje'} · KPI: ${task.kpi || 'crescimento'}`);
+      });
+      if ((plan.campaigns || []).length) {
+        lines.push('', 'Campanhas WhatsApp:');
+        (plan.campaigns || []).forEach((campaign, index) => {
+          lines.push(`${index + 1}. ${campaign.title} — ${campaign.message}`);
+        });
+      }
+      return lines.join('\n').trim();
+    }
+
+    async function copyAiGrowthPlan() {
+      const text = getAiGrowthPlanText();
+      try {
+        await navigator.clipboard.writeText(text);
+        await showSuccessModal('Plano copiado', 'O plano diário da IA foi copiado para você compartilhar com a equipe.');
+      } catch (error) {
+        await showResultModal({ type: 'info', title: 'Plano diário da IA', message: text.slice(0, 1200), okText: 'OK' });
+      }
+    }
+
+    async function refreshAiGrowthPlanOnly() {
+      const btn = document.getElementById('refresh-ai-growth-plan');
+      if (btn) btn.disabled = true;
+      try {
+        const payload = await api.get('/dashboard/ai-growth-plan');
+        currentSummary.aiGrowthPlan = payload;
+        const section = document.querySelector('.ai-growth-section');
+        if (section) {
+          section.outerHTML = renderAiGrowthPlan(currentSummary);
+          bindDashboardInteractions();
+        }
+      } catch (error) {
+        await showResultModal({ type: 'error', title: 'IA indisponível', message: error.message || 'Não foi possível atualizar o plano agora.', okText: 'OK' });
+      } finally {
+        const nextBtn = document.getElementById('refresh-ai-growth-plan');
+        if (nextBtn) nextBtn.disabled = false;
+      }
+    }
+
     function renderEngagementDashboard(summary) {
       const dash = summary.engagementDashboard || {};
       const metrics = dash.metrics || {};
@@ -645,6 +883,8 @@
             ${metricCard('Pets atendidos', num(m.petsServedToday), `${num(m.petsTotal)} pet(s) cadastrados`, '🐾')}
             ${metricCard('Pacotes ativos', num(m.activePackages), `${num(m.recurringClients)} cliente(s) recorrentes`, '🎁')}
           </section>
+
+          ${renderAiGrowthPlan(summary)}
 
           <section class="dashboard-single-row">
             <article class="surface-panel dashboard-main-panel">
@@ -845,6 +1085,13 @@
       msgRefs.cancel?.addEventListener('click', () => msgRefs.modal?.close());
       msgRefs.send?.addEventListener('click', () => setTimeout(() => msgRefs.modal?.close(), 180));
       document.getElementById('refresh-dashboard')?.addEventListener('click', loadDashboard);
+      document.getElementById('refresh-ai-growth-plan')?.addEventListener('click', refreshAiGrowthPlanOnly);
+      document.getElementById('copy-ai-growth-plan')?.addEventListener('click', copyAiGrowthPlan);
+      document.querySelectorAll('[data-ai-task-route]').forEach(link => link.addEventListener('click', (event) => {
+        const route = normalizeAdminRoute(link.dataset.aiTaskRoute || link.getAttribute('href')) || '/admin/dashboard';
+        event.preventDefault();
+        window.location.assign(route);
+      }));
       document.getElementById('agenda-filter')?.addEventListener('input', renderAgendaTable);
       document.querySelectorAll('#agenda-table th[data-sort]').forEach(th => th.addEventListener('click', () => {
         const key = th.dataset.sort;
@@ -995,16 +1242,40 @@
     }
 
     async function loadDashboard() {
-      showLoading('Atualizando painel PetFunny...');
+      showLoading(
+        'Carregando Dashboard PetFunny...',
+        'Buscando agenda, financeiro, pacotes, engajamento e Gerente IA antes de liberar a tela.',
+        { timeoutMs: DASHBOARD_LOADING_TIMEOUT_MS }
+      );
+
       try {
-        const summary = await api.get('/dashboard/summary');
-        try {
-          const engagementPayload = await api.get('/dashboard/engagement');
-          summary.engagementDashboard = engagementPayload.engagementDashboard || engagementPayload;
-        } catch (engagementError) {
-          console.warn('[dashboard] Engajamento 360 indisponível:', engagementError.message);
-          summary.engagementDashboard = { metrics: {}, retention: [], rewards: [], topTutors: [], insights: ['Engajamento 360 será exibido quando as rotas estiverem disponíveis.'] };
+        const [summaryResult, engagementResult, growthResult] = await Promise.allSettled([
+          api.get('/dashboard/summary'),
+          withClientTimeout(api.get('/dashboard/engagement'), DASHBOARD_OPTIONAL_TIMEOUT_MS, 'Engajamento 360'),
+          withClientTimeout(api.get('/dashboard/ai-growth-plan'), DASHBOARD_OPTIONAL_TIMEOUT_MS, 'Gerente IA de Crescimento')
+        ]);
+
+        if (summaryResult.status !== 'fulfilled') {
+          throw summaryResult.reason || new Error('Não foi possível carregar o resumo do dashboard.');
         }
+
+        const summary = summaryResult.value || {};
+
+        if (engagementResult.status === 'fulfilled') {
+          const engagementPayload = engagementResult.value || {};
+          summary.engagementDashboard = engagementPayload.engagementDashboard || engagementPayload;
+        } else {
+          console.warn('[dashboard] Engajamento 360 indisponível:', engagementResult.reason?.message || engagementResult.reason);
+          summary.engagementDashboard = fallbackEngagementDashboard('Engajamento 360 demorou ou ficou indisponível. O restante do dashboard foi carregado normalmente.');
+        }
+
+        if (growthResult.status === 'fulfilled') {
+          summary.aiGrowthPlan = growthResult.value;
+        } else {
+          console.warn('[dashboard] Gerente IA de crescimento indisponível:', growthResult.reason?.message || growthResult.reason);
+          summary.aiGrowthPlan = fallbackAiGrowthPlan('O Gerente IA demorou para responder. O dashboard abriu com um plano seguro local; use Atualizar IA no card para tentar novamente sem travar a tela.');
+        }
+
         renderDashboard(summary);
       } catch (error) {
         buildShell({
@@ -1016,9 +1287,12 @@
         });
         document.getElementById('retry-dashboard')?.addEventListener('click', loadDashboard);
       } finally {
+        await waitForDashboardVisualReady();
+        finishPageLoading();
         hideLoading();
       }
     }
+
 
     loadDashboard();
   </script>

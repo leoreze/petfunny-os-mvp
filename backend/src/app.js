@@ -878,6 +878,415 @@ async function getDashboardSummary() {
     source: 'postgresql',
     generatedAt: new Date().toISOString()
   };
+
+}
+
+function asNumber(value, fallback = 0) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Math.round(asNumber(value))));
+}
+
+function brlFromCentsText(cents = 0) {
+  return (asNumber(cents) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function todayPtBrLabel() {
+  return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+}
+
+const AI_GROWTH_ALLOWED_ROUTES = new Set([
+  '/admin/dashboard', '/admin/agenda', '/admin/tutores', '/admin/pets', '/admin/servicos',
+  '/admin/pacotes', '/admin/assinaturas', '/admin/financeiro', '/admin/comandas-recibos',
+  '/admin/crm', '/admin/promocoes', '/admin/bem-estar', '/admin/saude-360',
+  '/admin/roleta-de-mimos', '/admin/relatorios', '/admin/notificacoes', '/admin/app-acessos',
+  '/admin/whatsapp', '/admin/assistente-ia', '/admin/configuracoes'
+]);
+
+const AI_GROWTH_ROUTE_KEYWORDS = [
+  { route: '/admin/agenda', terms: ['agenda', 'agendamento', 'agendamentos', 'horario', 'horário', 'encaixe', 'check-in', 'checkin', 'checkout', 'confirmar'] },
+  { route: '/admin/tutores', terms: ['tutor', 'tutores', 'cliente', 'clientes', 'responsavel', 'responsável'] },
+  { route: '/admin/pets', terms: ['pet', 'pets', 'animal', 'animais'] },
+  { route: '/admin/servicos', terms: ['servico', 'serviço', 'servicos', 'serviços', 'banho', 'tosa', 'hidratacao', 'hidratação', 'desembolo'] },
+  { route: '/admin/pacotes', terms: ['pacote', 'pacotes', 'recorrencia', 'recorrência', 'renovacao', 'renovação', 'sessao', 'sessão', 'sessoes', 'sessões'] },
+  { route: '/admin/assinaturas', terms: ['assinatura', 'assinaturas', 'mensalidade', 'recorrente'] },
+  { route: '/admin/financeiro', terms: ['financeiro', 'pagamento', 'pagamentos', 'recebimento', 'recebimentos', 'pendencia', 'pendência', 'caixa', 'faturamento', 'cobranca', 'cobrança', 'inadimplencia', 'inadimplência'] },
+  { route: '/admin/comandas-recibos', terms: ['comanda', 'comandas', 'recibo', 'recibos', 'documento', 'documentos'] },
+  { route: '/admin/crm', terms: ['crm', 'marketing', 'lead', 'leads', 'reativar', 'reativacao', 'reativação', 'campanha', 'campanhas', 'whatsapp comercial'] },
+  { route: '/admin/promocoes', terms: ['promocao', 'promoção', 'promocoes', 'promoções', 'oferta', 'desconto'] },
+  { route: '/admin/bem-estar', terms: ['petfunny 360', 'diagnostico', 'diagnóstico', 'avaliacao', 'avaliação', 'bem-estar', 'bem estar'] },
+  { route: '/admin/saude-360', terms: ['saude', 'saúde', 'teleconsulta', 'veterinario', 'veterinário', 'triagem'] },
+  { route: '/admin/roleta-de-mimos', terms: ['roleta', 'mimo', 'mimos', 'sorteio', 'brinde', 'brindes'] },
+  { route: '/admin/relatorios', terms: ['relatorio', 'relatório', 'relatorios', 'relatórios', 'indicador', 'indicadores', 'kpi'] },
+  { route: '/admin/notificacoes', terms: ['notificacao', 'notificação', 'notificacoes', 'notificações', 'alerta', 'alertas', 'push'] },
+  { route: '/admin/app-acessos', terms: ['app do tutor', 'acessos do app', 'app', 'engajamento', 'momentos', 'foto', 'fotos', 'video', 'vídeo', 'timeline'] },
+  { route: '/admin/whatsapp', terms: ['whatsapp', 'mensagem', 'mensagens', 'lista de transmissao', 'lista de transmissão'] },
+  { route: '/admin/assistente-ia', terms: ['ia', 'assistente', 'gerente ia', 'copiloto'] },
+  { route: '/admin/configuracoes', terms: ['configuracao', 'configuração', 'configuracoes', 'configurações', 'horario de funcionamento', 'horário de funcionamento', 'capacidade'] }
+];
+
+function normalizeAdminRoute(route) {
+  const value = String(route || '').trim();
+  if (!value) return '';
+  const withoutOrigin = value.replace(/^https?:\/\/[^/]+/i, '');
+  const pathOnly = withoutOrigin.startsWith('/') ? withoutOrigin : `/${withoutOrigin}`;
+  const [pathname, query = ''] = pathOnly.split('?');
+  const normalizedPath = pathname.replace(/\/+/g, '/').replace(/\/$/, '') || '/admin/dashboard';
+  if (!AI_GROWTH_ALLOWED_ROUTES.has(normalizedPath)) return '';
+  return query ? `${normalizedPath}?${query.slice(0, 80)}` : normalizedPath;
+}
+
+function inferAiTaskRoute(task = {}) {
+  const text = [task.module, task.modulo, task.title, task.titulo, task.description, task.descricao, task.kpi].filter(Boolean).join(' ').toLowerCase();
+  for (const item of AI_GROWTH_ROUTE_KEYWORDS) {
+    if (item.terms.some((term) => text.includes(term))) return item.route;
+  }
+  return '/admin/dashboard';
+}
+
+function resolveAiTaskRoute(task = {}) {
+  return normalizeAdminRoute(task.route || task.rota) || inferAiTaskRoute(task);
+}
+
+function normalizeAiTask(task = {}, index = 0) {
+  const priorities = ['alta', 'media', 'média', 'baixa'];
+  const priority = String(task.priority || task.prioridade || (index < 2 ? 'alta' : 'média')).toLowerCase();
+  return {
+    id: task.id || `task-${index + 1}`,
+    title: String(task.title || task.titulo || 'Ação operacional').slice(0, 120),
+    description: String(task.description || task.descricao || task.action || 'Executar ação recomendada para melhorar a operação.').slice(0, 520),
+    priority: priorities.includes(priority) ? (priority === 'media' ? 'média' : priority) : 'média',
+    module: String(task.module || task.modulo || 'Dashboard').slice(0, 80),
+    due: String(task.due || task.prazo || 'Hoje').slice(0, 80),
+    effort: String(task.effort || task.esforco || '15 min').slice(0, 80),
+    kpi: String(task.kpi || task.indicador || 'crescimento').slice(0, 140),
+    route: resolveAiTaskRoute(task)
+  };
+}
+
+function normalizeGrowthPlan(raw = {}, fallback = {}) {
+  const safe = raw && typeof raw === 'object' ? raw : {};
+  const tasks = Array.isArray(safe.tasks) ? safe.tasks : Array.isArray(safe.tarefas) ? safe.tarefas : [];
+  const campaigns = Array.isArray(safe.campaigns) ? safe.campaigns : Array.isArray(safe.campanhas) ? safe.campanhas : [];
+  const risks = Array.isArray(safe.risks) ? safe.risks : Array.isArray(safe.riscos) ? safe.riscos : [];
+  const opportunities = Array.isArray(safe.opportunities) ? safe.opportunities : Array.isArray(safe.oportunidades) ? safe.oportunidades : [];
+  return {
+    title: String(safe.title || safe.titulo || fallback.title || 'Gerente IA de Crescimento PetFunny').slice(0, 120),
+    dateLabel: String(safe.dateLabel || safe.data || fallback.dateLabel || todayPtBrLabel()).slice(0, 120),
+    score: clampScore(safe.score ?? fallback.score ?? 50),
+    mood: String(safe.mood || safe.status || fallback.mood || 'atenção').slice(0, 80),
+    diagnosis: String(safe.diagnosis || safe.diagnostico || fallback.diagnosis || 'Análise diária gerada a partir dos dados do sistema.').slice(0, 1200),
+    mainGoal: String(safe.mainGoal || safe.objetivo || fallback.mainGoal || 'Aumentar agenda, recorrência e recebimentos do PetFunny hoje.').slice(0, 220),
+    tasks: (tasks.length ? tasks : fallback.tasks || []).slice(0, 8).map(normalizeAiTask),
+    campaigns: (campaigns.length ? campaigns : fallback.campaigns || []).slice(0, 4).map((item, index) => ({
+      title: String(item.title || item.titulo || `Campanha ${index + 1}`).slice(0, 120),
+      channel: String(item.channel || item.canal || 'WhatsApp').slice(0, 80),
+      message: String(item.message || item.mensagem || item.copy || '').slice(0, 700),
+      target: String(item.target || item.publico || 'tutores').slice(0, 160)
+    })),
+    risks: (risks.length ? risks : fallback.risks || []).slice(0, 5).map((item) => String(item.title || item.risk || item.risco || item).slice(0, 260)),
+    opportunities: (opportunities.length ? opportunities : fallback.opportunities || []).slice(0, 5).map((item) => String(item.title || item.opportunity || item.oportunidade || item).slice(0, 260)),
+    routine: {
+      morning: String(safe.routine?.morning || safe.rotina?.manha || fallback.routine?.morning || 'Conferir agenda, confirmar tutores e priorizar pendências.').slice(0, 260),
+      afternoon: String(safe.routine?.afternoon || safe.rotina?.tarde || fallback.routine?.afternoon || 'Acompanhar check-ins, fotos/momentos e pagamentos.').slice(0, 260),
+      closing: String(safe.routine?.closing || safe.rotina?.fechamento || fallback.routine?.closing || 'Fechar caixa, atualizar status e preparar reativação para amanhã.').slice(0, 260)
+    }
+  };
+}
+
+function buildLocalGrowthPlan({ summary, snapshot }) {
+  const metrics = summary.metrics || {};
+  const agendaToday = summary.agendaToday || [];
+  const pending = asNumber(metrics.pendingPaymentsCount);
+  const pendingCents = asNumber(metrics.pendingPaymentsTotalCents);
+  const appointmentsToday = asNumber(metrics.appointmentsToday);
+  const finishedToday = asNumber(metrics.finishedToday);
+  const revenueToday = asNumber(metrics.revenueTodayCents);
+  const activePackages = asNumber(metrics.activePackages);
+  const recurringClients = asNumber(metrics.recurringClients);
+  const upcoming = asNumber(summary.upcomingAppointments?.length);
+  const emptyAgenda = appointmentsToday === 0;
+  const paymentPressure = pending > 0;
+  const conversionPressure = activePackages <= 0 || recurringClients <= Math.max(2, Math.ceil(asNumber(metrics.tutorsTotal) * 0.08));
+  const cancellations = asNumber((snapshot.dailyPerformance || []).reduce((sum, row) => sum + asNumber(row.cancelled), 0));
+
+  let score = 58;
+  if (appointmentsToday >= 6) score += 12;
+  if (appointmentsToday >= 10) score += 8;
+  if (revenueToday > 0) score += 8;
+  if (activePackages > 0) score += 7;
+  if (pending > 0) score -= Math.min(16, pending * 3);
+  if (emptyAgenda) score -= 18;
+  if (cancellations > 0) score -= Math.min(10, cancellations);
+  score = clampScore(score);
+
+  const tasks = [];
+  if (emptyAgenda) {
+    tasks.push({
+      title: 'Ativar agenda vazia com campanha de encaixe',
+      description: 'Disparar mensagem para clientes recorrentes, pacotes ativos e tutores sem visita recente oferecendo horários livres de hoje/amanhã. Prioridade é gerar movimento rápido sem depender de anúncio pago.',
+      priority: 'alta', module: 'CRM & Marketing', due: 'Hoje até 10h30', effort: '25 min', kpi: '3 a 5 conversas iniciadas', route: '/admin/crm'
+    });
+  } else {
+    tasks.push({
+      title: 'Confirmar todos os atendimentos de hoje',
+      description: `Conferir os ${appointmentsToday} agendamento(s) do dia, confirmar presença por WhatsApp e marcar risco de atraso/cancelamento antes do horário de pico.`,
+      priority: 'alta', module: 'Agenda', due: 'Agora', effort: '15 min', kpi: '100% dos horários confirmados', route: '/admin/agenda'
+    });
+  }
+
+  if (paymentPressure) {
+    tasks.push({
+      title: 'Baixar ou cobrar recebimentos pendentes',
+      description: `Existem ${pending} pendência(s), somando ${brlFromCentsText(pendingCents)}. Separar o que já foi pago, dar baixa e enviar lembrete educado para o restante.`,
+      priority: 'alta', module: 'Financeiro', due: 'Hoje antes do fechamento', effort: '20 min', kpi: 'reduzir pendências do dia', route: '/admin/financeiro'
+    });
+  }
+
+  if (conversionPressure) {
+    tasks.push({
+      title: 'Converter banhos avulsos em pacote recorrente',
+      description: 'Identificar tutores com banho avulso recente e oferecer pacote mensal com benefício claro: agenda garantida, pet sempre cuidado e previsibilidade para o tutor.',
+      priority: 'alta', module: 'Pacotes', due: 'Hoje após cada atendimento', effort: '10 min por tutor', kpi: '1 nova venda de pacote', route: '/admin/pacotes'
+    });
+  } else {
+    tasks.push({
+      title: 'Proteger a base recorrente de pacotes',
+      description: `Há ${activePackages} pacote(s) ativo(s). Conferir próximas sessões e antecipar renovação dos clientes que estão próximos da última sessão.`,
+      priority: 'média', module: 'Pacotes', due: 'Hoje', effort: '20 min', kpi: 'renovações sem atraso', route: '/admin/pacotes'
+    });
+  }
+
+  tasks.push({
+    title: 'Registrar momento do pet para aumentar vínculo',
+    description: 'Durante atendimentos finalizados, salvar foto/vídeo do pet e usar isso como motivo de retorno no app do tutor e WhatsApp.',
+    priority: appointmentsToday > 0 ? 'média' : 'baixa', module: 'Acessos do App', due: 'Durante os atendimentos', effort: '5 min por pet', kpi: 'mais engajamento no app', route: '/admin/app-acessos'
+  });
+
+  if (upcoming < 4) {
+    tasks.push({
+      title: 'Preencher os próximos 7 dias',
+      description: `A agenda futura tem apenas ${upcoming} horário(s) próximos carregados no painel. Ofereça remarcação e próximos banhos antes do tutor sair da loja.`,
+      priority: 'média', module: 'Agenda', due: 'Hoje', effort: '20 min', kpi: 'agenda futura mais cheia', route: '/admin/agenda'
+    });
+  }
+
+  const topService = (snapshot.serviceDemand || [])[0]?.description || 'banho e tosa';
+  const inactiveName = (snapshot.inactiveTutors || [])[0]?.name || '{{nome_cliente}}';
+  const campaigns = [
+    {
+      title: 'Reativação de cliente sumido',
+      channel: 'WhatsApp',
+      target: 'tutores sem visita recente',
+      message: `Oi, ${inactiveName}! Tudo bem? Aqui é do PetFunny 🐾 Passando para lembrar que temos horários para deixar seu pet cheiroso, cuidado e feliz. Quer que eu veja um encaixe especial para esta semana?`
+    },
+    {
+      title: 'Venda de pacote no pós-atendimento',
+      channel: 'Balcão + WhatsApp',
+      target: 'clientes de banho avulso',
+      message: 'Seu pet ficou lindo hoje! Para manter esse cuidado sem correria, posso deixar os próximos banhos já organizados em pacote mensal. Assim você garante horário e ainda economiza. 🐶✨'
+    },
+    {
+      title: `Oferta conectada ao serviço mais procurado: ${topService}`,
+      channel: 'Status/Lista de transmissão',
+      target: 'clientes ativos',
+      message: `Hoje o PetFunny está organizando horários para ${topService}. Quem quiser deixar o pet limpinho e cheiroso esta semana, me chama aqui que vejo o melhor encaixe. 🛁🐾`
+    }
+  ];
+
+  const risks = [];
+  if (emptyAgenda) risks.push('Agenda vazia reduz fluxo de caixa e enfraquece rotina da equipe.');
+  if (paymentPressure) risks.push('Recebimentos pendentes podem mascarar faturamento real do dia.');
+  if (conversionPressure) risks.push('Baixa recorrência aumenta dependência de banho avulso e promoções.');
+  if (!risks.length) risks.push('Risco principal: deixar de transformar atendimentos de hoje em próximos agendamentos.');
+
+  const opportunities = [];
+  if (appointmentsToday > 0) opportunities.push('Cada atendimento de hoje pode virar próximo banho agendado antes da saída do tutor.');
+  if (activePackages > 0) opportunities.push('Pacotes ativos permitem previsibilidade: renovar antes da última sessão aumenta retenção.');
+  opportunities.push('Usar momentos/fotos no app do tutor aumenta percepção de cuidado e diferencia o PetFunny.');
+  opportunities.push('WhatsApp com mensagem humana pode recuperar clientes sem depender de anúncio pago.');
+
+  return normalizeGrowthPlan({
+    title: 'Gerente IA de Crescimento PetFunny',
+    dateLabel: todayPtBrLabel(),
+    score,
+    mood: score >= 75 ? 'crescimento saudável' : score >= 55 ? 'atenção produtiva' : 'ação urgente',
+    mainGoal: emptyAgenda ? 'Preencher agenda e gerar conversas comerciais hoje.' : 'Converter a operação de hoje em receita, recorrência e próximos agendamentos.',
+    diagnosis: `Análise em tempo real: ${appointmentsToday} agendamento(s) hoje, ${finishedToday} finalizado(s), ${brlFromCentsText(revenueToday)} recebido hoje, ${pending} pendência(s) financeira(s), ${activePackages} pacote(s) ativo(s) e ${recurringClients} cliente(s) recorrente(s). O foco do dia deve ser confirmação da agenda, baixa de pagamentos, venda de recorrência e reativação via WhatsApp.`,
+    tasks,
+    campaigns,
+    risks,
+    opportunities,
+    routine: {
+      morning: emptyAgenda ? 'Abrir CRM, disparar reativação e preencher horários livres.' : 'Confirmar agenda, checar pagamentos e preparar equipe para os horários de pico.',
+      afternoon: 'Registrar status dos atendimentos, fotos/momentos e oferecer próximo banho ou pacote antes do tutor sair.',
+      closing: 'Dar baixa financeira, revisar cancelamentos/no-shows e montar lista de clientes para reativar amanhã.'
+    }
+  });
+}
+
+async function getDashboardGrowthSnapshot() {
+  const [dailyPerformance, serviceDemand, inactiveTutors, packageAttention, paymentPending, weeklyFunnel] = await Promise.all([
+    safeAiQuery('growth_daily_performance', `
+      SELECT starts_at::date AS date,
+             COUNT(*)::int AS appointments,
+             COALESCE(SUM(total_cents), 0)::int AS scheduled_cents,
+             COUNT(*) FILTER (WHERE status = 'finalizado')::int AS finished,
+             COUNT(*) FILTER (WHERE status IN ('cancelado','nao_compareceu'))::int AS cancelled
+      FROM appointments
+      WHERE deleted_at IS NULL
+        AND starts_at >= CURRENT_DATE - INTERVAL '14 days'
+        AND starts_at < CURRENT_DATE + INTERVAL '7 days'
+      GROUP BY starts_at::date
+      ORDER BY starts_at::date DESC
+      LIMIT 21
+    `),
+    safeAiQuery('growth_service_demand', `
+      SELECT description, COUNT(*)::int AS total, COALESCE(SUM(total_cents), 0)::int AS total_cents
+      FROM appointment_items
+      WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY description
+      ORDER BY total DESC, total_cents DESC
+      LIMIT 8
+    `),
+    safeAiQuery('growth_inactive_tutors', `
+      SELECT t.id, t.name, t.whatsapp, MAX(a.starts_at) AS last_appointment_at, COUNT(a.id)::int AS appointments
+      FROM tutors t
+      LEFT JOIN appointments a ON a.tutor_id = t.id AND a.deleted_at IS NULL
+      WHERE t.deleted_at IS NULL
+        AND COALESCE('demo' = ANY(t.tags), FALSE) = FALSE
+        AND LOWER(COALESCE(t.email, '')) NOT LIKE '%demo%'
+      GROUP BY t.id, t.name, t.whatsapp
+      HAVING MAX(a.starts_at) IS NULL OR MAX(a.starts_at) < NOW() - INTERVAL '35 days'
+      ORDER BY MAX(a.starts_at) ASC NULLS FIRST, t.created_at ASC
+      LIMIT 10
+    `),
+    safeAiQuery('growth_package_attention', `
+      SELECT cp.id, cp.status, cp.total_sessions, cp.used_sessions, cp.amount_cents,
+             t.name AS tutor_name, p.name AS pet_name, pk.name AS package_name,
+             COUNT(a.id) FILTER (WHERE a.deleted_at IS NULL AND a.status = 'finalizado')::int AS finished_sessions,
+             COUNT(a.id) FILTER (WHERE a.deleted_at IS NULL AND a.starts_at >= NOW() AND a.status NOT IN ('cancelado','nao_compareceu'))::int AS future_sessions
+      FROM customer_packages cp
+      LEFT JOIN tutors t ON t.id = cp.tutor_id
+      LEFT JOIN pets p ON p.id = cp.pet_id
+      LEFT JOIN packages pk ON pk.id = cp.package_id
+      LEFT JOIN appointments a ON a.customer_package_id = cp.id
+      WHERE cp.deleted_at IS NULL
+        AND cp.status = 'active'
+      GROUP BY cp.id, t.name, p.name, pk.name
+      ORDER BY cp.updated_at DESC
+      LIMIT 10
+    `),
+    safeAiQuery('growth_payment_pending', `
+      SELECT ft.id, ft.description, ft.amount_cents, ft.due_date, ft.status, t.name AS tutor_name
+      FROM financial_transactions ft
+      LEFT JOIN tutors t ON t.id = ft.tutor_id
+      WHERE ft.deleted_at IS NULL
+        AND ft.type = 'income'
+        AND ft.status <> 'paid'
+      ORDER BY ft.due_date ASC NULLS LAST, ft.created_at ASC
+      LIMIT 10
+    `),
+    safeAiQuery('growth_weekly_funnel', `
+      SELECT
+        COUNT(*) FILTER (WHERE starts_at >= date_trunc('week', NOW()) AND starts_at < date_trunc('week', NOW()) + INTERVAL '7 days')::int AS appointments_week,
+        COUNT(*) FILTER (WHERE starts_at >= date_trunc('week', NOW()) AND starts_at < date_trunc('week', NOW()) + INTERVAL '7 days' AND status = 'finalizado')::int AS finished_week,
+        COUNT(*) FILTER (WHERE starts_at >= date_trunc('week', NOW()) AND starts_at < date_trunc('week', NOW()) + INTERVAL '7 days' AND status IN ('cancelado','nao_compareceu'))::int AS lost_week
+      FROM appointments
+      WHERE deleted_at IS NULL
+    `)
+  ]);
+
+  return {
+    dailyPerformance,
+    serviceDemand,
+    inactiveTutors,
+    packageAttention,
+    paymentPending,
+    weeklyFunnel: weeklyFunnel[0] || {},
+    generatedAt: new Date().toISOString()
+  };
+}
+
+async function askOpenAiForGrowthPlan({ summary, snapshot, fallbackPlan }) {
+  if (!env.openaiApiKey) return null;
+  if (typeof fetch !== 'function') return null;
+
+  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/whatsapp, /admin/assistente-ia, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8500);
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${env.openaiApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: env.openaiModel,
+        temperature: 0.28,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify({ summary, snapshot, fallbackPlan }).slice(0, 22000) }
+        ]
+      })
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('OpenAI demorou demais para responder e foi substituída pelo plano local.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`OpenAI retornou ${response.status}. ${errorText.slice(0, 240)}`.trim());
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content || '{}';
+  return JSON.parse(content);
+}
+
+async function getDashboardAiGrowthPlan() {
+  const summary = await getDashboardSummary();
+  const snapshot = await getDashboardGrowthSnapshot();
+  const fallbackPlan = buildLocalGrowthPlan({ summary, snapshot });
+  let aiPlan = null;
+  let aiError = null;
+
+  try {
+    aiPlan = await askOpenAiForGrowthPlan({ summary, snapshot, fallbackPlan });
+  } catch (error) {
+    console.warn(`[dashboard-growth-ai] OpenAI indisponível: ${error.message}`);
+    aiError = error.message;
+  }
+
+  const plan = normalizeGrowthPlan(aiPlan, fallbackPlan);
+  return {
+    status: 'ok',
+    assistant: 'Gerente IA de Crescimento PetFunny',
+    mode: 'realtime_daily_growth_plan',
+    openaiConfigured: Boolean(env.openaiApiKey),
+    openaiUsed: Boolean(aiPlan),
+    openaiError: aiPlan ? null : aiError,
+    plan,
+    metrics: summary.metrics,
+    snapshotSummary: {
+      dailyPerformance: snapshot.dailyPerformance.length,
+      serviceDemand: snapshot.serviceDemand.length,
+      inactiveTutors: snapshot.inactiveTutors.length,
+      packageAttention: snapshot.packageAttention.length,
+      paymentPending: snapshot.paymentPending.length
+    },
+    generatedAt: new Date().toISOString()
+  };
 }
 
 function sendFrontendFile(res, relativePath) {
@@ -10702,6 +11111,14 @@ app.get('/api/dashboard/summary', requireAuth, async (req, res, next) => {
   try {
     const summary = await getDashboardSummary();
     res.json(summary);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/dashboard/ai-growth-plan', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await getDashboardAiGrowthPlan());
   } catch (error) {
     next(error);
   }

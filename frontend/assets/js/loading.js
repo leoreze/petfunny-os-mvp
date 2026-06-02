@@ -47,13 +47,23 @@ function updateLoadingText(message = 'Preparando tudo...', subtitle = 'Carregand
   return el;
 }
 
-export function showLoading(message = 'Preparando tudo...', subtitle = 'Operação segura com timeout automático.') {
+export function showLoading(message = 'Preparando tudo...', subtitle = 'Operação segura com timeout automático.', options = {}) {
   const el = updateLoadingText(message, subtitle);
   el.hidden = false;
   el.classList.remove('is-hiding');
   document.body.classList.add('has-page-loading');
   window.clearTimeout(loadingTimer);
-  loadingTimer = window.setTimeout(() => hideLoading(), 9000);
+
+  const timeoutMs = typeof options === 'number'
+    ? options
+    : Number(options?.timeoutMs ?? 9000);
+
+  // O timeout continua existindo como segurança, mas páginas críticas podem
+  // aumentar ou desativar o fechamento automático para evitar tela em branco
+  // enquanto o navegador ainda monta o DOM pesado.
+  if (timeoutMs > 0) {
+    loadingTimer = window.setTimeout(() => hideLoading(), timeoutMs);
+  }
 }
 
 export function hideLoading() {
@@ -93,22 +103,24 @@ function safeRequestIdleClose() {
   }, 260);
 }
 
-async function waitForPagePaintAndImages() {
+export async function waitForPagePaintAndImages() {
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const images = Array.from(document.images || []).filter((img) => !img.complete && typeof img.decode === 'function');
   if (images.length) {
     await Promise.race([
-      Promise.allSettled(images.slice(0, 12).map((img) => img.decode())),
-      new Promise((resolve) => setTimeout(resolve, 850))
+      Promise.allSettled(images.slice(0, 16).map((img) => img.decode())),
+      new Promise((resolve) => setTimeout(resolve, 1200))
     ]);
   }
+  await new Promise((resolve) => setTimeout(resolve, 40));
 }
 
 export function startPageLoading(message = 'Abrindo página...', subtitle = 'Carregando dados e montando a tela.') {
   if (!canShowPageLoader() || pageLoadingClosed || pageLoadingStarted) return;
   pageLoadingStarted = true;
   showLoading(message, subtitle);
-  window.setTimeout(() => finishPageLoading(), 11000);
+  const fallbackMs = window.__PETFUNNY_MANUAL_PAGE_READY ? 45000 : 11000;
+  window.setTimeout(() => finishPageLoading(), fallbackMs);
   if (!window.__PETFUNNY_MANUAL_PAGE_READY) {
     if (document.readyState === 'complete' || document.readyState === 'interactive') safeRequestIdleClose();
     else document.addEventListener('DOMContentLoaded', safeRequestIdleClose, { once: true });

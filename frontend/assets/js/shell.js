@@ -7,7 +7,6 @@ const menuItems = [
   { label: 'Dashboard', icon: '📊', href: '/admin/dashboard', aliases: ['/dashboard', '/admin', '/admin/dashboard'] },
   { label: 'Agenda', icon: '📅', href: '/admin/agenda', aliases: ['/agenda', '/admin/agenda'] },
   { label: 'Tutores', icon: '👥', href: '/admin/tutores', aliases: ['/tutores', '/admin/tutores'] },
-  { label: 'Acessos do App', icon: '📲', href: '/admin/app-acessos', aliases: ['/app-acessos', '/admin/app-acessos'] },
   { label: 'Pets', icon: '🐾', href: '/admin/pets', aliases: ['/pets', '/admin/pets'] },
   { label: 'Serviços', icon: '✂️', href: '/admin/servicos', aliases: ['/servicos', '/admin/servicos'] },
   { label: 'Pacotes', icon: '🎁', href: '/admin/pacotes', aliases: ['/pacotes', '/admin/pacotes'] },
@@ -19,6 +18,7 @@ const menuItems = [
   { label: 'Saúde 360', icon: '🩺', href: '/admin/saude-360', aliases: ['/saude-360', '/admin/saude-360'] },
   { label: 'Roleta de Mimos', icon: '🎡', href: '/admin/roleta-de-mimos', aliases: ['/roleta-de-mimos', '/admin/roleta-de-mimos'] },
   { label: 'Notificações', icon: '🔔', href: '/admin/notificacoes', aliases: ['/notificacoes', '/admin/notificacoes'] },
+  { label: 'Acessos do App', icon: '📲', href: '/admin/app-acessos', aliases: ['/app-acessos', '/admin/app-acessos'] },
   { label: 'WhatsApp', icon: '💬', href: '/admin/whatsapp', aliases: ['/whatsapp', '/admin/whatsapp'] },
   { label: 'Assistente IA', icon: '✨', href: '/admin/assistente-ia', aliases: ['/assistente-ia', '/admin/assistente-ia'] },
   { label: 'Configurações', icon: '⚙️', href: '/admin/configuracoes', aliases: ['/configuracoes', '/admin/configuracoes'] }
