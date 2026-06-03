@@ -1,20 +1,4 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Meu PetFunny · App do Tutor</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#F8A198">
-  
-  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
-  <meta name="msapplication-TileColor" content="#26b9c7">
-  <link rel="stylesheet" href="/assets/css/app.css">
-</head>
-<body>
-<script type="module">
+
   import { buildClientApp, clientCards, currentClientSection, renderAppointmentCard, renderPetCard, renderPackageCard, money, dateTime, shortDate } from '/assets/js/client-shell.js';
   import { clientApi } from '/assets/js/client-api.js';
   import { setClientUser, setClientToken, clientLogout } from '/assets/js/client-auth.js';
@@ -2822,6 +2806,3 @@
     document.body.innerHTML = `<main class="page-center"><section class="card"><h1>Não foi possível carregar o app.</h1><p>${escapeHtml(error.message)}</p><a class="btn" href="/app/login">Voltar ao login</a></section></main>`;
     finishPageLoading();
   }
-</script>
-</body>
-</html>

@@ -3702,7 +3702,7 @@ function buildLocalCareInsight({ pet = {}, lastAppointment = null, healthScore =
       priority: 'high',
       ctaLabel: 'Agendar teleconsulta',
       ctaAction: 'teleconsultation',
-      url: '/app/saude-360'
+      url: '/app/teleconsultas'
     };
   }
   if (risk === 'medium' || (health > 0 && health < 75)) {
@@ -4075,7 +4075,7 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       title: row.risk_level === 'high' ? `Atenção urgente para ${row.pet_name || 'pet'}` : `Triagem de ${row.pet_name || 'pet'} registrada`,
       text: row.summary || row.guidance || 'Nova análise preventiva registrada.',
       createdAt: row.created_at,
-      url: `/app/saude-360?petId=${row.pet_id}`,
+      url: `/app/teleconsultas?petId=${row.pet_id}`,
       ctaLabel: row.risk_level === 'high' ? 'Ver orientação' : 'Ver Saúde 360'
     }));
     const teleEvents = teleTimelineResult.rows.map((row) => ({
@@ -4086,7 +4086,7 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       title: `${row.veterinarian_name || 'Veterinário parceiro'} · ${row.pet_name || 'Pet'}`,
       text: row.starts_at ? `Teleconsulta ${row.status || 'solicitada'} para ${new Date(row.starts_at).toLocaleString('pt-BR')}.` : 'Teleconsulta solicitada pelo Saúde 360.',
       createdAt: row.created_at || row.starts_at,
-      url: row.meeting_url || `/app/saude-360?petId=${row.pet_id}`,
+      url: row.meeting_url || `/app/teleconsultas?petId=${row.pet_id}`,
       ctaLabel: row.meeting_url ? 'Entrar na consulta' : 'Ver teleconsulta'
     }));
 
@@ -5019,6 +5019,95 @@ app.delete('/api/app/pets/:id', requireClientAuth, async (req, res, next) => {
   }
 });
 
+function sanitizeClientPetRecord(row = {}) {
+  return {
+    id: row.id,
+    petId: row.pet_id,
+    type: row.type || 'NOTE',
+    title: row.title || '',
+    description: row.description || '',
+    sourceType: row.source_type || '',
+    sourceId: row.source_id || null,
+    occurredAt: row.occurred_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function normalizePetRecordType(value = '') {
+  const type = String(value || '').trim().toUpperCase();
+  const allowed = new Set(['SERVICE', 'VACCINE', 'ALLERGY', 'DOCUMENT', 'NOTE']);
+  return allowed.has(type) ? type : 'NOTE';
+}
+
+app.get('/api/app/pets/:petId/records', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const type = normalizePetRecordType(req.query?.type || 'NOTE');
+    const result = await query(`
+      SELECT * FROM pet_medical_records
+      WHERE tutor_id=$1::uuid AND pet_id=$2::uuid AND type=$3::text AND deleted_at IS NULL
+      ORDER BY occurred_at DESC, created_at DESC
+      LIMIT 100
+    `, [tutorId, pet.id, type]);
+    res.json({ records: result.rows.map(sanitizeClientPetRecord) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/pets/:petId/records', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const type = normalizePetRecordType(req.body?.type || 'NOTE');
+    const title = cleanText(req.body?.title);
+    if (!title) return res.status(400).json({ error: 'Informe o título do registro.' });
+    const description = cleanText(req.body?.description);
+    const occurredAt = cleanText(req.body?.occurredAt) || new Date().toISOString();
+    const sourceType = type === 'DOCUMENT' ? 'APP_DOCUMENT' : 'APP_MANUAL';
+    const result = await query(`
+      INSERT INTO pet_medical_records (tutor_id, pet_id, type, title, description, source_type, occurred_at)
+      VALUES ($1::uuid,$2::uuid,$3::text,$4::text,NULLIF($5::text,''),$6::text,COALESCE(NULLIF($7::text,'')::timestamptz,NOW()))
+      RETURNING *
+    `, [tutorId, pet.id, type, title, description, sourceType, occurredAt]);
+    res.status(201).json({ record: sanitizeClientPetRecord(result.rows[0]), message: 'Registro salvo no pet.' });
+  } catch (error) { next(error); }
+});
+
+app.put('/api/app/pets/:petId/records/:recordId', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const type = normalizePetRecordType(req.body?.type || 'NOTE');
+    const title = cleanText(req.body?.title);
+    if (!title) return res.status(400).json({ error: 'Informe o título do registro.' });
+    const description = cleanText(req.body?.description);
+    const occurredAt = cleanText(req.body?.occurredAt) || new Date().toISOString();
+    const result = await query(`
+      UPDATE pet_medical_records
+      SET type=$4::text, title=$5::text, description=NULLIF($6::text,''), occurred_at=COALESCE(NULLIF($7::text,'')::timestamptz, occurred_at), updated_at=NOW()
+      WHERE id=$1::uuid AND tutor_id=$2::uuid AND pet_id=$3::uuid AND deleted_at IS NULL
+      RETURNING *
+    `, [req.params.recordId, tutorId, pet.id, type, title, description, occurredAt]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Registro não encontrado.' });
+    res.json({ record: sanitizeClientPetRecord(result.rows[0]), message: 'Registro atualizado.' });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/app/pets/:petId/records/:recordId', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const result = await query(`UPDATE pet_medical_records SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1::uuid AND tutor_id=$2::uuid AND pet_id=$3::uuid AND deleted_at IS NULL RETURNING id`, [req.params.recordId, tutorId, pet.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Registro não encontrado.' });
+    res.json({ ok: true, message: 'Registro removido.' });
+  } catch (error) { next(error); }
+});
+
 
 function normalizeWeekdays(value) {
   const raw = Array.isArray(value) ? value : String(value || '').split(',');
@@ -5106,7 +5195,7 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     if (!startsAt) return res.status(400).json({ error: 'Informe data e horário válidos.' });
     if (!serviceIds.length) return res.status(400).json({ error: 'Selecione ao menos um serviço.' });
     const paymentType = normalizeAppPaymentType(req.body?.paymentType || req.body?.paymentMethod || 'pix');
-    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN no servidor para o app salvar agendamentos pagos.' });
+    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento online indisponível. Configure as credenciais de pagamento no servidor para o app salvar agendamentos pagos.' });
 
     const pet = await query(`SELECT id, name, size FROM pets WHERE id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL AND status='active' LIMIT 1`, [petId, tutorId]);
     if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado para este tutor.' });
@@ -5162,14 +5251,14 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     try {
       let updated;
       if (isCardLikeAppPaymentType(paymentType)) {
-        if (!env.mercadoPagoPublicKey) return res.status(503).json({ error: 'Pagamento por cartão indisponível. Configure MERCADO_PAGO_PUBLIC_KEY no servidor para usar Payment Brick.' });
+        if (!env.mercadoPagoPublicKey) return res.status(503).json({ error: 'Pagamento por cartão indisponível no momento. Use Pix ou tente novamente mais tarde.' });
         updated = await query(`
           UPDATE appointment_payment_intents
           SET provider_response=jsonb_build_object('flow','payment_brick','status','waiting_card_data'), updated_at=NOW()
           WHERE id=$1::uuid
           RETURNING *
         `, [intent.rows[0].id]);
-        return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), message: 'Pagamento por cartão iniciado. Preencha os dados no ambiente seguro Mercado Pago dentro do app.' });
+        return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), message: 'Pagamento por cartão iniciado. Preencha os dados no ambiente seguro dentro do app.' });
       }
       const mp = await createMercadoPagoPixPayment({
         intentId: intent.rows[0].id,
@@ -5184,7 +5273,7 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
         WHERE id=$1::uuid
         RETURNING *
       `, [intent.rows[0].id, mp.paymentId, mp.status, mp.qrCode, mp.qrCodeBase64, JSON.stringify(mp.payment || {})]);
-      return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePaymentIntent(updated.rows[0]), message: 'Pix gerado. O agendamento só será salvo após a confirmação do pagamento pelo Mercado Pago.' });
+      return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePaymentIntent(updated.rows[0]), message: 'Pix gerado. O agendamento só será salvo após a confirmação do pagamento.' });
     } catch (error) {
       await query(`UPDATE appointment_payment_intents SET status='failed', last_error=$2::text, provider_response=$3::jsonb, updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id, error.message, JSON.stringify(error.details || {})]).catch(() => null);
       throw error;
@@ -5281,12 +5370,12 @@ function extractCardPaymentPayload(body = {}) {
 
 async function createMercadoPagoCardPayment({ intentId, amountCents, description, payerEmail, payerName, cardData, kind = 'appointment' }) {
   if (!cardData?.token) {
-    const error = new Error('Token do cartão não recebido pelo Mercado Pago Brick. Confira os dados do cartão e tente novamente.');
+    const error = new Error('Token do cartão não recebido pelo formulário seguro. Confira os dados do cartão e tente novamente.');
     error.status = 400;
     throw error;
   }
   if (!cardData?.paymentMethodId) {
-    const error = new Error('Bandeira/meio de pagamento do cartão não identificado pelo Mercado Pago. Revise os dados e tente novamente.');
+    const error = new Error('Bandeira/meio de pagamento do cartão não identificado. Revise os dados e tente novamente.');
     error.status = 400;
     throw error;
   }
@@ -5319,7 +5408,7 @@ async function createMercadoPagoCardPayment({ intentId, amountCents, description
 
 app.post('/api/app/appointments/payment/:intentId/card', requireClientAuth, async (req, res, next) => {
   try {
-    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN.' });
+    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento online indisponível. Configure as credenciais de pagamento.' });
     const intentResult = await query(`
       SELECT api.*, t.name AS tutor_name, t.email AS tutor_email
       FROM appointment_payment_intents api
@@ -5347,8 +5436,8 @@ app.post('/api/app/appointments/payment/:intentId/card', requireClientAuth, asyn
       return res.status(201).json({ paymentIntent: sanitizePaymentIntent({ ...intent, status: 'paid', appointment_id: finalized.appointment?.id, paid_at: new Date().toISOString(), mp_payment_id: String(payment.id || ''), mp_status: payment.status }), appointment: sanitizeAppointment(finalized.appointment), message: 'Cartão aprovado. Agendamento realizado com sucesso.' });
     }
     const message = payment.status === 'rejected'
-      ? `Pagamento recusado pelo Mercado Pago${payment.status_detail ? `: ${payment.status_detail}` : '.'}`
-      : 'Pagamento enviado ao Mercado Pago e ainda não aprovado.';
+      ? `Pagamento recusado${payment.status_detail ? `: ${payment.status_detail}` : '.'}`
+      : 'Pagamento enviado e ainda não aprovado.';
     return res.status(payment.status === 'rejected' ? 402 : 202).json({ paymentIntent: sanitizePaymentIntent({ ...intent, mp_payment_id: String(payment.id || ''), mp_status: payment.status, provider_response: payment }), message, mercadoPago: { status: payment.status, statusDetail: payment.status_detail || '' } });
   } catch (error) {
     next(error);
@@ -5357,7 +5446,7 @@ app.post('/api/app/appointments/payment/:intentId/card', requireClientAuth, asyn
 
 app.post('/api/app/packages/payment/:intentId/card', requireClientAuth, async (req, res, next) => {
   try {
-    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN.' });
+    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento online indisponível. Configure as credenciais de pagamento.' });
     const intentResult = await query(`
       SELECT ppi.*, t.name AS tutor_name, t.email AS tutor_email
       FROM package_payment_intents ppi
@@ -5385,8 +5474,8 @@ app.post('/api/app/packages/payment/:intentId/card', requireClientAuth, async (r
       return res.status(201).json({ paymentIntent: sanitizePackagePaymentIntent({ ...intent, status: 'paid', customer_package_id: finalized.customerPackage?.id || finalized.customerPackageId, paid_at: new Date().toISOString(), mp_payment_id: String(payment.id || ''), mp_status: payment.status }), customerPackageId: finalized.customerPackage?.id || finalized.customerPackageId, message: 'Cartão aprovado. Pacote contratado com sucesso.' });
     }
     const message = payment.status === 'rejected'
-      ? `Pagamento recusado pelo Mercado Pago${payment.status_detail ? `: ${payment.status_detail}` : '.'}`
-      : 'Pagamento enviado ao Mercado Pago e ainda não aprovado.';
+      ? `Pagamento recusado${payment.status_detail ? `: ${payment.status_detail}` : '.'}`
+      : 'Pagamento enviado e ainda não aprovado.';
     return res.status(payment.status === 'rejected' ? 402 : 202).json({ paymentIntent: sanitizePackagePaymentIntent({ ...intent, mp_payment_id: String(payment.id || ''), mp_status: payment.status, provider_response: payment }), message, mercadoPago: { status: payment.status, statusDetail: payment.status_detail || '' } });
   } catch (error) {
     next(error);
@@ -5486,7 +5575,7 @@ async function finalizePaidPackageIntent(intentId, providerStatus = 'approved', 
       INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status)
       VALUES ($1::uuid, $2::uuid, 'income', $6::text, $3::text, $4::integer, $5::date, 'paid')
       ON CONFLICT DO NOTHING
-    `, [intent.tutor_id, sold.rows[0].id, `Pacote ${packageRow.name} pago via ${isCardPayment ? 'cartão' : 'Pix'} Mercado Pago · ${Number(packageRow.sessions_count || 1)} sessões`, Number(packageRow.price_cents || 0), startsOn, isCardPayment ? 'pacote_app_cartao' : 'pacote_app_pix']);
+    `, [intent.tutor_id, sold.rows[0].id, `Pacote ${packageRow.name} pago via ${isCardPayment ? 'cartão' : 'Pix'} · ${Number(packageRow.sessions_count || 1)} sessões`, Number(packageRow.price_cents || 0), startsOn, isCardPayment ? 'pacote_app_cartao' : 'pacote_app_pix']);
     await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime });
     await query(`
       UPDATE package_payment_intents
@@ -5546,14 +5635,14 @@ app.post('/api/app/packages', requireClientAuth, async (req, res, next) => {
     try {
       let updated;
       if (isCardLikeAppPaymentType(paymentType)) {
-        if (!env.mercadoPagoPublicKey) return res.status(503).json({ error: 'Pagamento por cartão indisponível. Configure MERCADO_PAGO_PUBLIC_KEY no servidor para usar Payment Brick.' });
+        if (!env.mercadoPagoPublicKey) return res.status(503).json({ error: 'Pagamento por cartão indisponível no momento. Use Pix ou tente novamente mais tarde.' });
         updated = await query(`
           UPDATE package_payment_intents
           SET provider_response=jsonb_build_object('flow','payment_brick','status','waiting_card_data'), updated_at=NOW()
           WHERE id=$1::uuid
           RETURNING *
         `, [intent.rows[0].id]);
-        return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePackagePaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), message: 'Pagamento por cartão iniciado. Preencha os dados no ambiente seguro Mercado Pago dentro do app.' });
+        return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizePackagePaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), message: 'Pagamento por cartão iniciado. Preencha os dados no ambiente seguro dentro do app.' });
       }
       const mp = await createMercadoPagoPixPayment({
         intentId: intent.rows[0].id,
@@ -5870,6 +5959,48 @@ app.get('/api/app/pets/:petId/media', requireClientAuth, async (req, res, next) 
   } catch (error) { next(error); }
 });
 
+app.post('/api/app/pets/:petId/media', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const pet = await getPetAccessForClient(req.params.petId, tutorId);
+    if (!pet) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const { caption = '', mediaType = 'photo', url = '', dataUrl = '' } = req.body || {};
+    let finalUrl = String(url || '').trim();
+    let finalMediaType = String(mediaType || 'photo').toLowerCase() === 'video' ? 'video' : 'photo';
+
+    if (!finalUrl && dataUrl) {
+      const parsed = parseDataUrlMedia(dataUrl);
+      if (!parsed) return res.status(400).json({ error: 'Arquivo inválido. Envie imagem JPG/PNG/WebP/GIF ou vídeo MP4/WebM.' });
+      const raw = Buffer.from(parsed.base64, 'base64');
+      if (!raw.length) return res.status(400).json({ error: 'Arquivo vazio.' });
+      if (raw.length > 7 * 1024 * 1024) return res.status(400).json({ error: 'Arquivo maior que 7MB. Use uma imagem/vídeo menor.' });
+      const uploadsDir = path.resolve(frontendRoot, 'uploads', 'appointment-media');
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      const safeName = `client-${pet.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${parsed.ext}`;
+      fs.writeFileSync(path.join(uploadsDir, safeName), raw);
+      finalUrl = `/uploads/appointment-media/${safeName}`;
+      finalMediaType = parsed.mediaType;
+    }
+
+    if (!finalUrl) return res.status(400).json({ error: 'Envie uma foto/vídeo ou informe uma URL.' });
+    const result = await query(`
+      INSERT INTO appointment_media (appointment_id, tutor_id, pet_id, media_type, url, caption, is_featured, created_at)
+      VALUES (NULL, $1::uuid, $2::uuid, $3, $4, $5, FALSE, NOW())
+      RETURNING id, appointment_id, pet_id, media_type, url, caption, is_featured, created_at
+    `, [tutorId, pet.id, finalMediaType, finalUrl, String(caption || '').trim()]);
+    res.status(201).json({ ok: true, media: {
+      id: result.rows[0].id,
+      appointmentId: result.rows[0].appointment_id,
+      petId: result.rows[0].pet_id,
+      mediaType: result.rows[0].media_type || 'photo',
+      url: result.rows[0].url,
+      caption: result.rows[0].caption || '',
+      petName: pet.name || '',
+      createdAt: result.rows[0].created_at
+    }, message: 'Momento enviado com sucesso.' });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/app/push/public-key', requireClientAuth, async (req, res) => {
   const status = getPushConfigStatus();
   res.json({
@@ -5927,6 +6058,80 @@ app.post('/api/app/push/unsubscribe', requireClientAuth, async (req, res, next) 
   } catch (error) {
     next(error);
   }
+});
+
+
+app.get('/api/app/notifications/summary', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const accountId = req.clientApp.account.id;
+    const result = await query(`
+      SELECT COUNT(*)::int AS total
+      FROM push_notification_logs
+      WHERE (tutor_id=$1::uuid OR account_id=$2::uuid)
+        AND status IN ('sent','queued','failed')
+        AND created_at >= NOW() - INTERVAL '90 days'
+    `, [tutorId, accountId]);
+    const latest = await query(`
+      SELECT id, title, body, url, status, sent_at, created_at
+      FROM push_notification_logs
+      WHERE (tutor_id=$1::uuid OR account_id=$2::uuid)
+        AND status IN ('sent','queued','failed')
+      ORDER BY created_at DESC
+      LIMIT 3
+    `, [tutorId, accountId]);
+    res.json({
+      ok: true,
+      total: Number(result.rows[0]?.total || 0),
+      unread: Number(result.rows[0]?.total || 0),
+      latest: latest.rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        body: row.body,
+        url: row.url,
+        status: row.status,
+        sentAt: row.sent_at,
+        createdAt: row.created_at
+      }))
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/notifications', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const accountId = req.clientApp.account.id;
+    const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 30);
+    const offset = Math.max(Number(req.query.offset || 0), 0);
+    const count = await query(`
+      SELECT COUNT(*)::int AS total
+      FROM push_notification_logs
+      WHERE (tutor_id=$1::uuid OR account_id=$2::uuid)
+        AND status IN ('sent','queued','failed')
+    `, [tutorId, accountId]);
+    const result = await query(`
+      SELECT id, title, body, url, payload, status, error, sent_at, created_at
+      FROM push_notification_logs
+      WHERE (tutor_id=$1::uuid OR account_id=$2::uuid)
+        AND status IN ('sent','queued','failed')
+      ORDER BY created_at DESC
+      LIMIT $3 OFFSET $4
+    `, [tutorId, accountId, limit, offset]);
+    const total = Number(count.rows[0]?.total || 0);
+    const items = result.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      body: row.body,
+      url: row.url,
+      payload: row.payload || {},
+      status: row.status,
+      error: row.error || '',
+      sentAt: row.sent_at,
+      createdAt: row.created_at
+    }));
+    const nextOffset = offset + items.length;
+    res.json({ ok: true, total, limit, offset, nextOffset, hasMore: nextOffset < total, items });
+  } catch (error) { next(error); }
 });
 
 
@@ -6032,8 +6237,8 @@ function normalizeHealth360StatusValue(value = '') {
 
 function buildHealth360SmartCta(analysis = {}, payload = {}) {
   const normalized = Object.fromEntries(Object.entries(payload || {}).map(([key, value]) => [key, normalizeHealth360StatusValue(value)]));
-  if (analysis.emergency || analysis.riskLevel === 'high') return { type: 'teleconsultation', label: 'Agendar Teleconsulta', href: '/app/saude-360', reason: 'Sinais de alerta pedem orientação veterinária imediata.' };
-  if (['menos','nao','muito_baixo','baixo','dificuldade','sangue','repetido','persistente','intensa','moderada'].some((value) => Object.values(normalized).includes(value))) return { type: 'teleconsultation', label: 'Agendar Teleconsulta', href: '/app/saude-360', reason: 'Mudança importante detectada na triagem.' };
+  if (analysis.emergency || analysis.riskLevel === 'high') return { type: 'teleconsultation', label: 'Abrir Tele Consultas', href: '/app/teleconsultas', reason: 'Sinais de alerta pedem orientação veterinária imediata.' };
+  if (['menos','nao','muito_baixo','baixo','dificuldade','sangue','repetido','persistente','intensa','moderada'].some((value) => Object.values(normalized).includes(value))) return { type: 'teleconsultation', label: 'Abrir Tele Consultas', href: '/app/teleconsultas', reason: 'Mudança importante detectada na triagem.' };
   if (['pele','higiene','bucal','ouvidos'].includes(normalized.dailytheme) || ['coceira','vermelhidao','ferida','queda_pelo','odor','secrecao'].some((value) => Object.values(normalized).includes(value))) return { type: 'bath', label: 'Agendar Banho/Tosa', href: '/app/agenda', reason: 'A rotina de higiene pode ajudar quando o pet estiver apto.' };
   if (['peso'].includes(normalized.dailytheme)) return { type: 'weight', label: 'Registrar novo peso', href: '/app/pets', reason: 'Acompanhar peso ajuda a entender evolução do bem-estar.' };
   return { type: 'care', label: 'Agendar cuidado PetFunny', href: '/app/agenda', reason: 'Mantenha a rotina preventiva em dia.' };
@@ -6131,7 +6336,7 @@ function buildHealth360ThemeScores(triageRows = []) {
 
 function buildHealth360PredictiveRisks(triageRows = [], themeScores = []) {
   const latest = (triageRows || []).slice(0, 14);
-  const risk = (key, title, percent, reason, cta = { label: 'Agendar Teleconsulta', href: '/app/saude-360' }) => ({ key, title, percent: Math.max(0, Math.min(100, Math.round(percent))), reason, cta });
+  const risk = (key, title, percent, reason, cta = { label: 'Abrir Tele Consultas', href: '/app/teleconsultas' }) => ({ key, title, percent: Math.max(0, Math.min(100, Math.round(percent))), reason, cta });
   const scoreMap = Object.fromEntries((themeScores || []).map((item) => [item.key, item.score]));
   const countThemeLow = (key, limit = 60) => latest.filter((row) => {
     const raw = safeJsonObject(row.raw_result, {});
@@ -6364,6 +6569,48 @@ app.post('/api/app/health360/triage', requireClientAuth, async (req, res, next) 
   } catch (error) { next(error); }
 });
 
+
+app.get('/api/app/teleconsultations/options', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const petId = cleanText(req.query?.petId) || '';
+    const petsResult = await query(`SELECT * FROM pets WHERE tutor_id=$1::uuid AND deleted_at IS NULL ORDER BY created_at ASC`, [tutorId]);
+    const selectedPet = petId ? petsResult.rows.find((pet) => String(pet.id) === String(petId)) : petsResult.rows[0];
+    if (!selectedPet) return res.json({ pets: [], selectedPet: null, veterinarians: [], slots: [], teleconsultations: [] });
+    const vetsResult = await query(`
+      SELECT id, name, crmv, crmv_uf, specialty, bio, photo_url, consultation_price_cents, return_price_cents, default_duration_minutes
+      FROM veterinarians
+      WHERE is_active=TRUE AND deleted_at IS NULL
+      ORDER BY name ASC
+      LIMIT 50
+    `);
+    const slotsResult = await query(`
+      SELECT s.*, v.name AS veterinarian_name, v.crmv AS veterinarian_crmv, v.crmv_uf AS veterinarian_crmv_uf, v.specialty AS veterinarian_specialty, v.bio AS veterinarian_bio, v.photo_url AS veterinarian_photo_url, v.consultation_price_cents AS veterinarian_price_cents
+      FROM teleconsultation_slots s
+      INNER JOIN veterinarians v ON v.id=s.veterinarian_id
+      WHERE s.deleted_at IS NULL AND v.deleted_at IS NULL AND v.is_active=TRUE AND s.status='available' AND s.starts_at >= NOW()
+      ORDER BY s.starts_at ASC
+      LIMIT 120
+    `).catch(() => ({ rows: [] }));
+    const telesResult = await query(`
+      SELECT tc.*, p.name AS pet_name, v.name AS veterinarian_name
+      FROM teleconsultations tc
+      INNER JOIN pets p ON p.id=tc.pet_id
+      LEFT JOIN veterinarians v ON v.id=tc.veterinarian_id
+      WHERE tc.tutor_id=$1::uuid AND tc.deleted_at IS NULL
+      ORDER BY tc.created_at DESC
+      LIMIT 20
+    `, [tutorId]).catch(() => ({ rows: [] }));
+    res.json({
+      pets: petsResult.rows.map(sanitizeClientPet),
+      selectedPet: sanitizeClientPet(selectedPet),
+      veterinarians: vetsResult.rows.map((v) => ({ id: v.id, name: v.name, crmv: v.crmv || '', crmvUf: v.crmv_uf || '', specialty: v.specialty || '', bio: v.bio || '', photoUrl: v.photo_url || '', consultationPriceCents: Number(v.consultation_price_cents || 0), returnPriceCents: Number(v.return_price_cents || 0), defaultDurationMinutes: Number(v.default_duration_minutes || 30) })),
+      slots: slotsResult.rows.map((slot) => ({ id: slot.id, veterinarianId: slot.veterinarian_id, veterinarianName: slot.veterinarian_name || '', veterinarianCrmv: slot.veterinarian_crmv || '', veterinarianCrmvUf: slot.veterinarian_crmv_uf || '', veterinarianSpecialty: slot.veterinarian_specialty || '', veterinarianBio: slot.veterinarian_bio || '', veterinarianPhotoUrl: slot.veterinarian_photo_url || '', startsAt: slot.starts_at, endsAt: slot.ends_at, status: slot.status || 'available', priceCents: Number(slot.price_cents || slot.veterinarian_price_cents || 0) })),
+      teleconsultations: telesResult.rows.map(sanitizeTeleconsultation)
+    });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/app/teleconsultations', requireClientAuth, async (req, res, next) => {
   try {
     const result = await query(`SELECT tc.*, p.name AS pet_name, v.name AS veterinarian_name FROM teleconsultations tc INNER JOIN pets p ON p.id=tc.pet_id LEFT JOIN veterinarians v ON v.id=tc.veterinarian_id WHERE tc.tutor_id=$1::uuid AND tc.deleted_at IS NULL ORDER BY tc.created_at DESC LIMIT 50`, [req.clientApp.tutor.id]);
@@ -6392,6 +6639,8 @@ app.post('/api/app/teleconsultations', requireClientAuth, async (req, res, next)
     if (slotId && !slot.rowCount) return res.status(409).json({ error: 'Este horário não está mais disponível.' });
     const price = Number(slot.rows[0]?.price_cents || vet.rows[0]?.consultation_price_cents || 9900);
     const finalStartsAt = slot.rows[0]?.starts_at || startsAt || null;
+    const finalStartsAtIso = toIsoOrNull(finalStartsAt);
+    if (!finalStartsAtIso) return res.status(400).json({ error: 'Selecione um dia e horário válido para a teleconsulta.' });
     const meetingUrl = `https://meet.jit.si/petfunny-health360-${String(pet.id).slice(0,8)}-${Date.now()}`;
     await ensureTeleconsultationPaymentIntentCompatibility();
     await query('BEGIN');
@@ -6399,7 +6648,7 @@ app.post('/api/app/teleconsultations', requireClientAuth, async (req, res, next)
       INSERT INTO teleconsultations (tutor_id, pet_id, veterinarian_id, slot_id, reason, symptoms, starts_at, price_cents, payment_method, payment_status, status, meeting_url, safety_notice_accepted)
       VALUES ($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,NULLIF($4::text,'')::uuid,$5,$6,NULLIF($7::text,'')::timestamptz,$8,$9,'pending','pending_payment',$10,TRUE)
       RETURNING *
-    `, [tutorId, pet.id, vetId || '', slotId || '', reason, cleanText(req.body?.symptoms), finalStartsAt ? String(finalStartsAt) : '', price, paymentType, meetingUrl]);
+    `, [tutorId, pet.id, vetId || '', slotId || '', reason, cleanText(req.body?.symptoms), finalStartsAtIso, price, paymentType, meetingUrl]);
     if (slot.rowCount) await query(`UPDATE teleconsultation_slots SET status='reserved', updated_at=NOW() WHERE id=$1::uuid`, [slot.rows[0].id]);
     const expiresAt = new Date(Date.now() + getMercadoPagoPixExpirationMinutes() * 60 * 1000);
     const description = `Teleconsulta PetFunny Health 360 · ${pet.name}`;
@@ -6408,15 +6657,15 @@ app.post('/api/app/teleconsultations', requireClientAuth, async (req, res, next)
       VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::uuid, 'pending', $5, $6, $7, $8::jsonb, $9::timestamptz)
       RETURNING *
     `, [tutorId, accountId || '', pet.id, result.rows[0].id, paymentType, price, description, JSON.stringify(req.body || {}), expiresAt.toISOString()]);
-    await query(`INSERT INTO pet_medical_records (tutor_id, pet_id, type, title, description, source_type, source_id, occurred_at) VALUES ($1::uuid,$2::uuid,'APPOINTMENT','Teleconsulta solicitada',$3,'teleconsultations',$4::uuid,COALESCE(NULLIF($5::text,'')::timestamptz,NOW()))`, [tutorId, pet.id, reason, result.rows[0].id, finalStartsAt ? String(finalStartsAt) : '']);
+    await query(`INSERT INTO pet_medical_records (tutor_id, pet_id, type, title, description, source_type, source_id, occurred_at) VALUES ($1::uuid,$2::uuid,'APPOINTMENT','Teleconsulta solicitada',$3,'teleconsultations',$4::uuid,COALESCE(NULLIF($5::text,'')::timestamptz,NOW()))`, [tutorId, pet.id, reason, result.rows[0].id, finalStartsAtIso]);
     await query('COMMIT');
     if (isCardLikeAppPaymentType(paymentType)) {
-      if (!env.mercadoPagoPublicKey) return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent.rows[0], tutor_email: tutorEmail }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Teleconsulta criada. Configure MERCADO_PAGO_PUBLIC_KEY para habilitar cartão.' });
+      if (!env.mercadoPagoPublicKey) return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent.rows[0], tutor_email: tutorEmail }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Teleconsulta criada. Pagamento por cartão está indisponível no momento; use Pix ou tente novamente mais tarde.' });
       await query(`UPDATE teleconsultation_payment_intents SET provider_response=jsonb_build_object('flow','card_payment_brick','status','waiting_card_data'), updated_at=NOW() WHERE id=$1::uuid`, [intent.rows[0].id]);
       return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent.rows[0], tutor_email: tutorEmail, provider_response: { flow: 'card_payment_brick' } }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Teleconsulta criada. Finalize o pagamento por cartão dentro do app.' });
     }
     try {
-      if (!isMercadoPagoConfigured()) throw new Error('Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN.');
+      if (!isMercadoPagoConfigured()) throw new Error('Pagamento online indisponível. Configure as credenciais de pagamento.');
       const mp = await createMercadoPagoPixPayment({ intentId: intent.rows[0].id, amountCents: price, description, payerEmail: tutorEmail, payerName: req.clientApp.tutor.name });
       const updated = await query(`UPDATE teleconsultation_payment_intents SET mp_payment_id=$2::text, mp_status=$3::text, qr_code=$4::text, qr_code_base64=$5::text, provider_response=$6::jsonb, updated_at=NOW() WHERE id=$1::uuid RETURNING *`, [intent.rows[0].id, mp.paymentId, mp.status, mp.qrCode, mp.qrCodeBase64, JSON.stringify(mp.payment || {})]);
       return res.status(201).json({ requiresPayment: true, paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...updated.rows[0], tutor_email: tutorEmail }), teleconsultation: sanitizeTeleconsultation({ ...result.rows[0], pet_name: pet.name, veterinarian_name: vet.rows[0]?.name }), message: 'Pix da teleconsulta gerado. A consulta será confirmada após o pagamento.' });
@@ -6482,7 +6731,7 @@ app.get('/api/app/teleconsultations/payment/:intentId', requireClientAuth, async
 
 app.post('/api/app/teleconsultations/payment/:intentId/card', requireClientAuth, async (req, res, next) => {
   try {
-    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Mercado Pago indisponível. Configure MERCADO_PAGO_ACCESS_TOKEN.' });
+    if (!isMercadoPagoConfigured()) return res.status(503).json({ error: 'Pagamento online indisponível. Configure as credenciais de pagamento.' });
     const intentResult = await query(`SELECT tpi.*, t.name AS tutor_name, t.email AS tutor_email FROM teleconsultation_payment_intents tpi LEFT JOIN tutors t ON t.id=tpi.tutor_id WHERE tpi.id=$1::uuid AND tpi.tutor_id=$2::uuid AND tpi.deleted_at IS NULL LIMIT 1`, [req.params.intentId, req.clientApp.tutor.id]);
     if (!intentResult.rowCount) return res.status(404).json({ error: 'Pagamento da teleconsulta não encontrado.' });
     const intent = intentResult.rows[0];
@@ -6494,7 +6743,7 @@ app.post('/api/app/teleconsultations/payment/:intentId/card', requireClientAuth,
       await finalizePaidTeleconsultationIntent(intent.id, payment.status, payment);
       return res.status(201).json({ paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent, status: 'paid', paid_at: new Date().toISOString(), mp_payment_id: String(payment.id || ''), mp_status: payment.status }), teleconsultationId: intent.teleconsultation_id, message: 'Cartão aprovado. Teleconsulta agendada com sucesso.' });
     }
-    const message = payment.status === 'rejected' ? `Pagamento recusado pelo Mercado Pago${payment.status_detail ? `: ${payment.status_detail}` : '.'}` : 'Pagamento enviado e aguardando confirmação.';
+    const message = payment.status === 'rejected' ? `Pagamento recusado${payment.status_detail ? `: ${payment.status_detail}` : '.'}` : 'Pagamento enviado e aguardando confirmação.';
     return res.status(payment.status === 'rejected' ? 402 : 202).json({ paymentIntent: sanitizeTeleconsultationPaymentIntent({ ...intent, mp_payment_id: String(payment.id || ''), mp_status: payment.status, provider_response: payment }), message, mercadoPago: { status: payment.status, statusDetail: payment.status_detail || '' } });
   } catch (error) { next(error); }
 });
@@ -6922,6 +7171,16 @@ function addDaysToDateString(dateValue, days = 0) {
 }
 
 function toIsoOrNull(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString();
+  }
+  if (typeof value === 'number') {
+    const numericDate = new Date(value);
+    if (Number.isNaN(numericDate.getTime())) return null;
+    return numericDate.toISOString();
+  }
   const text = String(value || '').trim();
   if (!text) return null;
   const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
@@ -6985,7 +7244,7 @@ function assertMercadoPagoPixPayload(payment = {}) {
   const qrCode = normalizePixQrCode(tx.qr_code || '');
   const qrCodeBase64 = normalizePixQrBase64(tx.qr_code_base64 || '');
   if (!qrCode || !qrCodeBase64) {
-    const error = new Error('Mercado Pago não retornou QR Code Pix válido. Verifique se a conta Mercado Pago está habilitada para Pix e se o Access Token é de produção.');
+    const error = new Error('O provedor de pagamento não retornou QR Code Pix válido. Verifique se a conta está habilitada para Pix e se as credenciais são de produção.');
     error.status = 502;
     error.details = {
       paymentId: payment?.id || null,
@@ -6997,7 +7256,7 @@ function assertMercadoPagoPixPayload(payment = {}) {
     throw error;
   }
   if (!qrCode.startsWith('000201')) {
-    const error = new Error('O Mercado Pago retornou um código que não parece ser Pix EMV válido. Não exibimos o QR Code para evitar leitura inválida pelo banco.');
+    const error = new Error('O provedor de pagamento retornou um código que não parece ser Pix EMV válido. Não exibimos o QR Code para evitar leitura inválida pelo banco.');
     error.status = 502;
     error.details = {
       paymentId: payment?.id || null,
@@ -7020,7 +7279,7 @@ function mercadoPagoHeaders(extra = {}) {
 
 async function mercadoPagoRequest(pathname, { method = 'GET', body = null, idempotencyKey = '' } = {}) {
   if (!isMercadoPagoConfigured()) {
-    const error = new Error('Mercado Pago não configurado. Configure MERCADO_PAGO_ACCESS_TOKEN no servidor.');
+    const error = new Error('Pagamento online não configurado. Configure as credenciais no servidor.');
     error.status = 503;
     throw error;
   }
@@ -7032,7 +7291,7 @@ async function mercadoPagoRequest(pathname, { method = 'GET', body = null, idemp
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data?.message || data?.error || `Mercado Pago retornou HTTP ${response.status}`;
+    const message = data?.message || data?.error || `Provedor de pagamento retornou HTTP ${response.status}`;
     const error = new Error(message);
     error.status = response.status;
     error.details = data;
@@ -7099,7 +7358,7 @@ function sanitizePackagePaymentIntent(row = {}) {
 
 async function createMercadoPagoPixPayment({ intentId, amountCents, description, payerEmail, payerName }) {
   if (isMercadoPagoTestMode() && !env.mercadoPagoAllowTestPix) {
-    const error = new Error('Credencial de teste do Mercado Pago detectada. Para pagar com app de banco real, use MERCADO_PAGO_ACCESS_TOKEN de produção. Se quiser apenas testar sandbox, defina MERCADO_PAGO_ALLOW_TEST_PIX=true.');
+    const error = new Error('Credencial de teste do pagamento detectada. Para pagar com app de banco real, use credenciais de produção. Se quiser apenas testar sandbox, habilite o modo de teste.');
     error.status = 400;
     error.details = { tokenMode: 'test', productionRequiredForBankApp: true };
     throw error;
@@ -7205,7 +7464,7 @@ async function createMercadoPagoCheckoutPreference({ intentId, amountCents, desc
     }
   };
 
-  // Em produção o Mercado Pago aceita o retorno automático com URL pública HTTPS.
+  // Em produção o provedor de pagamento aceita retorno automático com URL pública HTTPS.
   // Em localhost/HTTP, algumas contas rejeitam a preferência com 400 Bad Request
   // mesmo com back_urls preenchidas. Para não quebrar o App do Tutor localmente,
   // usamos retorno automático somente quando APP_URL é pública/HTTPS e fazemos
@@ -7377,7 +7636,7 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
       INSERT INTO financial_transactions (tutor_id, appointment_id, type, category, description, amount_cents, due_date, status)
       VALUES ($1::uuid, $2::uuid, 'income', $6::text, $3::text, $4::integer, $5::date, 'paid')
       ON CONFLICT DO NOTHING
-    `, [intent.tutor_id, created.rows[0].id, `Agendamento pago via ${isCardPayment ? 'cartão' : 'Pix'} Mercado Pago`, totals.totalCents, String(startsAt).slice(0, 10), isCardPayment ? 'agendamento_app_cartao' : 'agendamento_app_pix']).catch(() => null);
+    `, [intent.tutor_id, created.rows[0].id, `Agendamento pago via ${isCardPayment ? 'cartão' : 'Pix'}`, totals.totalCents, String(startsAt).slice(0, 10), isCardPayment ? 'agendamento_app_cartao' : 'agendamento_app_pix']).catch(() => null);
     await createOrUpdateReceiptForAppointment(created.rows[0].id, null).catch((error) => console.warn('[app:pix] recibo não gerado:', error.message));
     await query(`
       UPDATE appointment_payment_intents
@@ -12222,7 +12481,7 @@ app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/l
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
-app.get(['/app', '/app/home', '/app/agenda', '/app/saude-360', '/app/pets', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/app/momentos', '/app/indique', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
+app.get(['/app', '/app/home', '/app/agenda', '/app/agendamentos', '/app/saude-360', '/app/teleconsultas', '/app/notificacoes', '/app/pets', '/app/pets/:petId', '/app/pets/:petId/:area', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/app/momentos', '/app/indique', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
 
 const modulePages = {

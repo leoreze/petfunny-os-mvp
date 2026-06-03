@@ -2,25 +2,30 @@ import { getClientUser, getClientToken, clientLogout, requireClientFrontendAuth 
 import { finishPageLoading, showLoading } from './loading.js';
 
 const navItems = [
-  { key: 'home', label: 'Meu Pet', icon: '🐾', href: '/app/home', priority: 1 },
-  { key: 'agenda', label: 'Agenda', icon: '📅', href: '/app/agenda', priority: 2 },
-  { key: 'saude', label: 'Saúde 360', icon: '🩺', href: '/app/saude-360', priority: 3 },
-  { key: 'pets', label: 'Pets', icon: '🐶', href: '/app/pets', priority: 4 },
-  { key: 'historico', label: 'Histórico', icon: '📄', href: '/app/historico', priority: 5 }
+  { key: 'home', label: 'Início', icon: '🏠', href: '/app/home', priority: 1 },
+  { key: 'agenda', label: 'Agendar', icon: '📅', href: '/app/agenda', priority: 2 },
+  { key: 'agendamentos', label: 'Agenda', icon: '🕘', href: '/app/agendamentos', priority: 3 },
+  { key: 'pets', label: 'Meus Pets', icon: '🐾', href: '/app/pets', priority: 4 }
 ];
 
 const overflowNavItems = [
-  { key: 'momentos', label: 'Momentos', icon: '📸', href: '/app/momentos', priority: 6 },
-  { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta', priority: 6 },
-  { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 6 },
-  { key: 'indique', label: 'Indique', icon: '🤝', href: '/app/indique', priority: 6 },
-  { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes', priority: 7 },
-  { key: 'bemestar', label: '360 IA', icon: '🧠', href: '/app/bem-estar', priority: 8 }
+  { key: 'indique', label: 'Benefícios', icon: '🎁', href: '/app/indique', priority: 5 },
+  { key: 'perfil', label: 'Perfil', icon: '👤', href: '/app/perfil', priority: 6 },
+  { key: 'momentos', label: 'Momentos', icon: '📸', href: '/app/momentos', priority: 7 },
+  { key: 'saude', label: 'Saúde 360', icon: '🩺', href: '/app/saude-360', priority: 8 },
+  { key: 'teleconsultas', label: 'Tele Consultas', icon: '📹', href: '/app/teleconsultas', priority: 9 },
+  { key: 'historico', label: 'Histórico', icon: '📄', href: '/app/historico', priority: 9 },
+  { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 10 },
+  { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta', priority: 11 },
+  { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes', priority: 12 },
+  { key: 'notificacoes', label: 'Notificações', icon: '🔔', href: '/app/notificacoes', priority: 13 },
+  { key: 'bemestar', label: '360 IA', icon: '🧠', href: '/app/bem-estar', priority: 14 }
 ];
 
 const sectionHeroMeta = {
   home: { icon: '🐾', tag: 'Diário digital do pet', actionLabel: 'Agendar cuidado', href: '/app/agenda' },
   agenda: { icon: '📅', tag: 'Novo cuidado em poucos toques', actionLabel: 'Ver meus pets', href: '/app/pets' },
+  agendamentos: { icon: '🕘', tag: 'Agenda do tutor', actionLabel: 'Novo agendamento', href: '/app/agenda' },
   pets: { icon: '🐶', tag: 'Cadastro completo dos pets', actionLabel: 'Novo agendamento', href: '/app/agenda' },
   historico: { icon: '📄', tag: 'Tudo registrado com segurança', actionLabel: 'Ir para agenda', href: '/app/agenda' },
   momentos: { icon: '📸', tag: 'Momentos do atendimento', actionLabel: 'Agendar próximo banho', href: '/app/agenda' },
@@ -28,7 +33,9 @@ const sectionHeroMeta = {
   mimos: { icon: '🎁', tag: 'Benefícios para tutores', actionLabel: 'Girar roleta', href: '/app/roleta' },
   indique: { icon: '🤝', tag: 'Clube de indicação', actionLabel: 'Compartilhar convite', href: '/app/indique' },
   roleta: { icon: '🎁', tag: 'Mimos e recompensas', actionLabel: 'Ver agenda', href: '/app/agenda' },
-  saude: { icon: '🩺', tag: 'Health 360 e teleconsulta', actionLabel: 'Meu pet está estranho', href: '/app/saude-360' },
+  saude: { icon: '🩺', tag: 'Health 360 preventivo', actionLabel: 'Meu pet está estranho', href: '/app/saude-360' },
+  teleconsultas: { icon: '📹', tag: 'Consulta veterinária online', actionLabel: 'Escolher pet', href: '/app/teleconsultas' },
+  notificacoes: { icon: '🔔', tag: 'Central de avisos', actionLabel: 'Ver notificações', href: '/app/notificacoes' },
   promocoes: { icon: '🏷️', tag: 'Condições especiais', actionLabel: 'Agendar com desconto', href: '/app/agenda' },
   bemestar: { icon: '🧠', tag: 'PetFunny 360 IA', actionLabel: 'Avaliar pet', href: '/app/bem-estar' },
   perfil: { icon: '👤', tag: 'Seus dados protegidos', actionLabel: 'Meus pets', href: '/app/pets' },
@@ -37,6 +44,7 @@ const sectionHeroMeta = {
 
 export function currentClientSection() {
   const path = window.location.pathname;
+  if (path.includes('/agendamentos')) return 'agendamentos';
   if (path.includes('/agenda')) return 'agenda';
   if (path.includes('/pets')) return 'pets';
   if (path.includes('/historico')) return 'historico';
@@ -44,6 +52,8 @@ export function currentClientSection() {
   if (path.includes('/pacotes')) return 'pacotes';
   if (path.includes('/indique')) return 'indique';
   if (path.includes('/mimos')) return 'mimos';
+  if (path.includes('/teleconsultas')) return 'teleconsultas';
+  if (path.includes('/notificacoes')) return 'notificacoes';
   if (path.includes('/saude-360')) return 'saude';
   if (path.includes('/roleta')) return 'roleta';
   if (path.includes('/promocoes')) return 'promocoes';
@@ -191,9 +201,12 @@ function setupClientBottomNavOverflow() {
     moreButton.classList.remove('is-open');
   };
 
+  const activeSection = currentClientSection();
+  const hasActiveOverflow = overflowNavItems.some((item) => item.key === activeSection);
   moreButton.hidden = overflowNavItems.length === 0;
+  moreButton.classList.toggle('is-active', hasActiveOverflow);
   moreMenu.innerHTML = overflowNavItems.map((item) => `
-    <a class="${item.key === currentClientSection() ? 'is-active' : ''}" href="${item.href}" data-nav-key="${item.key}">
+    <a class="${item.key === activeSection ? 'is-active' : ''}" href="${item.href}" data-nav-key="${item.key}">
       <span>${item.icon}</span><small>${item.label}</small>
     </a>
   `).join('');
@@ -229,47 +242,55 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
   if (!requireClientFrontendAuth()) return;
   const payload = getClientUser();
   const tutor = payload?.tutor || {};
+  const heroMeta = sectionHeroMeta[active] || sectionHeroMeta.home;
+  const shouldShowAreaHero = active !== 'home';
+  // v1.6.56 — heros do App do Tutor ficam apenas com tag, título e subtítulo.
+  // Botões e nome do tutor foram removidos para evitar sobreposição com o conteúdo abaixo.
+  const showAreaHeroActions = false;
+  const areaHero = shouldShowAreaHero ? `
+    <section class="client-mobile-hero client-area-hero section-${escapeHtml(active)}">
+      <div class="client-area-hero-copy">
+        <span class="client-area-postit">${escapeHtml(heroMeta.tag)}</span>
+        <p class="eyebrow">App do tutor</p>
+        <h1>${escapeHtml(title)}</h1>
+        ${subtitle ? `<p class="client-hero-subtitle">${escapeHtml(subtitle)}</p>` : ''}
+        ${showAreaHeroActions ? `<div class="client-area-hero-actions">
+          <a class="btn btn-sm" href="${escapeHtml(heroMeta.href)}">${escapeHtml(heroMeta.actionLabel)}</a>
+          <span class="client-profile-pill">🐾 ${escapeHtml(tutor.name || 'Tutor PetFunny')}</span>
+        </div>` : ''}
+      </div>
+      <div class="client-area-hero-art" aria-hidden="true">
+        <div class="client-area-hero-orb"></div>
+        <strong>${escapeHtml(heroMeta.icon)}</strong>
+        <i></i>
+      </div>
+    </section>` : '';
+
+  document.body.classList.add('app-client', 'client-pwa-layout-v1652', 'client-pwa-layout-v1653', 'client-pwa-layout-v1655', 'client-pwa-layout-v1656', 'client-pwa-layout-v1657', 'client-pwa-layout-v1658', 'client-pwa-layout-v1659', 'client-pwa-layout-v1660', 'client-pwa-layout-v1662', 'client-pwa-layout-v1666');
   document.body.innerHTML = `
-    <main class="client-app-shell mobile-first">
-      <header class="client-mobile-topbar">
+    <main class="client-app-shell mobile-first client-fixed-app-shell">
+      <header class="client-mobile-topbar client-fixed-topbar">
         <a class="client-mobile-brand" href="/app/home" aria-label="PetFunny"><img src="/assets/img/logo-petfunny-full.png" alt="PetFunny"></a>
         <div class="client-top-actions">
-          <a class="client-icon-btn" href="https://wa.me/5516981535338" aria-label="WhatsApp">💬</a>
-          <a class="client-avatar-btn ${active === 'perfil' ? 'is-active' : ''}" href="/app/perfil" aria-label="Abrir perfil do tutor"><span>${tutor.photoUrl ? `<img src="${escapeHtml(tutor.photoUrl)}" alt="${escapeHtml(tutor.name || 'Tutor')}">` : escapeHtml(tutorInitials(tutor.name))}</span></a>
-          <button class="client-icon-btn" id="client-logout" type="button" aria-label="Sair">↪</button>
+          <a class="client-icon-btn client-notification-btn" href="/app/notificacoes" aria-label="Notificações">🔔<span class="client-notification-badge" id="client-notification-badge" hidden>0</span></a>
+          <button class="client-icon-btn client-logout-btn" type="button" data-client-logout aria-label="Sair do app">↩</button>
         </div>
       </header>
-      <section class="client-mobile-hero client-area-hero section-${escapeHtml(active)}">
-        <div class="client-area-hero-copy">
-          <span class="client-area-postit">${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).tag)}</span>
-          <p class="eyebrow">App do tutor</p>
-          <h1>${escapeHtml(title)}</h1>
-          ${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
-          <div class="client-area-hero-actions">
-            <a class="btn btn-sm" href="${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).href)}">${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).actionLabel)}</a>
-            <span class="client-profile-pill">🐾 ${escapeHtml(tutor.name || 'Tutor PetFunny')}</span>
-          </div>
-        </div>
-        <div class="client-area-hero-art" aria-hidden="true">
-          <div class="client-area-hero-orb"></div>
-          <strong>${escapeHtml((sectionHeroMeta[active] || sectionHeroMeta.home).icon)}</strong>
-          <i></i>
-        </div>
-      </section>
-      <section class="client-mobile-content">${content}</section>
-      <nav class="client-bottom-nav" aria-label="Navegação do app do tutor">
+      <section class="client-mobile-content client-scroll-content">${areaHero}${content}</section>
+      <nav class="client-bottom-nav client-flat-bottom-nav" aria-label="Navegação do app do tutor">
         ${navItems.map((item) => `<a class="${item.key === active ? 'is-active' : ''}" href="${item.href}" data-client-nav-item data-nav-key="${item.key}" data-priority="${item.priority}"><span>${item.icon}</span><small>${item.label}</small></a>`).join('')}
         <button class="client-bottom-more" type="button" aria-label="Mais opções do menu" aria-expanded="false" hidden><span>•••</span><small>Mais</small></button>
         <div class="client-bottom-more-menu" hidden></div>
       </nav>
     </main>
   `;
-  document.getElementById('client-logout')?.addEventListener('click', () => { trackClientAccess('logout'); clientLogout(); });
-  const eventMap = { agenda: 'agenda_open', roleta: 'roleta_open', pacotes: 'packages_open', momentos: 'moments_open', saude: 'health360_open', home: 'page_view' };
+  const eventMap = { agenda: 'agenda_open', agendamentos: 'appointments_list_open', roleta: 'roleta_open', pacotes: 'packages_open', momentos: 'moments_open', saude: 'health360_open', teleconsultas: 'teleconsultations_open', notificacoes: 'notifications_open', home: 'page_view' };
   trackClientAccess(eventMap[active] || 'page_view');
   setupClientBottomNavOverflow();
+  const logoutButton = document.querySelector('[data-client-logout]');
+  if (logoutButton) logoutButton.addEventListener('click', () => clientLogout());
   applyClientInputMasks(document);
-  window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 180));
+  window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 60));
 }
 
 function packageBadge(item) {
@@ -342,14 +363,16 @@ export function renderPackageCard(pkg) {
 
 export function clientCards() {
   return `
-    <div class="client-shortcuts-grid">
-      <a class="client-shortcut" href="/app/agenda"><span>📅</span><strong>Agenda</strong><small>Próximos horários</small></a>
-      <a class="client-shortcut" href="/app/pets"><span>🐶</span><strong>Pets</strong><small>Dados e cuidados</small></a>
+    <div class="client-shortcuts-grid client-home-action-grid">
+      <a class="client-shortcut" href="/app/agenda"><span>📅</span><strong>Agendar Serviço</strong><small>Banho, tosa e cuidados</small></a>
+      <a class="client-shortcut" href="/app/agendamentos"><span>🕘</span><strong>Meus Agendamentos</strong><small>Próximos e histórico</small></a>
+      <a class="client-shortcut" href="/app/momentos"><span>🖼️</span><strong>Momentos Especiais</strong><small>Fotos e vídeos do pet</small></a>
+      <a class="client-shortcut" href="/app/indique"><span>🎁</span><strong>Clube de Benefícios</strong><small>Mimos, ossinhos e vantagens</small></a>
+      <a class="client-shortcut" href="/app/saude-360"><span>🩺</span><strong>Saúde 360</strong><small>Check-up, vacinas e doses</small></a>
+      <a class="client-shortcut" href="/app/teleconsultas"><span>📹</span><strong>Tele Consultas</strong><small>Veterinário online</small></a>
+      <a class="client-shortcut" href="/app/pets"><span>🐾</span><strong>Meus Pets</strong><small>Dados e histórico</small></a>
       <a class="client-shortcut" href="/app/historico"><span>📄</span><strong>Histórico</strong><small>Comandas e recibos</small></a>
-      <a class="client-shortcut" href="/app/pacotes"><span>📦</span><strong>Pacotes</strong><small>Contratar e acompanhar</small></a>
-      <a class="client-shortcut" href="/app/roleta"><span>🎁</span><strong>Roleta</strong><small>Mimos e benefícios</small></a>
-      <a class="client-shortcut" href="/app/promocoes"><span>🏷️</span><strong>Promoções</strong><small>Descontos automáticos</small></a>
-      <a class="client-shortcut" href="/app/bem-estar"><span>🧠</span><strong>PetFunny 360</strong><small>Bem-estar com IA</small></a>
+      <a class="client-shortcut" href="https://wa.me/5516981535338" target="_blank" rel="noopener"><span>💬</span><strong>Fale Conosco</strong><small>Suporte pelo WhatsApp</small></a>
     </div>
   `;
 }

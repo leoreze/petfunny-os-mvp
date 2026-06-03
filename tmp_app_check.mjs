@@ -1,20 +1,4 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Meu PetFunny · App do Tutor</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#F8A198">
-  
-  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
-  <meta name="msapplication-TileColor" content="#26b9c7">
-  <link rel="stylesheet" href="/assets/css/app.css">
-</head>
-<body>
-<script type="module">
+
   import { buildClientApp, clientCards, currentClientSection, renderAppointmentCard, renderPetCard, renderPackageCard, money, dateTime, shortDate } from '/assets/js/client-shell.js';
   import { clientApi } from '/assets/js/client-api.js';
   import { setClientUser, setClientToken, clientLogout } from '/assets/js/client-auth.js';
@@ -29,7 +13,6 @@
   let timelineVisibleCount = 8;
   const timelineStep = 8;
   let timelineObserver = null;
-  let notificationState = { items: [], offset: 0, limit: 10, total: 0, hasMore: true, loading: false, observer: null };
 
   const empty = (icon, title, text) => `<article class="client-empty"><span>${icon}</span><h3>${title}</h3><p>${text}</p></article>`;
   const escapeHtml = (value = '') => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
@@ -129,7 +112,6 @@
     roleta: ['Roleta de Mimos', 'Gire a roleta, descubra benefícios e acompanhe suas recompensas.'],
     saude: ['Saúde 360', 'Health Score, triagem preventiva e prontuário básico dentro do App do Tutor.'],
     teleconsultas: ['Tele Consultas', 'Escolha o pet, selecione o veterinário parceiro, dia, horário e finalize o pagamento online.'],
-    notificacoes: ['Notificações', 'Acompanhe lembretes, avisos e novidades do PetFunny separados por data.'],
     perfil: ['Meu perfil', 'Atualize seus dados de cadastro. O WhatsApp fica protegido e não pode ser alterado pelo app.'],
     promocoes: ['Promoções PetFunny', 'Descontos ativos entram automaticamente no agendamento quando o serviço, porte e dia combinarem.'],
     bemestar: ['PetFunny 360 IA', 'Avaliação de bem-estar, comportamento, rotina e cuidado do pet com linguagem responsável.']
@@ -241,12 +223,9 @@
     return [...scope.querySelectorAll('input[name="serviceIds"]:checked')].some((input) => input.dataset.serviceKind === 'banho');
   }
 
-  function renderAppointmentPetPicker(selectedPetId = '', config = {}) {
+  function renderAppointmentPetPicker(selectedPetId = '') {
     const pets = data.pets || [];
     const selected = selectedPetId || pets[0]?.id || '';
-    const inputName = config.inputName || 'petId';
-    const returnSection = config.returnSection || currentClientSection() || 'agenda';
-    const showAdd = config.showAdd !== false;
     const petCards = pets.map((pet) => {
       const isSelected = String(pet.id) === String(selected);
       const initials = String(pet.name || 'P').slice(0, 1).toUpperCase();
@@ -257,16 +236,15 @@
         <small>${escapeHtml(pet.breed || pet.size || 'PetFunny')}</small>
       </button>`;
     }).join('');
-    const addCard = showAdd ? `<button class="client-appointment-pet-option client-appointment-add-pet" type="button" data-add-pet-agenda data-add-pet-return="${escapeHtml(returnSection)}">
+    return `<div class="client-appointment-pet-picker">
+      <input type="hidden" name="petId" value="${escapeHtml(selected)}">
+      <div class="client-appointment-pet-row">
+        ${petCards}
+        <button class="client-appointment-pet-option client-appointment-add-pet" type="button" data-add-pet-agenda>
           <div class="client-appointment-pet-photo add">+</div>
           <strong>Adicionar</strong>
           <small>Novo pet</small>
-        </button>` : '';
-    return `<div class="client-appointment-pet-picker" data-pet-picker-name="${escapeHtml(inputName)}" data-pet-picker-return="${escapeHtml(returnSection)}">
-      <input type="hidden" name="${escapeHtml(inputName)}" value="${escapeHtml(selected)}">
-      <div class="client-appointment-pet-row">
-        ${petCards}
-        ${addCard}
+        </button>
       </div>
     </div>`;
   }
@@ -407,11 +385,12 @@
   }
 
   function renderBemEstar() {
-    const selected = new URLSearchParams(window.location.search).get('petId') || data.pets?.[0]?.id || '';
+    const petOpts = (data.pets || []).map((pet) => ({ value: pet.id, label: `${pet.name}${pet.size ? ` · ${pet.size}` : ''}` }));
+    const selected = new URLSearchParams(window.location.search).get('petId') || petOpts[0]?.value || '';
     return `<section class="client-mobile-section client-wellbeing-hero-card">
       <div class="client-section-title"><h2>PetFunny 360</h2><p>Avaliação socioemocional e comportamental com IA responsável para apoiar a rotina do seu pet.</p></div>
       <article class="client-alert-soft"><strong>Importante:</strong> este diagnóstico é uma análise de bem-estar e comportamento baseada nas respostas dos tutores. Ele não substitui avaliação veterinária.</article>
-      <div class="client-field client-pet-picker-field"><span>Escolha o pet</span>${renderAppointmentPetPicker(selected, { inputName: 'wellbeingPetId', returnSection: 'bemestar' })}</div>
+      ${selectField('Escolha o pet', 'wellbeingPetId', petOpts, selected, 'Selecione um pet')}
     </section>
     <div id="wellbeing-dynamic" data-pet-id="${escapeHtml(selected)}"></div>`;
   }
@@ -681,18 +660,11 @@
 
   function renderMomentos() {
     const pets = data.pets || [];
-    const selectedPetId = new URLSearchParams(window.location.search).get('petId') || pets[0]?.id || '';
-    const media = (data.mediaPreview || []).filter((item) => !selectedPetId || String(item.petId || item.pet_id || '') === String(selectedPetId));
-    const latest = [...(data.upcomingAppointments || []), ...(data.history || [])].find((item) => !selectedPetId || String(item.petId || item.pet_id || '') === String(selectedPetId)) || null;
-    return `<section class="client-mobile-section client-moments-pet-selector"><div class="client-section-title"><h2>Escolha o pet</h2><p>Veja fotos, vídeos e lembranças separados por pet.</p></div>
-      <div class="client-field client-pet-picker-field"><span>Pet dos momentos</span>${renderAppointmentPetPicker(selectedPetId, { inputName: 'momentsPetId', returnSection: 'momentos' })}</div>
-    </section>
-    <section class="client-mobile-section"><div class="client-section-title"><h2>Momentos do atendimento</h2><p>Fotos, vídeos e lembranças afetivas dos cuidados PetFunny.</p></div>${media.length ? `<div class="client-moments-grid">${media.map(renderMomentMediaCard).join('')}</div>` : empty('📸', 'Nenhum momento publicado ainda', 'Depois do próximo banho, os melhores momentos deste pet aparecem aqui.')}</section>
+    const media = data.mediaPreview || [];
+    const latest = data.upcomingAppointments?.[0] || data.history?.[0] || null;
+    return `<section class="client-mobile-section"><div class="client-section-title"><h2>Momentos do atendimento</h2><p>Fotos, vídeos e lembranças afetivas dos cuidados PetFunny.</p></div>${media.length ? `<div class="client-moments-grid">${media.map(renderMomentMediaCard).join('')}</div>` : empty('📸', 'Nenhum momento publicado ainda', 'Depois do próximo banho, os melhores momentos do seu pet aparecem aqui.')}</section>
     <section class="client-mobile-section"><div class="client-section-title"><h2>Timeline do cuidado</h2><p>Acompanhe cada carinho, cada etapa e cada finalização.</p></div>${latest ? `<article class="client-list-card client-moment-timeline-card"><div class="client-list-icon client-pet-mini-avatar">${latest.petPhotoUrl ? `<img src="${escapeHtml(latest.petPhotoUrl)}" alt="${escapeHtml(latest.petName || 'Pet')}">` : '🐶'}</div><div class="client-list-body"><h3>${escapeHtml(latest.petName || 'Pet')}</h3><p>${escapeHtml(latest.services || 'Atendimento PetFunny')} · ${dateTime(latest.startsAt)}</p>${renderDetailedAppointmentTimeline(latest)}</div></article>` : empty('🛁', 'Sem atendimento ativo', 'Quando houver agendamento, a timeline detalhada aparece aqui.')}</section>
-    <div class="client-moment-floating-upload">
-      <input id="moment-upload-input" type="file" accept="image/*,video/*" capture="environment" data-moment-upload-input data-pet-id="${escapeHtml(selectedPetId || '')}" hidden>
-      <button class="client-moment-camera-btn" type="button" data-open-moment-camera ${selectedPetId ? '' : 'disabled'} aria-label="Bater foto ou enviar momento">📸</button>
-    </div>`;
+    <section class="client-mobile-section"><div class="client-section-title"><h2>Meus pets</h2><p>Escolha um pet para ver momentos futuros.</p></div><div class="client-pet-list">${pets.map((pet) => `<article class="client-list-card client-moment-pet-card"><div class="client-list-icon client-pet-mini-avatar">${pet.photoUrl ? `<img src="${escapeHtml(pet.photoUrl)}" alt="${escapeHtml(pet.name)}">` : '🐾'}</div><div class="client-list-body"><h3>${escapeHtml(pet.name)}</h3><p>${escapeHtml(pet.breed || pet.size || 'PetFunny')}</p><div class="client-card-actions"><a class="btn btn-sm" href="/app/agenda?petId=${escapeHtml(pet.id)}">Agendar próximo banho</a></div></div></article>`).join('') || empty('🐶','Cadastre seu pet','Os momentos ficam organizados por pet.')}</div></section>`;
   }
 
   function lazyHomeBlock(html = '', index = 0) {
@@ -1148,10 +1120,11 @@
   }
 
   function renderPacotes() {
-    const firstPet = data.pets?.[0]?.id || '';
+    const petOpts = (data.pets || []).map((pet) => ({ value: pet.id, label: `${pet.name}${pet.size ? ` · ${pet.size}` : ''}` }));
+    const firstPet = petOpts[0]?.value || '';
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Contratar pacote</h2><p>Escolha o pet e selecione um pacote compatível com o porte dele.</p></div>
       <form class="client-form-card" id="package-form">
-        <div class="client-field client-pet-picker-field"><span>Pet</span>${renderAppointmentPetPicker(firstPet, { inputName: 'petId', returnSection: 'pacotes' })}</div>
+        ${selectField('Pet', 'petId', petOpts, firstPet, 'Escolha o pet')}
         <input type="hidden" name="packageId" value="">
         <div id="package-card-options">${renderPackageCardsForPet(firstPet)}</div>
         <div id="package-preview" class="client-alert-soft">Selecione um pacote em card para ver sessões, economia e valor.</div>
@@ -1477,11 +1450,12 @@
   }
 
   function renderHealth360() {
-    const selected = new URLSearchParams(window.location.search).get('petId') || data.pets?.[0]?.id || '';
+    const pets = data.pets || [];
+    const petOptions = pets.map((pet) => ({ value: pet.id, label: pet.name }));
     return `<section class="client-mobile-section client-health360-hero">
       <div class="client-section-title"><h2>Saúde 360</h2><p>Monitore bem-estar, sinais de atenção, prontuário e teleconsulta veterinária.</p></div>
       <article class="client-alert-soft"><strong>Aviso importante:</strong> a triagem IA não dá diagnóstico, não prescreve remédios e não substitui atendimento veterinário. Em emergência, procure atendimento presencial imediatamente.</article>
-      <div class="client-field client-pet-picker-field"><span>Escolha o pet</span>${renderAppointmentPetPicker(selected, { inputName: 'healthPetId', returnSection: 'saude' })}</div>
+      ${selectField('Pet monitorado', 'healthPetId', petOptions, petOptions[0]?.value || '', 'Selecione um pet')}
       <div id="health360-dynamic" class="client-health360-dynamic"><article class="client-empty"><span>🩺</span><h3>Carregando Saúde 360...</h3><p>Buscando score, triagens, prontuário e teleconsultas.</p></article></div>
     </section>`;
   }
@@ -1569,7 +1543,7 @@
       <div id="health360-slot-grid" class="health360-slot-grid">${health360SlotCards(initialSlots, '')}</div>
       ${selectField('Motivo', 'reason', [{value:'duvida_rapida',label:'Dúvida rápida'}, {value:'sintomas_leves',label:'Sintomas leves'}, {value:'retorno',label:'Retorno'}, {value:'orientacao_preventiva',label:'Orientação preventiva'}, {value:'pos_banho_tosa',label:'Pós-banho/tosa'}], '', 'Selecione o motivo')}
       ${field('Descreva brevemente', 'symptoms', '', 'placeholder="Conte o que você quer conversar com o veterinário"')}
-      ${paymentMethodChoicesHtml({ fieldName: 'paymentMethod', selected: 'pix', selectMode: false })}
+      ${paymentMethodChoicesHtml({ fieldName: 'paymentMethod', selected: 'pix', selectMode: true })}
       <article class="client-alert-soft"><strong>Emergência?</strong> Teleconsulta não substitui atendimento presencial em caso grave.</article>
       <button class="btn" type="submit">Solicitar teleconsulta</button>
     </form>`;
@@ -1590,10 +1564,6 @@
         <div class="client-field client-pet-picker-field"><span>Escolha o pet para a consulta</span>${renderAppointmentPetPicker(selectedPet)}</div>
         <button class="btn" id="teleconsultas-start" type="button">Agendar consulta</button>
       </form>
-      <section class="client-mobile-section client-teleconsultas-list-section">
-        <div class="client-section-title"><h2>Minhas teleconsultas</h2><p>Veja data, horário, status e link do atendimento veterinário online.</p></div>
-        <div id="teleconsultas-appointments-list">${empty('📅', 'Carregando teleconsultas...', 'Buscando seus agendamentos veterinários.')}</div>
-      </section>
       <div id="teleconsultas-flow" class="client-teleconsultas-flow"><article class="client-empty"><span>📹</span><h3>Consulta veterinária online</h3><p>Toque em Agendar consulta para ver veterinários e horários disponíveis.</p></article></div>
     </section>`;
   }
@@ -1609,61 +1579,6 @@
     };
   }
 
-  function teleconsultationStatusText(item = {}) {
-    const payment = String(item.paymentStatus || '').toLowerCase();
-    const status = String(item.status || '').toLowerCase();
-    if (payment === 'paid' && status === 'scheduled') return 'Confirmada';
-    if (payment === 'paid') return 'Pagamento aprovado';
-    if (status === 'completed') return 'Finalizada';
-    if (status === 'cancelled') return 'Cancelada';
-    if (status === 'no_show') return 'Não compareceu';
-    return 'Aguardando pagamento';
-  }
-
-  function renderTeleconsultationAppointmentCard(item = {}) {
-    const part = slotDateParts(item.startsAt || item.createdAt);
-    const statusText = teleconsultationStatusText(item);
-    const canEnter = item.meetingUrl && String(item.paymentStatus || '').toLowerCase() === 'paid';
-    const detailsUrl = `/app/teleconsultas?teleId=${encodeURIComponent(item.id || '')}`;
-    return `<article class="client-appointment-card client-teleconsultation-card" id="teleconsulta-${escapeHtml(item.id || '')}">
-      <div class="client-appointment-date"><small>${escapeHtml(part.weekday)}</small><strong>${escapeHtml(part.day)}</strong><span>${escapeHtml(part.month)}</span></div>
-      <div class="client-appointment-info">
-        <div class="client-list-title-row"><h3>${escapeHtml(item.petName || 'Pet')}</h3><span class="client-badge light">${escapeHtml(statusText)}</span></div>
-        <p>${escapeHtml(item.veterinarianName || 'Veterinário parceiro')} · ${escapeHtml(part.time)}</p>
-        <small>${escapeHtml(item.reason || 'Teleconsulta veterinária')} · ${money(item.priceCents || 0)}</small>
-        <div class="client-card-actions">
-          <a class="btn btn-sm btn-secondary" href="${escapeHtml(detailsUrl)}">Ver agendamento</a>
-          ${canEnter ? `<a class="btn btn-sm" href="${escapeHtml(item.meetingUrl)}" target="_blank" rel="noopener">Entrar na consulta</a>` : `<span class="client-badge muted">Link liberado após pagamento</span>`}
-        </div>
-      </div>
-    </article>`;
-  }
-
-  function renderTeleconsultasAppointments(items = []) {
-    const root = document.getElementById('teleconsultas-appointments-list');
-    if (!root) return;
-    const list = Array.isArray(items) ? items : [];
-    root.innerHTML = list.length
-      ? `<div class="client-appointments-stack">${list.map(renderTeleconsultationAppointmentCard).join('')}</div>`
-      : empty('📅', 'Nenhuma teleconsulta agendada', 'Quando você agendar uma teleconsulta, ela aparecerá aqui com data, horário e link.');
-    const focusId = new URLSearchParams(window.location.search).get('teleId') || '';
-    if (focusId) {
-      window.setTimeout(() => document.getElementById(`teleconsulta-${CSS.escape(focusId)}`)?.scrollIntoView({ behavior:'smooth', block:'center' }), 120);
-    }
-  }
-
-  async function loadTeleconsultasAppointments() {
-    const root = document.getElementById('teleconsultas-appointments-list');
-    if (!root) return;
-    root.innerHTML = '<article class="client-empty compact"><span>📅</span><h3>Carregando teleconsultas...</h3><p>Buscando seus próximos agendamentos veterinários.</p></article>';
-    try {
-      const response = await clientApi.get('/app/teleconsultations');
-      renderTeleconsultasAppointments(response.items || []);
-    } catch (error) {
-      root.innerHTML = `<article class="client-empty compact"><span>⚠️</span><h3>Não foi possível carregar</h3><p>${escapeHtml(error.message)}</p></article>`;
-    }
-  }
-
   async function loadTeleconsultasData(petId = '') {
     const root = document.getElementById('teleconsultas-flow');
     if (!root) return;
@@ -1677,7 +1592,6 @@
       const payload = await clientApi.get(`/app/teleconsultations/options?petId=${encodeURIComponent(selectedPetId)}`);
       window.__teleconsultasData = payload || {};
       window.__teleconsultasSelectedPet = selectedPetId;
-      renderTeleconsultasAppointments(payload?.teleconsultations || []);
       renderTeleconsultasVetList();
     } catch (error) {
       root.innerHTML = `<article class="client-empty"><span>⚠️</span><h3>Não foi possível carregar</h3><p>${escapeHtml(error.message)}</p></article>`;
@@ -1695,7 +1609,7 @@
       <div class="health360-vet-grid teleconsultas-vet-grid">${vets.length ? vets.map((vet) => `<article class="health360-vet-card teleconsultas-vet-card" data-tele-vet-card="${escapeHtml(vet.id)}">
         ${health360VetAvatar(vet)}
         <div class="health360-vet-info"><h3>${escapeHtml(vet.name || 'Veterinário parceiro')}</h3><p>${escapeHtml(vet.specialty || 'Clínica geral')}</p><small>CRMV ${escapeHtml(vet.crmv || '—')}${vet.crmvUf ? `/${escapeHtml(vet.crmvUf)}` : ''} · ${money(vet.consultationPriceCents || 0)}</small></div>
-        <div class="health360-vet-actions"><button class="btn" type="button" data-tele-select-vet="${escapeHtml(vet.id)}">Selecionar</button></div>
+        <div class="health360-vet-actions"><button class="btn btn-sm" type="button" data-tele-select-vet="${escapeHtml(vet.id)}">Selecionar</button></div>
       </article>`).join('') : empty('🩺','Nenhum veterinário disponível','Cadastre veterinários e horários no Admin Saúde 360.')}</div>
     </section>`;
     root.scrollIntoView({ behavior:'smooth', block:'start' });
@@ -1709,127 +1623,27 @@
     if (!vet) { renderTeleconsultasVetList(); return; }
     const slots = (payload.slots || []).filter((slot) => String(slot.veterinarianId) === String(vet.id));
     const petId = window.__teleconsultasSelectedPet || payload.selectedPet?.id || '';
-    root.innerHTML = `<div class="teleconsultas-detail-actions"><button class="client-back-link" type="button" data-tele-back-vets>← Voltar para veterinários</button></div>
-      <article class="teleconsultas-flow-card teleconsultas-vet-hero">
+    root.innerHTML = `<section class="client-mobile-section teleconsultas-vet-detail-screen">
+      <button class="client-back-link" type="button" data-tele-back-vets>← Voltar para veterinários</button>
+      <article class="teleconsultas-vet-hero">
         ${health360VetAvatar(vet, 'large')}
         <div><p class="eyebrow">Veterinário parceiro</p><h2>${escapeHtml(vet.name || 'Veterinário')}</h2><p>${escapeHtml(vet.specialty || 'Clínica geral')}</p><small>CRMV ${escapeHtml(vet.crmv || '—')}${vet.crmvUf ? `/${escapeHtml(vet.crmvUf)}` : ''}</small></div>
       </article>
-      <article class="teleconsultas-flow-card client-alert-soft teleconsultas-price-alert"><strong>Valor:</strong> ${money(vet.consultationPriceCents || 0)} · Duração média: ${escapeHtml(String(vet.defaultDurationMinutes || 30))} min<br>${escapeHtml(vet.bio || 'Profissional parceiro disponível para orientação veterinária responsável.')}</article>
-      <section class="teleconsultas-flow-card teleconsultas-slot-section">
-        <div class="client-section-title compact"><h2>Escolha data e horário</h2><p>Toque em um horário disponível para continuar.</p></div>
-        <div class="teleconsultas-slot-grid">${slots.length ? slots.map((slot) => { const part = slotDateParts(slot.startsAt); return `<button class="teleconsultas-slot-card" type="button" data-tele-select-slot="${escapeHtml(slot.id)}"><small>${escapeHtml(part.weekday)}</small><strong>${escapeHtml(part.day)}</strong><span>${escapeHtml(part.month)}</span><b>${escapeHtml(part.time)}</b><em>${money(slot.priceCents || vet.consultationPriceCents || 0)}</em></button>`; }).join('') : empty('📅','Sem horários disponíveis','Escolha outro veterinário ou aguarde novos horários.')}</div>
-      </section>
-      <form id="teleconsultation-form" class="teleconsultas-flow-card client-form-card teleconsultas-booking-form" data-pet-id="${escapeHtml(petId)}">
+      <article class="client-alert-soft"><strong>Valor:</strong> ${money(vet.consultationPriceCents || 0)} · Duração média: ${escapeHtml(String(vet.defaultDurationMinutes || 30))} min<br>${escapeHtml(vet.bio || 'Profissional parceiro disponível para orientação veterinária responsável.')}</article>
+      <form id="teleconsultation-form" class="client-form-card teleconsultas-booking-form" data-pet-id="${escapeHtml(petId)}">
         <input type="hidden" name="petId" value="${escapeHtml(petId)}">
         <input type="hidden" name="veterinarianId" value="${escapeHtml(vet.id)}" required>
         <input type="hidden" name="slotId" value="" required>
+        <div class="client-section-title compact"><h2>Escolha data e horário</h2><p>Toque em um horário disponível para continuar.</p></div>
+        <div class="teleconsultas-slot-grid">${slots.length ? slots.map((slot) => { const part = slotDateParts(slot.startsAt); return `<button class="teleconsultas-slot-card" type="button" data-tele-select-slot="${escapeHtml(slot.id)}"><small>${escapeHtml(part.weekday)}</small><strong>${escapeHtml(part.day)}</strong><span>${escapeHtml(part.month)}</span><b>${escapeHtml(part.time)}</b><em>${money(slot.priceCents || vet.consultationPriceCents || 0)}</em></button>`; }).join('') : empty('📅','Sem horários disponíveis','Escolha outro veterinário ou aguarde novos horários.')}</div>
         ${selectField('Motivo da consulta', 'reason', [{value:'duvida_rapida',label:'Dúvida rápida'}, {value:'sintomas_leves',label:'Sintomas leves'}, {value:'retorno',label:'Retorno'}, {value:'orientacao_preventiva',label:'Orientação preventiva'}, {value:'pos_banho_tosa',label:'Pós-banho/tosa'}], '', 'Selecione o motivo')}
         ${field('Descreva brevemente', 'symptoms', '', 'placeholder="Conte o que quer conversar com o veterinário"')}
-        ${paymentMethodChoicesHtml({ fieldName: 'paymentMethod', selected: 'pix', selectMode: false })}
+        ${paymentMethodChoicesHtml({ fieldName: 'paymentMethod', selected: 'pix', selectMode: true })}
         <article class="client-alert-soft"><strong>Emergência?</strong> Teleconsulta não substitui atendimento presencial em caso grave.</article>
         <button class="btn" type="submit">Ir para pagamento</button>
-      </form>`;
-    root.scrollIntoView({ behavior:'smooth', block:'start' });
-  }
-
-
-  function notificationStatusLabel(status = '') {
-    const value = String(status || '').toLowerCase();
-    if (value === 'sent') return 'Enviada';
-    if (value === 'failed') return 'Falhou';
-    if (value === 'queued') return 'Na fila';
-    return value ? value : 'Notificação';
-  }
-
-  function renderNotificationItem(item = {}) {
-    const url = item.url || '/app/home';
-    const isInternal = String(url).startsWith('/app');
-    return `<article class="client-notification-card">
-      <div class="client-notification-card-icon">🔔</div>
-      <div class="client-notification-card-body">
-        <div class="client-list-title-row"><h3>${escapeHtml(item.title || 'PetFunny')}</h3><span class="client-badge light">${escapeHtml(notificationStatusLabel(item.status))}</span></div>
-        <p>${escapeHtml(item.body || 'Novo aviso do PetFunny.')}</p>
-        <small>${dateTime(item.createdAt || item.sentAt)}</small>
-        ${url ? `<div class="client-card-actions"><a class="btn btn-sm btn-secondary" href="${escapeHtml(url)}" ${isInternal ? '' : 'target="_blank" rel="noopener"'}>Abrir</a></div>` : ''}
-      </div>
-    </article>`;
-  }
-
-  function renderNotificationGroups(items = []) {
-    if (!items.length) return empty('🔔', 'Nenhuma notificação ainda', 'Lembretes, avisos e novidades aparecerão aqui.');
-    const groups = items.reduce((acc, item) => {
-      const label = timelineDateLabel(item.createdAt || item.sentAt);
-      if (!acc[label]) acc[label] = [];
-      acc[label].push(item);
-      return acc;
-    }, {});
-    return Object.entries(groups).map(([label, group]) => `
-      <section class="client-notification-date-group">
-        <h3>${escapeHtml(label)}</h3>
-        <div class="client-list-stack">${group.map(renderNotificationItem).join('')}</div>
-      </section>`).join('');
-  }
-
-  function renderNotificacoes() {
-    return `<section class="client-mobile-section client-notifications-screen">
-      <div class="client-section-title"><h2>Central de notificações</h2><p>Lembretes, avisos do app e novidades do Clube PetFunny separados por data.</p></div>
-      <div id="client-notifications-list">${empty('🔔', 'Carregando notificações...', 'Buscando os avisos mais recentes do PetFunny.')}</div>
-      <div id="client-notifications-sentinel" class="client-notifications-sentinel"><span>Carregando mais...</span></div>
+      </form>
     </section>`;
-  }
-
-  async function hydrateNotificationBadge() {
-    const badge = document.getElementById('client-notification-badge');
-    if (!badge) return;
-    try {
-      const summary = await clientApi.get('/app/notifications/summary');
-      const total = Number(summary.unread ?? summary.total ?? 0);
-      badge.textContent = total > 99 ? '99+' : String(total);
-      badge.hidden = total <= 0;
-      window.__clientNotificationSummary = summary;
-    } catch {
-      badge.hidden = true;
-    }
-  }
-
-  async function loadClientNotificationsPage(reset = false) {
-    const list = document.getElementById('client-notifications-list');
-    const sentinel = document.getElementById('client-notifications-sentinel');
-    if (!list || notificationState.loading) return;
-    if (reset) notificationState = { ...notificationState, items: [], offset: 0, total: 0, hasMore: true, loading: false };
-    if (!notificationState.hasMore) {
-      if (sentinel) sentinel.innerHTML = '<span>Fim das notificações</span>';
-      return;
-    }
-    notificationState.loading = true;
-    if (sentinel) sentinel.innerHTML = '<span>Carregando mais...</span>';
-    try {
-      const payload = await clientApi.get(`/app/notifications?limit=${notificationState.limit}&offset=${notificationState.offset}`);
-      const items = Array.isArray(payload.items) ? payload.items : [];
-      notificationState.items = reset ? items : [...notificationState.items, ...items];
-      notificationState.offset = Number(payload.nextOffset ?? (notificationState.offset + items.length));
-      notificationState.total = Number(payload.total || notificationState.items.length);
-      notificationState.hasMore = Boolean(payload.hasMore);
-      list.innerHTML = renderNotificationGroups(notificationState.items);
-      if (sentinel) sentinel.innerHTML = notificationState.hasMore ? '<span>Role para carregar mais</span>' : '<span>Fim das notificações</span>';
-      hydrateNotificationBadge().catch(() => null);
-    } catch (error) {
-      list.innerHTML = `<article class="client-empty"><span>⚠️</span><h3>Não foi possível carregar</h3><p>${escapeHtml(error.message || 'Tente novamente em instantes.')}</p></article>`;
-      if (sentinel) sentinel.innerHTML = '<span>Toque para tentar novamente</span>';
-    } finally {
-      notificationState.loading = false;
-    }
-  }
-
-  function setupNotificationsInfinite() {
-    const sentinel = document.getElementById('client-notifications-sentinel');
-    if (!sentinel) return;
-    if (notificationState.observer) notificationState.observer.disconnect();
-    notificationState.observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) loadClientNotificationsPage(false);
-    }, { root: document.querySelector('.client-scroll-content') || null, rootMargin: '280px 0px' });
-    notificationState.observer.observe(sentinel);
-    sentinel.addEventListener('click', () => loadClientNotificationsPage(false));
+    root.scrollIntoView({ behavior:'smooth', block:'start' });
   }
 
   function renderPerfil() {
@@ -1861,7 +1675,7 @@
     <section class="client-mobile-section">${renderPushActivationCard()}</section>`;
   }
 
-  const renderers = { home: renderHome, agenda: renderAgenda, agendamentos: renderMeusAgendamentos, saude: renderHealth360, teleconsultas: renderTeleconsultas, notificacoes: renderNotificacoes, pets: renderPets, historico: renderHistorico, momentos: renderMomentos, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, indique: renderIndique, promocoes: renderPromocoes, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
+  const renderers = { home: renderHome, agenda: renderAgenda, agendamentos: renderMeusAgendamentos, saude: renderHealth360, teleconsultas: renderTeleconsultas, pets: renderPets, historico: renderHistorico, momentos: renderMomentos, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, indique: renderIndique, promocoes: renderPromocoes, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
 
   const APP_OPTIONS_CACHE_KEY = 'petfunny_app_options_cache_v1658';
 
@@ -1923,16 +1737,11 @@
     const activeSection = sectionOverride || currentClientSection();
     const [title, subtitle] = heroFor[activeSection] || heroFor.home;
     buildClientApp({ title, subtitle, active: activeSection, content: (renderers[activeSection] || renderHome)() });
-    hydrateNotificationBadge().catch(() => null);
     const focusId = new URLSearchParams(window.location.search).get('focus') || '';
     if (focusId) window.requestAnimationFrame(() => document.getElementById(`moment-${focusId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }));
     if (activeSection === 'home') {
       setupHomeInfiniteReveal();
       queueAiPushReminder(data.careInsight || data.engagement?.careInsight || null);
-    }
-    if (activeSection === 'notificacoes') {
-      await loadClientNotificationsPage(true);
-      setupNotificationsInfinite();
     }
     bindEvents();
     bindPetDetailEvents();
@@ -2377,16 +2186,8 @@
     document.getElementById('client-logout-profile')?.addEventListener('click', () => { clientLogout(); });
     if (currentClientSection() === 'bemestar') { loadWellbeingPanel(new URLSearchParams(window.location.search).get('petId') || ''); }
     if (currentClientSection() === 'saude') { loadHealth360Panel(new URLSearchParams(window.location.search).get('petId') || ''); }
-    if (currentClientSection() === 'teleconsultas') { loadTeleconsultasAppointments(); }
     document.querySelector('[name="wellbeingPetId"]')?.addEventListener('change', (event) => loadWellbeingPanel(event.target.value));
     document.querySelector('[name="healthPetId"]')?.addEventListener('change', (event) => loadHealth360Panel(event.target.value));
-    document.querySelector('[name="momentsPetId"]')?.addEventListener('change', async (event) => {
-      const url = new URL(window.location.href);
-      if (event.target.value) url.searchParams.set('petId', event.target.value);
-      else url.searchParams.delete('petId');
-      window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : ''));
-      await reload('momentos');
-    });
     syncDigitalWalletPaymentOptions();
     bindAppointmentAvailability();
     document.getElementById('appointment-form')?.addEventListener('change', (event) => {
@@ -2415,13 +2216,9 @@
       if (petButton) {
         const picker = petButton.closest('.client-appointment-pet-picker');
         const form = picker?.closest('form') || document.getElementById('appointment-form');
-        const inputName = picker?.dataset.petPickerName || 'petId';
-        const input = picker?.querySelector('input[type="hidden"]') || form?.querySelector(`[name="${inputName}"]`) || form?.querySelector('[name="petId"]');
+        const input = picker?.querySelector('[name="petId"]') || form?.querySelector('[name="petId"]');
         const petId = petButton.dataset.selectAppointmentPet || '';
-        if (input) {
-          input.value = petId;
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+        if (input) input.value = petId;
         picker?.querySelectorAll('[data-select-appointment-pet]').forEach((btn) => btn.classList.toggle('is-selected', btn === petButton));
         const servicesList = document.getElementById('services-list');
         if (servicesList && form?.id === 'appointment-form') {
@@ -2434,9 +2231,8 @@
         }
         return;
       }
-      const addPetButton = event.target?.closest?.('[data-add-pet-agenda]');
-      if (addPetButton) {
-        window.__petfunnyPetFormReturn = addPetButton.dataset.addPetReturn || currentClientSection() || 'agenda';
+      if (event.target?.closest?.('[data-add-pet-agenda]')) {
+        window.__petfunnyPetFormReturn = 'agenda';
         openModal('Adicionar pet', petForm());
       }
     });
@@ -2493,12 +2289,6 @@
           else toast('Momento pronto para compartilhar.');
           clientApi.post('/app/rewards/share-event', { eventType: 'share_media' }).catch(() => null);
         } catch (_) {}
-        return;
-      }
-      if (event.target?.closest?.('[data-open-moment-camera]')) {
-        const input = document.querySelector('[data-moment-upload-input]');
-        if (!input?.dataset.petId) { toast('Escolha um pet antes de enviar o momento.', 'error'); return; }
-        input.click();
         return;
       }
       const dailyButton = event.target?.closest?.('[data-open-daily-triage]');
@@ -2594,7 +2384,7 @@
           return;
         }
         toast(response.message || 'Teleconsulta solicitada.');
-        if (currentClientSection() === 'teleconsultas') await loadTeleconsultasAppointments();
+        if (currentClientSection() === 'teleconsultas') await reload('teleconsultas');
         else await loadHealth360Panel(event.target.petId?.value || '');
       } catch (error) {
         openModal('Não foi possível solicitar teleconsulta', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
@@ -2651,32 +2441,6 @@
     }));
     document.body.addEventListener('change', (event) => {
       if (event.target?.name === 'breed' && event.target.closest('#pet-form')) applyAppBreedSuggestion(event.target.closest('#pet-form'));
-      const momentInput = event.target?.matches?.('[data-moment-upload-input]') ? event.target : null;
-      if (momentInput?.files?.[0]) {
-        const file = momentInput.files[0];
-        const petId = momentInput.dataset.petId || '';
-        if (!petId) { toast('Escolha um pet antes de enviar o momento.', 'error'); momentInput.value = ''; return; }
-        if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) { toast('Escolha uma foto ou vídeo válido.', 'error'); momentInput.value = ''; return; }
-        if (file.size > 7 * 1024 * 1024) { toast('Use um arquivo com até 7 MB.', 'error'); momentInput.value = ''; return; }
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try {
-            await clientApi.post(`/app/pets/${encodeURIComponent(petId)}/media`, {
-              dataUrl: String(reader.result || ''),
-              caption: 'Momento enviado pelo tutor',
-              mediaType: file.type.startsWith('video/') ? 'video' : 'photo'
-            });
-            toast('Momento enviado com sucesso.');
-            await reload('momentos');
-          } catch (error) {
-            openModal('Não foi possível enviar o momento', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
-          } finally {
-            momentInput.value = '';
-          }
-        };
-        reader.readAsDataURL(file);
-        return;
-      }
       const fileInput = event.target?.matches?.('[data-photo-input]') ? event.target : null;
       if (fileInput?.files?.[0]) {
         const file = fileInput.files[0];
@@ -2710,7 +2474,7 @@
         window.__petfunnyPetFormReturn = '';
         closeModal();
         toast(response.message || 'Pet salvo.');
-        await reload(renderers[returnSection] ? returnSection : 'pets');
+        await reload(returnSection === 'agenda' ? 'agenda' : 'pets');
       } catch (error) { openModal('Não foi possível salvar o pet', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>'); }
     });
 
@@ -2822,6 +2586,3 @@
     document.body.innerHTML = `<main class="page-center"><section class="card"><h1>Não foi possível carregar o app.</h1><p>${escapeHtml(error.message)}</p><a class="btn" href="/app/login">Voltar ao login</a></section></main>`;
     finishPageLoading();
   }
-</script>
-</body>
-</html>
