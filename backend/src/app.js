@@ -963,8 +963,21 @@ function normalizeAiTask(task = {}, index = 0) {
     due: String(task.due || task.prazo || 'Hoje').slice(0, 80),
     effort: String(task.effort || task.esforco || '15 min').slice(0, 80),
     kpi: String(task.kpi || task.indicador || 'crescimento').slice(0, 140),
-    route: resolveAiTaskRoute(task)
+    route: resolveAiTaskRoute(task),
+    clientName: String(task.clientName || task.cliente || task.tutorName || task.tutor || '').slice(0, 120),
+    petName: String(task.petName || task.pet || '').slice(0, 120),
+    appointmentId: task.appointmentId || task.agendamentoId || task.appointment_id || null,
+    whatsappPhone: normalizeWhatsapp(task.whatsappPhone || task.phone || task.whatsapp || task.tutorWhatsapp || ''),
+    whatsappMessage: String(task.whatsappMessage || task.message || task.mensagemWhatsapp || task.copyWhatsapp || '').slice(0, 900),
+    actionLabel: String(task.actionLabel || task.botao || task.cta || 'Enviar WhatsApp').slice(0, 80)
   };
+}
+
+function buildAiWhatsappUrl(phone = '', message = '') {
+  const digits = normalizeWhatsapp(phone);
+  const encoded = encodeURIComponent(String(message || '').trim());
+  if (!digits && !encoded) return '';
+  return digits ? `https://wa.me/${digits}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
 }
 
 function normalizeGrowthPlan(raw = {}, fallback = {}) {
@@ -1024,11 +1037,34 @@ function buildLocalGrowthPlan({ summary, snapshot }) {
   score = clampScore(score);
 
   const tasks = [];
-  if (emptyAgenda) {
+  const fmtHour = (value) => value ? new Date(value).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
+  const fmtDateShort = (value) => value ? new Date(value).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) : '';
+  const firstTodayToConfirm = agendaToday.find((item) => ['agendado', 'confirmado'].includes(String(item.status || '').toLowerCase()) && item.tutorWhatsapp) || agendaToday.find((item) => item.tutorWhatsapp) || null;
+  const firstTodayForPackage = agendaToday.find((item) => item.tutorWhatsapp && !String(item.packageSessionLabel || '').trim()) || firstTodayToConfirm || null;
+  const firstPendingPayment = (snapshot.paymentPending || []).find((item) => item.tutor_name || item.tutorName) || (snapshot.paymentPending || [])[0] || null;
+  const firstInactiveTutor = (snapshot.inactiveTutors || []).find((item) => item.whatsapp) || (snapshot.inactiveTutors || [])[0] || null;
+  const firstPackageAttention = (snapshot.packageAttention || [])[0] || null;
+
+  if (firstTodayToConfirm) {
+    const hour = fmtHour(firstTodayToConfirm.startsAt);
+    const message = `Oi, ${firstTodayToConfirm.tutorName || 'tudo bem'}! Aqui é do PetFunny 🐾 Passando para confirmar o horário do ${firstTodayToConfirm.petName || 'seu pet'} hoje às ${hour}. Podemos confirmar?`;
     tasks.push({
-      title: 'Ativar agenda vazia com campanha de encaixe',
-      description: 'Disparar mensagem para clientes recorrentes, pacotes ativos e tutores sem visita recente oferecendo horários livres de hoje/amanhã. Prioridade é gerar movimento rápido sem depender de anúncio pago.',
-      priority: 'alta', module: 'CRM & Marketing', due: 'Hoje até 10h30', effort: '25 min', kpi: '3 a 5 conversas iniciadas', route: '/admin/crm'
+      title: `Confirmar ${firstTodayToConfirm.petName || 'pet'} com ${firstTodayToConfirm.tutorName || 'tutor'}`,
+      description: `Agendamento de hoje às ${hour} para ${firstTodayToConfirm.petName || 'pet'} (${firstTodayToConfirm.services || 'serviço'}). Envie a confirmação antes do horário para reduzir atraso, falta e buraco na agenda.`,
+      priority: 'alta', module: 'Agenda', due: 'Agora', effort: '3 min', kpi: 'horário confirmado antes do atendimento', route: `/admin/agenda?appointment=${firstTodayToConfirm.id}`,
+      clientName: firstTodayToConfirm.tutorName || '', petName: firstTodayToConfirm.petName || '', appointmentId: firstTodayToConfirm.id,
+      whatsappPhone: firstTodayToConfirm.tutorWhatsapp || '', whatsappMessage: message, actionLabel: 'Confirmar no WhatsApp'
+    });
+  } else if (emptyAgenda) {
+    const inactiveTarget = firstInactiveTutor || {};
+    const message = `Oi, ${inactiveTarget.name || 'tudo bem'}! Aqui é do PetFunny 🐾 Hoje abrimos alguns horários especiais para banho e cuidado. Quer que eu veja um encaixe para o seu pet?`;
+    tasks.push({
+      title: inactiveTarget.name ? `Reativar ${inactiveTarget.name} para preencher a agenda` : 'Ativar agenda vazia com campanha de encaixe',
+      description: inactiveTarget.name
+        ? `${inactiveTarget.name} está sem visita recente. Envie uma mensagem direta oferecendo um encaixe e tente trazer o cliente de volta sem depender de anúncio pago.`
+        : 'Disparar mensagem para clientes recorrentes, pacotes ativos e tutores sem visita recente oferecendo horários livres de hoje/amanhã.',
+      priority: 'alta', module: 'CRM & Marketing', due: 'Hoje até 10h30', effort: '15 min', kpi: '3 a 5 conversas iniciadas', route: '/admin/crm',
+      clientName: inactiveTarget.name || '', whatsappPhone: inactiveTarget.whatsapp || '', whatsappMessage: message, actionLabel: 'Reativar no WhatsApp'
     });
   } else {
     tasks.push({
@@ -1038,7 +1074,36 @@ function buildLocalGrowthPlan({ summary, snapshot }) {
     });
   }
 
-  if (paymentPressure) {
+  if (firstTodayForPackage) {
+    const message = `Oi, ${firstTodayForPackage.tutorName || 'tudo bem'}! O ${firstTodayForPackage.petName || 'seu pet'} ficou/ficará em dia com o cuidado no PetFunny 🐶✨ Para facilitar sua rotina, posso deixar os próximos banhos organizados em pacote mensal, com horário garantido e mais previsibilidade. Quer que eu te mostre as opções?`;
+    tasks.push({
+      title: `Oferecer pacote para ${firstTodayForPackage.tutorName || 'cliente de hoje'}`,
+      description: `${firstTodayForPackage.tutorName || 'Tutor'} tem atendimento de ${firstTodayForPackage.petName || 'pet'} hoje (${firstTodayForPackage.services || 'serviço'}). É uma oportunidade concreta para converter banho avulso em recorrência antes ou logo após a entrega do pet.`,
+      priority: 'alta', module: 'Pacotes', due: 'Após o atendimento', effort: '5 min', kpi: '1 proposta de pacote enviada', route: '/admin/pacotes?sell=1',
+      clientName: firstTodayForPackage.tutorName || '', petName: firstTodayForPackage.petName || '', appointmentId: firstTodayForPackage.id,
+      whatsappPhone: firstTodayForPackage.tutorWhatsapp || '', whatsappMessage: message, actionLabel: 'Oferecer pacote'
+    });
+  } else if (conversionPressure) {
+    tasks.push({
+      title: 'Converter banhos avulsos em pacote recorrente',
+      description: 'Identificar tutores com banho avulso recente e oferecer pacote mensal com benefício claro: agenda garantida, pet sempre cuidado e previsibilidade para o tutor.',
+      priority: 'alta', module: 'Pacotes', due: 'Hoje após cada atendimento', effort: '10 min por tutor', kpi: '1 nova venda de pacote', route: '/admin/pacotes'
+    });
+  }
+
+  if (firstPendingPayment) {
+    const amount = brlFromCentsText(firstPendingPayment.amount_cents || firstPendingPayment.amountCents || 0);
+    const tutorName = firstPendingPayment.tutor_name || firstPendingPayment.tutorName || 'cliente';
+    const dueLabel = firstPendingPayment.due_date ? new Date(firstPendingPayment.due_date).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'sem vencimento informado';
+    tasks.push({
+      title: `Cobrar pendência de ${tutorName}`,
+      description: `${tutorName} possui uma pendência de ${amount} (${firstPendingPayment.description || 'recebimento'}), vencimento ${dueLabel}. Verifique se já foi pago; se não, envie lembrete educado pelo WhatsApp.`,
+      priority: 'alta', module: 'Financeiro', due: 'Hoje antes do fechamento', effort: '5 min', kpi: 'reduzir pendências financeiras', route: '/admin/financeiro',
+      clientName: tutorName, whatsappPhone: firstPendingPayment.whatsapp || firstPendingPayment.tutor_whatsapp || '',
+      whatsappMessage: `Oi, ${tutorName}! Tudo bem? Aqui é do PetFunny 🐾 Estou conferindo o financeiro e consta uma pendência de ${amount}. Você consegue me confirmar se já realizou o pagamento? Se preferir, te envio novamente as informações.`,
+      actionLabel: 'Cobrar no WhatsApp'
+    });
+  } else if (paymentPressure) {
     tasks.push({
       title: 'Baixar ou cobrar recebimentos pendentes',
       description: `Existem ${pending} pendência(s), somando ${brlFromCentsText(pendingCents)}. Separar o que já foi pago, dar baixa e enviar lembrete educado para o restante.`,
@@ -1046,13 +1111,19 @@ function buildLocalGrowthPlan({ summary, snapshot }) {
     });
   }
 
-  if (conversionPressure) {
+  if (firstPackageAttention) {
+    const remaining = Math.max(0, asNumber(firstPackageAttention.total_sessions) - asNumber(firstPackageAttention.finished_sessions || firstPackageAttention.used_sessions));
+    const tutorName = firstPackageAttention.tutor_name || 'cliente com pacote';
+    const petName = firstPackageAttention.pet_name || 'pet';
     tasks.push({
-      title: 'Converter banhos avulsos em pacote recorrente',
-      description: 'Identificar tutores com banho avulso recente e oferecer pacote mensal com benefício claro: agenda garantida, pet sempre cuidado e previsibilidade para o tutor.',
-      priority: 'alta', module: 'Pacotes', due: 'Hoje após cada atendimento', effort: '10 min por tutor', kpi: '1 nova venda de pacote', route: '/admin/pacotes'
+      title: `Antecipar renovação do pacote de ${petName}`,
+      description: `${petName}, de ${tutorName}, tem pacote ativo (${firstPackageAttention.package_name || 'pacote'}) com ${remaining} sessão(ões) restantes. Fale antes da última sessão para evitar intervalo sem recorrência.`,
+      priority: remaining <= 1 ? 'alta' : 'média', module: 'Pacotes', due: 'Hoje', effort: '7 min', kpi: 'renovação sem atraso', route: '/admin/pacotes',
+      clientName: tutorName, petName,
+      whatsappMessage: `Oi, ${tutorName}! Aqui é do PetFunny 🐾 O pacote do ${petName} está chegando perto do fim. Quer que eu já deixe a renovação organizada para manter os próximos banhos garantidos?`,
+      actionLabel: 'Enviar renovação'
     });
-  } else {
+  } else if (!conversionPressure) {
     tasks.push({
       title: 'Proteger a base recorrente de pacotes',
       description: `Há ${activePackages} pacote(s) ativo(s). Conferir próximas sessões e antecipar renovação dos clientes que estão próximos da última sessão.`,
@@ -1061,16 +1132,27 @@ function buildLocalGrowthPlan({ summary, snapshot }) {
   }
 
   tasks.push({
-    title: 'Registrar momento do pet para aumentar vínculo',
-    description: 'Durante atendimentos finalizados, salvar foto/vídeo do pet e usar isso como motivo de retorno no app do tutor e WhatsApp.',
-    priority: appointmentsToday > 0 ? 'média' : 'baixa', module: 'Acessos do App', due: 'Durante os atendimentos', effort: '5 min por pet', kpi: 'mais engajamento no app', route: '/admin/app-acessos'
+    title: firstTodayToConfirm ? `Registrar momento do ${firstTodayToConfirm.petName || 'pet'}` : 'Registrar momento do pet para aumentar vínculo',
+    description: firstTodayToConfirm
+      ? `Durante ou após o atendimento do ${firstTodayToConfirm.petName || 'pet'}, salve uma foto/vídeo e envie para ${firstTodayToConfirm.tutorName || 'o tutor'}. Isso aumenta percepção de cuidado e engajamento no app.`
+      : 'Durante atendimentos finalizados, salvar foto/vídeo do pet e usar isso como motivo de retorno no app do tutor e WhatsApp.',
+    priority: appointmentsToday > 0 ? 'média' : 'baixa', module: 'Acessos do App', due: 'Durante os atendimentos', effort: '5 min por pet', kpi: 'mais engajamento no app', route: '/admin/app-acessos',
+    clientName: firstTodayToConfirm?.tutorName || '', petName: firstTodayToConfirm?.petName || '', whatsappPhone: firstTodayToConfirm?.tutorWhatsapp || '',
+    whatsappMessage: firstTodayToConfirm ? `Oi, ${firstTodayToConfirm.tutorName || 'tudo bem'}! Olha que especial: registramos um momento do ${firstTodayToConfirm.petName || 'seu pet'} aqui no PetFunny 🐾✨ Você pode acompanhar os momentos pelo app do tutor.` : '',
+    actionLabel: 'Enviar momento'
   });
 
   if (upcoming < 4) {
+    const target = firstTodayToConfirm || firstTodayForPackage || {};
     tasks.push({
-      title: 'Preencher os próximos 7 dias',
-      description: `A agenda futura tem apenas ${upcoming} horário(s) próximos carregados no painel. Ofereça remarcação e próximos banhos antes do tutor sair da loja.`,
-      priority: 'média', module: 'Agenda', due: 'Hoje', effort: '20 min', kpi: 'agenda futura mais cheia', route: '/admin/agenda'
+      title: target.tutorName ? `Agendar próximo cuidado de ${target.petName || 'pet'}` : 'Preencher os próximos 7 dias',
+      description: target.tutorName
+        ? `Antes de ${target.tutorName} sair, ofereça já o próximo banho do ${target.petName || 'pet'} para manter frequência e evitar que o cliente esqueça de remarcar.`
+        : `A agenda futura tem apenas ${upcoming} horário(s) próximos carregados no painel. Ofereça remarcação e próximos banhos antes do tutor sair da loja.`,
+      priority: 'média', module: 'Agenda', due: 'Hoje', effort: '5 min', kpi: 'agenda futura mais cheia', route: '/admin/agenda',
+      clientName: target.tutorName || '', petName: target.petName || '', whatsappPhone: target.tutorWhatsapp || '',
+      whatsappMessage: target.tutorName ? `Oi, ${target.tutorName}! Para manter o ${target.petName || 'pet'} sempre cuidado, quer que eu já reserve o próximo banho? Assim você garante o melhor horário na agenda do PetFunny. 🐶🛁` : '',
+      actionLabel: 'Agendar retorno'
     });
   }
 
@@ -1181,7 +1263,7 @@ async function getDashboardGrowthSnapshot() {
       LIMIT 10
     `),
     safeAiQuery('growth_payment_pending', `
-      SELECT ft.id, ft.description, ft.amount_cents, ft.due_date, ft.status, t.name AS tutor_name
+      SELECT ft.id, ft.description, ft.amount_cents, ft.due_date, ft.status, t.name AS tutor_name, t.whatsapp
       FROM financial_transactions ft
       LEFT JOIN tutors t ON t.id = ft.tutor_id
       WHERE ft.deleted_at IS NULL
@@ -1215,7 +1297,7 @@ async function askOpenAiForGrowthPlan({ summary, snapshot, fallbackPlan }) {
   if (!env.openaiApiKey) return null;
   if (typeof fetch !== 'function') return null;
 
-  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/whatsapp, /admin/assistente-ia, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
+  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route e, quando houver cliente específico, clientName, petName, whatsappPhone, whatsappMessage e actionLabel. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/whatsapp, /admin/assistente-ia, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8500);
   let response;
@@ -2268,9 +2350,17 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
     }
 
     if (search) {
-      params.push(`%${search.replace(/\s+/g, '%')}%`);
-      params.push(`%${normalizeWhatsapp(search)}%`);
-      where.push(`(unaccent(lower(t.name)) ILIKE unaccent(lower($${params.length - 1})) OR t.whatsapp ILIKE $${params.length} OR lower(COALESCE(t.email,'')) ILIKE lower($${params.length - 1}))`);
+      const term = `%${search.replace(/\s+/g, '%')}%`;
+      const whatsappDigits = normalizeWhatsapp(search);
+      params.push(term);
+      const termIndex = params.length;
+      const searchSql = [`unaccent(lower(t.name)) ILIKE unaccent(lower($${termIndex}))`, `lower(COALESCE(t.email,'')) ILIKE lower($${termIndex})`];
+      if (whatsappDigits) {
+        params.push(`%${whatsappDigits}%`);
+        searchSql.push(`regexp_replace(COALESCE(t.whatsapp,''), '\D', '', 'g') ILIKE $${params.length}`);
+        searchSql.push(`regexp_replace(COALESCE(t.phone,''), '\D', '', 'g') ILIKE $${params.length}`);
+      }
+      where.push(`(${searchSql.join(' OR ')})`);
     }
 
     const filterParams = [...params];
@@ -2278,11 +2368,18 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
     params.push(offset);
 
     const result = await query(`
-      SELECT t.id, t.name, t.whatsapp, t.phone, t.email, t.document_number, t.address, t.city, t.state, t.photo_url,
+      SELECT t.id, t.name, t.whatsapp, t.phone, t.email, t.document_number, t.address, t.address_number, t.address_neighborhood, t.address_zipcode, t.city, t.state, t.photo_url,
              t.tags, t.notes, t.status, t.created_at, t.updated_at,
              COUNT(DISTINCT p.id) FILTER (WHERE p.deleted_at IS NULL)::int AS pets_count,
              COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL)::int AS appointments_count,
              COALESCE(MAX(a.starts_at), NULL) AS last_appointment_at,
+             (
+               SELECT p_last.name
+               FROM pets p_last
+               WHERE p_last.tutor_id = t.id AND p_last.deleted_at IS NULL
+               ORDER BY p_last.created_at DESC, p_last.updated_at DESC
+               LIMIT 1
+             ) AS last_pet_name,
              CASE
                WHEN COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL) = 0 THEN NULL
                ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - MAX(a.starts_at))) / 86400))::int
@@ -2340,6 +2437,7 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
         petsCount: Number(row.pets_count || 0),
         appointmentsCount: Number(row.appointments_count || 0),
         lastAppointmentAt: row.last_appointment_at,
+        lastPetName: row.last_pet_name || null,
         daysWithoutAppointment: row.days_without_appointment === null || row.days_without_appointment === undefined ? null : Number(row.days_without_appointment),
         crmStatus: row.crm_status || 'novo_lead',
         createdAt: row.created_at,
@@ -2450,8 +2548,8 @@ app.post('/api/tutores', requireAuth, async (req, res, next) => {
     }
 
     const result = await query(`
-      INSERT INTO tutors (name, whatsapp, phone, email, document_number, address, city, state, tags, notes, status, photo_url)
-      VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'Ribeirão Preto'), COALESCE($8, 'SP'), $9::text[], $10, COALESCE($11, 'active'), $12)
+      INSERT INTO tutors (name, whatsapp, phone, email, document_number, address, address_number, address_neighborhood, address_zipcode, city, state, tags, notes, status, photo_url)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 'Ribeirão Preto'), COALESCE($11, 'SP'), $12::text[], $13, COALESCE($14, 'active'), $15)
       RETURNING *
     `, [
       name,
@@ -2460,6 +2558,9 @@ app.post('/api/tutores', requireAuth, async (req, res, next) => {
       cleanText(req.body.email),
       cleanText(req.body.documentNumber || req.body.document_number),
       cleanText(req.body.address),
+      cleanText(req.body.addressNumber || req.body.address_number),
+      cleanText(req.body.addressNeighborhood || req.body.address_neighborhood),
+      cleanText(req.body.addressZipcode || req.body.address_zipcode),
       cleanText(req.body.city),
       cleanText(req.body.state),
       parseTags(req.body.tags),
@@ -2501,12 +2602,15 @@ app.put('/api/tutores/:id', requireAuth, async (req, res, next) => {
           email = $5,
           document_number = $6,
           address = $7,
-          city = COALESCE($8, 'Ribeirão Preto'),
-          state = COALESCE($9, 'SP'),
-          tags = $10::text[],
-          notes = $11,
-          status = COALESCE($12, 'active'),
-          photo_url = $13,
+          address_number = $8,
+          address_neighborhood = $9,
+          address_zipcode = $10,
+          city = COALESCE($11, 'Ribeirão Preto'),
+          state = COALESCE($12, 'SP'),
+          tags = $13::text[],
+          notes = $14,
+          status = COALESCE($15, 'active'),
+          photo_url = $16,
           updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
       RETURNING *
@@ -2518,6 +2622,9 @@ app.put('/api/tutores/:id', requireAuth, async (req, res, next) => {
       cleanText(req.body.email),
       cleanText(req.body.documentNumber || req.body.document_number),
       cleanText(req.body.address),
+      cleanText(req.body.addressNumber || req.body.address_number),
+      cleanText(req.body.addressNeighborhood || req.body.address_neighborhood),
+      cleanText(req.body.addressZipcode || req.body.address_zipcode),
       cleanText(req.body.city),
       cleanText(req.body.state),
       parseTags(req.body.tags),
@@ -2632,9 +2739,22 @@ app.get('/api/pets', requireAuth, async (req, res, next) => {
       where.push(`p.tutor_id = $${params.length}`);
     }
     if (search) {
-      params.push(`%${search.replace(/\s+/g, '%')}%`);
-      params.push(`%${normalizeWhatsapp(search)}%`);
-      where.push(`(unaccent(lower(p.name)) ILIKE unaccent(lower($${params.length - 1})) OR unaccent(lower(COALESCE(p.breed,''))) ILIKE unaccent(lower($${params.length - 1})) OR unaccent(lower(t.name)) ILIKE unaccent(lower($${params.length - 1})) OR t.whatsapp ILIKE $${params.length})`);
+      const term = `%${search.replace(/\s+/g, '%')}%`;
+      const whatsappDigits = normalizeWhatsapp(search);
+      params.push(term);
+      const termIndex = params.length;
+      const searchSql = [
+        `unaccent(lower(p.name)) ILIKE unaccent(lower($${termIndex}))`,
+        `unaccent(lower(COALESCE(p.breed,''))) ILIKE unaccent(lower($${termIndex}))`,
+        `unaccent(lower(t.name)) ILIKE unaccent(lower($${termIndex}))`,
+        `lower(COALESCE(t.email,'')) ILIKE lower($${termIndex})`
+      ];
+      if (whatsappDigits) {
+        params.push(`%${whatsappDigits}%`);
+        searchSql.push(`regexp_replace(COALESCE(t.whatsapp,''), '\D', '', 'g') ILIKE $${params.length}`);
+        searchSql.push(`regexp_replace(COALESCE(t.phone,''), '\D', '', 'g') ILIKE $${params.length}`);
+      }
+      where.push(`(${searchSql.join(' OR ')})`);
     }
 
     const filterParams = [...params];
@@ -2682,6 +2802,47 @@ app.get('/api/pets', requireAuth, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.get('/api/pets/:id/media', requireAuth, async (req, res, next) => {
+  try {
+    const petId = req.params.id;
+    const pet = await query(`
+      SELECT p.id, p.name, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp
+      FROM pets p
+      LEFT JOIN tutors t ON t.id = p.tutor_id
+      WHERE p.id=$1::uuid AND p.deleted_at IS NULL
+      LIMIT 1
+    `, [petId]);
+    if (!pet.rowCount) return res.status(404).json({ error: 'Pet não encontrado.' });
+    const media = await query(`
+      SELECT am.id, am.appointment_id, am.pet_id, am.media_type, am.url, am.caption, am.is_featured, am.created_at,
+             a.starts_at, COALESCE(string_agg(DISTINCT ai.description, ', '), '') AS services
+      FROM appointment_media am
+      LEFT JOIN appointments a ON a.id = am.appointment_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
+      WHERE am.pet_id=$1::uuid AND am.deleted_at IS NULL
+      GROUP BY am.id, a.starts_at
+      ORDER BY am.created_at DESC
+      LIMIT 80
+    `, [petId]);
+    res.json({
+      ok: true,
+      pet: { id: pet.rows[0].id, name: pet.rows[0].name, tutorName: pet.rows[0].tutor_name || '', tutorWhatsapp: pet.rows[0].tutor_whatsapp || '' },
+      media: media.rows.map((row) => ({
+        id: row.id,
+        appointmentId: row.appointment_id,
+        petId: row.pet_id,
+        mediaType: row.media_type || 'photo',
+        url: row.url,
+        caption: row.caption || '',
+        featured: !!row.is_featured,
+        createdAt: row.created_at,
+        startsAt: row.starts_at,
+        services: row.services || ''
+      }))
+    });
+  } catch (error) { next(error); }
 });
 
 app.get('/api/pets/:id', requireAuth, async (req, res, next) => {
@@ -3052,27 +3213,33 @@ app.post('/api/app/auth/register-tutor', async (req, res, next) => {
     const city = cleanText(req.body?.city) || 'Ribeirão Preto';
     const state = cleanText(req.body?.state) || 'SP';
     const address = cleanText(req.body?.address);
+    const addressNumber = cleanText(req.body?.addressNumber || req.body?.address_number);
+    const addressNeighborhood = cleanText(req.body?.addressNeighborhood || req.body?.address_neighborhood);
+    const addressZipcode = cleanText(req.body?.addressZipcode || req.body?.address_zipcode);
     const notes = cleanText(req.body?.notes);
 
     if (!whatsapp) return res.status(400).json({ error: 'WhatsApp não validado.' });
     if (!name) return res.status(400).json({ error: 'Informe o nome do tutor.' });
 
     const tutorResult = await query(`
-      INSERT INTO tutors (name, whatsapp, email, city, state, address, notes, tags, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, ARRAY['app_cliente'], 'active')
+      INSERT INTO tutors (name, whatsapp, email, city, state, address, address_number, address_neighborhood, address_zipcode, notes, tags, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, ARRAY['app_cliente'], 'active')
       ON CONFLICT (whatsapp) DO UPDATE
       SET name = EXCLUDED.name,
           email = EXCLUDED.email,
           city = EXCLUDED.city,
           state = EXCLUDED.state,
           address = EXCLUDED.address,
+          address_number = EXCLUDED.address_number,
+          address_neighborhood = EXCLUDED.address_neighborhood,
+          address_zipcode = EXCLUDED.address_zipcode,
           notes = EXCLUDED.notes,
           tags = ARRAY(SELECT DISTINCT unnest(COALESCE(tutors.tags, ARRAY[]::TEXT[]) || ARRAY['app_cliente'])),
           status = 'active',
           deleted_at = NULL,
           updated_at = NOW()
-      RETURNING id, name, whatsapp, email, city, state, tags
-    `, [name, whatsapp, email || null, city, state, address || null, notes || null]);
+      RETURNING id, name, whatsapp, email, address, address_number, address_neighborhood, address_zipcode, city, state, tags
+    `, [name, whatsapp, email || null, city, state, address || null, addressNumber || null, addressNeighborhood || null, addressZipcode || null, notes || null]);
 
     const tutor = tutorResult.rows[0];
     const accountResult = await query(`
@@ -5175,6 +5342,309 @@ function applyPromotionsToItems(items = [], promotions = []) {
   return { items: adjustedItems, subtotalCents, discountCents, totalCents, appliedPromotions: applied };
 }
 
+function normalizeTransportText(value = '') {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function isTransportServiceName(value = '') {
+  const text = normalizeTransportText(value);
+  return text.includes('transporte') || text.includes('leva e traz') || text.includes('buscar e entregar') || text.includes('taxi dog') || text.includes('taxidog');
+}
+
+function hasCompleteTransportAddress(tutor = {}) {
+  return Boolean(cleanText(tutor.address) && cleanText(tutor.address_number || tutor.addressNumber) && cleanText(tutor.address_neighborhood || tutor.addressNeighborhood));
+}
+
+function estimateOneWayTransportKm(tutor = {}) {
+  const neighborhood = normalizeTransportText(tutor.address_neighborhood || tutor.addressNeighborhood || '');
+  const zip = String(tutor.address_zipcode || tutor.addressZipcode || '').replace(/\D/g, '');
+  const zones = [
+    { keys: ['jardim palmares', 'palmares'], km: 1.8 },
+    { keys: ['vila virginia', 'ipiranga', 'sumarezinho'], km: 3.5 },
+    { keys: ['jardim paulista', 'campos eliseos', 'centro'], km: 4.5 },
+    { keys: ['jardim america', 'alto da boa vista', 'ribeirania'], km: 6.5 },
+    { keys: ['bonfim paulista', 'recreio internacional'], km: 12.5 }
+  ];
+  const found = zones.find((zone) => zone.keys.some((key) => neighborhood.includes(key)));
+  if (found) return found.km;
+  if (zip.startsWith('1403') || zip.startsWith('1402')) return 4.2;
+  if (zip.startsWith('1409') || zip.startsWith('1407')) return 7.5;
+  if (zip.startsWith('1411')) return 11.5;
+  return 5.5;
+}
+
+function getTransportAddressParts(tutor = {}) {
+  return [
+    cleanText(tutor.address),
+    cleanText(tutor.address_number || tutor.addressNumber),
+    cleanText(tutor.address_neighborhood || tutor.addressNeighborhood),
+    cleanText(tutor.city || 'Ribeirão Preto'),
+    cleanText(tutor.state || 'SP')
+  ].filter(Boolean);
+}
+
+function getTransportPricingConfig() {
+  return {
+    baseCents: Number(env.transportBaseFeeCents || 600),
+    perKmCents: Number(env.transportPricePerKmCents || 220),
+    minimumCents: Number(env.transportMinimumFeeCents || 1200),
+    maxOneWayKm: Number(env.transportMaxOneWayKm || 20),
+    originAddress: cleanText(env.petfunnyOriginAddress || 'PetFunny Banho e Tosa, Ribeirão Preto, SP')
+  };
+}
+
+
+function normalizeCep(value = '') {
+  return String(value || '').replace(/\D/g, '').slice(0, 8);
+}
+
+async function lookupBrazilCep(rawCep = '') {
+  const cep = normalizeCep(rawCep);
+  if (cep.length !== 8) {
+    const err = new Error('Informe um CEP válido com 8 dígitos.');
+    err.statusCode = 400;
+    throw err;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { signal: controller.signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.erro) {
+      const err = new Error('CEP não encontrado na base dos Correios.');
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      zipcode: cep.replace(/(\d{5})(\d{3})/, '$1-$2'),
+      address: cleanText(data.logradouro || ''),
+      addressNeighborhood: cleanText(data.bairro || ''),
+      city: cleanText(data.localidade || 'Ribeirão Preto'),
+      state: cleanText(data.uf || 'SP'),
+      source: 'viacep'
+    };
+  } catch (error) {
+    if (error.statusCode) throw error;
+    const err = new Error(error?.name === 'AbortError' ? 'Consulta de CEP demorou demais. Preencha manualmente.' : 'Não foi possível consultar o CEP agora. Preencha manualmente.');
+    err.statusCode = 502;
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function calculateTransportFareFromKm(oneWayKm, method = 'estimated_local_zone', extra = {}) {
+  const pricing = getTransportPricingConfig();
+  const safeOneWayKm = Math.max(0, Number(oneWayKm || 0));
+  const operationalKm = safeOneWayKm * 4; // loja -> tutor -> loja, depois loja -> tutor -> loja
+  const raw = Math.max(pricing.minimumCents, pricing.baseCents + Math.round(operationalKm * pricing.perKmCents));
+  const feeCents = Math.ceil(raw / 100) * 100;
+  const warning = safeOneWayKm > pricing.maxOneWayKm
+    ? `Atenção: o endereço está acima do raio sugerido de ${pricing.maxOneWayKm.toFixed(1)} km por trecho.`
+    : '';
+  const methodLabel = method === 'google_routes'
+    ? 'rota real calculada'
+    : 'estimativa local';
+  return {
+    requiresAddress: false,
+    feeCents,
+    oneWayKm: Number(safeOneWayKm.toFixed(1)),
+    operationalKm: Number(operationalKm.toFixed(1)),
+    method,
+    provider: method === 'google_routes' ? 'google_routes_api' : 'local_fallback',
+    summary: `Busca e entrega: ${safeOneWayKm.toFixed(1)} km por trecho · ciclo operacional ${operationalKm.toFixed(1)} km (${methodLabel}).`,
+    warning,
+    pricing: {
+      baseCents: pricing.baseCents,
+      perKmCents: pricing.perKmCents,
+      minimumCents: pricing.minimumCents,
+      maxOneWayKm: pricing.maxOneWayKm
+    },
+    ...extra
+  };
+}
+
+async function getGoogleRoutesOneWayDistanceKm(destinationAddress) {
+  const pricing = getTransportPricingConfig();
+  if (!env.googleMapsApiKey) {
+    return { ok: false, reason: 'missing_api_key' };
+  }
+  if (!pricing.originAddress || !destinationAddress) {
+    return { ok: false, reason: 'missing_origin_or_destination' };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5500);
+  try {
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': env.googleMapsApiKey,
+        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration'
+      },
+      body: JSON.stringify({
+        origin: { address: pricing.originAddress },
+        destination: { address: destinationAddress },
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_AWARE',
+        languageCode: 'pt-BR',
+        units: 'METRIC'
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return { ok: false, reason: `google_http_${response.status}`, details: data?.error?.message || data?.error || '' };
+    }
+    const route = Array.isArray(data?.routes) ? data.routes[0] : null;
+    const distanceMeters = Number(route?.distanceMeters || 0);
+    if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+      return { ok: false, reason: 'google_no_distance' };
+    }
+    return {
+      ok: true,
+      oneWayKm: distanceMeters / 1000,
+      duration: route?.duration || '',
+      distanceMeters,
+      originAddress: pricing.originAddress,
+      destinationAddress
+    };
+  } catch (error) {
+    return { ok: false, reason: error?.name === 'AbortError' ? 'google_timeout' : 'google_request_failed', details: error?.message || '' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function calculateTransportQuote(tutor = {}) {
+  const addressParts = getTransportAddressParts(tutor);
+  const address = addressParts.join(', ');
+  if (!hasCompleteTransportAddress(tutor)) {
+    return {
+      requiresAddress: true,
+      feeCents: 0,
+      oneWayKm: 0,
+      operationalKm: 0,
+      address,
+      method: 'address_required',
+      provider: 'none',
+      summary: 'Cadastre rua, número e bairro para calcular o transporte.'
+    };
+  }
+
+  const googleQuote = await getGoogleRoutesOneWayDistanceKm(address);
+  if (googleQuote.ok) {
+    return {
+      ...calculateTransportFareFromKm(googleQuote.oneWayKm, 'google_routes', {
+        routeDuration: googleQuote.duration,
+        distanceMeters: googleQuote.distanceMeters,
+        originAddress: googleQuote.originAddress,
+        fallbackUsed: false
+      }),
+      address
+    };
+  }
+
+  const oneWayKm = estimateOneWayTransportKm(tutor);
+  return {
+    ...calculateTransportFareFromKm(oneWayKm, 'estimated_local_zone', {
+      fallbackUsed: Boolean(env.googleMapsApiKey),
+      fallbackReason: googleQuote.reason || '',
+      fallbackDetails: googleQuote.details || ''
+    }),
+    address
+  };
+}
+
+async function getCurrentTutorTransportPayload(tutorId) {
+  const result = await query(`
+    SELECT id, name, whatsapp, email, address, address_number, address_neighborhood, address_zipcode, city, state
+    FROM tutors
+    WHERE id=$1::uuid AND deleted_at IS NULL
+    LIMIT 1
+  `, [tutorId]);
+  return result.rows[0] || {};
+}
+
+app.get('/api/app/transport/estimate', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutor = await getCurrentTutorTransportPayload(req.clientApp.tutor.id);
+    const quote = await calculateTransportQuote(tutor);
+    res.json({
+      ok: true,
+      ...quote,
+      tutor: sanitizeTutor(tutor),
+      googleRoutesEnabled: Boolean(env.googleMapsApiKey),
+      note: quote.method === 'google_routes'
+        ? 'Distância calculada por rota real. O valor inclui busca e entrega do pet.'
+        : 'Estimativa local ativa para busca e entrega do pet.'
+    });
+  } catch (error) { next(error); }
+});
+
+
+app.get('/api/cep/:cep', async (req, res, next) => {
+  try {
+    const address = await lookupBrazilCep(req.params.cep);
+    res.json({ ok: true, ...address });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/transport/estimate', requireAuth, async (req, res, next) => {
+  try {
+    const tutorId = cleanText(req.query?.tutorId || req.query?.tutor_id || '');
+    if (!tutorId) return res.status(400).json({ error: 'Informe o tutor para calcular o transporte.' });
+    const tutor = await getCurrentTutorTransportPayload(tutorId);
+    if (!tutor?.id) return res.status(404).json({ error: 'Tutor não encontrado.' });
+    const quote = await calculateTransportQuote(tutor);
+    res.json({
+      ok: true,
+      ...quote,
+      tutor: sanitizeTutor(tutor),
+      googleRoutesEnabled: Boolean(env.googleMapsApiKey),
+      note: quote.method === 'google_routes'
+        ? 'Distância calculada por rota real. O valor inclui busca e entrega do pet.'
+        : 'Estimativa local ativa para busca e entrega do pet.'
+    });
+  } catch (error) { next(error); }
+});
+
+app.patch('/api/tutores/:id/address', requireAuth, async (req, res, next) => {
+  try {
+    const current = await getTutorById(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Tutor não encontrado.' });
+    const address = cleanText(req.body?.address);
+    const addressNumber = cleanText(req.body?.addressNumber || req.body?.address_number);
+    const addressNeighborhood = cleanText(req.body?.addressNeighborhood || req.body?.address_neighborhood);
+    if (!address || !addressNumber || !addressNeighborhood) {
+      return res.status(400).json({ error: 'Informe rua, número e bairro para calcular o transporte.' });
+    }
+    const result = await query(`
+      UPDATE tutors
+      SET address=$2::text,
+          address_number=$3::text,
+          address_neighborhood=$4::text,
+          address_zipcode=NULLIF($5::text,''),
+          city=COALESCE(NULLIF($6::text,''), 'Ribeirão Preto'),
+          state=COALESCE(NULLIF($7::text,''), 'SP'),
+          updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL
+      RETURNING id, name, whatsapp, email, address, address_number, address_neighborhood, address_zipcode, city, state, photo_url, tags
+    `, [
+      req.params.id,
+      address,
+      addressNumber,
+      addressNeighborhood,
+      cleanText(req.body?.addressZipcode || req.body?.address_zipcode),
+      cleanText(req.body?.city),
+      cleanText(req.body?.state)
+    ]);
+    res.json({ tutor: sanitizeTutor(result.rows[0]), message: 'Endereço salvo. Transporte pronto para cálculo.' });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
   try {
     const tutorId = req.clientApp.tutor.id;
@@ -5202,12 +5672,28 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
     await assertSlotAvailable(startsAtLocal || rawStartsAt || startsAt, 'agendado', null);
     const services = await query(`SELECT id, name, price_cents, duration_minutes FROM services WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND is_active = TRUE`, [serviceIds]);
     if (!services.rowCount) return res.status(400).json({ error: 'Nenhum serviço ativo encontrado.' });
-    const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
+    const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: isTransportServiceName(row.name) ? 0 : Number(row.price_cents || 0) }));
     const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || rawStartsAt, petSize: pet.rows[0]?.size || 'todos', serviceIds: services.rows.map((row) => row.id) });
     const totals = applyPromotionsToItems(baseItems, activePromotions);
+    const transportRequested = parseBool(req.body?.transportRequested, false) || services.rows.some((row) => isTransportServiceName(row.name));
+    let transportQuote = null;
+    if (transportRequested) {
+      const tutorTransport = await getCurrentTutorTransportPayload(tutorId);
+      transportQuote = await calculateTransportQuote(tutorTransport);
+      if (transportQuote.requiresAddress) return res.status(400).json({ error: 'Cadastre o endereço do tutor para calcular o transporte.' });
+      totals.items.push({ serviceId: null, description: 'Transporte PetFunny · busca e entrega', quantity: 1, unitPriceCents: transportQuote.feeCents, discountPercent: 0, discountCents: 0, totalCents: transportQuote.feeCents, isTransport: true });
+      totals.subtotalCents += transportQuote.feeCents;
+      totals.totalCents += transportQuote.feeCents;
+    }
     if (totals.totalCents <= 0) return res.status(400).json({ error: `O valor total do agendamento precisa ser maior que zero para gerar ${paymentTypeLabel(paymentType)}.` });
 
     let appointmentNotes = cleanText(req.body?.notes);
+    if (transportQuote && !transportQuote.requiresAddress) {
+      const transportLine = `🚗 Transporte PetFunny: ${brlFromCentsText(transportQuote.feeCents)} · ${transportQuote.summary} · ${transportQuote.address}`;
+      appointmentNotes = appointmentNotes ? `${transportLine}
+
+${appointmentNotes}` : transportLine;
+    }
     let giftSpin = null;
     if (giftSpinId) {
       const spinResult = await query(`
@@ -5236,7 +5722,8 @@ app.post('/api/app/appointments', requireClientAuth, async (req, res, next) => {
       giftSpinId: giftSpin?.id || giftSpinId || '',
       rouletteGiftTitle: giftTitle,
       rouletteGiftDescription: giftDescription,
-      appliedPromotions: totals.appliedPromotions || []
+      appliedPromotions: totals.appliedPromotions || [],
+      transport: transportQuote && !transportQuote.requiresAddress ? transportQuote : null
     };
     const description = `Agendamento PetFunny · ${pet.rows[0].name} · ${services.rows.map((row) => row.name).join(', ')}`.slice(0, 250);
     const pixExpirationMinutes = getMercadoPagoPixExpirationMinutes();
@@ -5844,6 +6331,84 @@ function parseDataUrlMedia(dataUrl = '') {
   return { mimeType, base64, ext, mediaType: mimeType.startsWith('video/') ? 'video' : 'photo' };
 }
 
+
+function buildLocalCuteMediaCaption(context = {}) {
+  const petName = cleanText(context.petName || context.pet_name || 'esse amor') || 'esse amor';
+  const tutorName = cleanText(context.tutorName || context.tutor_name || '');
+  const tutorFirst = tutorName ? tutorName.split(/\s+/)[0] : '';
+  const serviceText = cleanText(context.services || context.serviceText || 'cuidado PetFunny');
+  const options = [
+    `${petName} passou pelo PetFunny e saiu prontinho para ganhar muitos carinhos. 🐾✨`,
+    `Momento especial do ${petName}: ${serviceText} com carinho, cuidado e muito charme. 💚`,
+    `Olha que fofura! ${petName} ficou ainda mais lindo depois do cuidado de hoje. 🛁🐶`,
+    `${tutorFirst ? `${tutorFirst}, olha só: ` : ''}${petName} brilhou por aqui e já deixou saudade na equipe PetFunny. ✨`,
+    `Registro cheio de carinho do ${petName}, porque cada cuidado merece virar lembrança. 📸💚`,
+    `${petName} recebeu aquele cuidado caprichado e saiu com cheirinho de felicidade. 🌸🐾`,
+    `Mais um momento lindo do ${petName} no Clube PetFunny: cuidado, mimo e muito amor em cada detalhe. 🐶💚`,
+    `Hoje o ${petName} foi tratado como estrela por aqui. Que fofura! ⭐🐾`
+  ];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+async function askOpenAiForMediaCaption(context = {}) {
+  if (!env.openaiApiKey || typeof fetch !== 'function') return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${env.openaiApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: env.openaiModel,
+        temperature: 0.86,
+        messages: [
+          { role: 'system', content: 'Você escreve legendas curtas, fofas, variadas e naturais para fotos de pets em banho e tosa. Retorne apenas uma legenda em português do Brasil, com até 150 caracteres, sem aspas.' },
+          { role: 'user', content: JSON.stringify({ pet: context.petName, tutor: context.tutorName, services: context.services, status: context.statusName || context.status }) }
+        ]
+      })
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return cleanText(data?.choices?.[0]?.message?.content || '').replace(/^['"]|['"]$/g, '').slice(0, 180) || null;
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+app.post('/api/agenda/:id/media-caption', requireAuth, async (req, res, next) => {
+  try {
+    const appointmentId = req.params.id;
+    const appointment = await query(`
+      SELECT a.id, a.status, a.starts_at,
+             t.name AS tutor_name, t.whatsapp AS tutor_whatsapp,
+             p.name AS pet_name,
+             COALESCE(string_agg(DISTINCT ai.description, ', '), '') AS services
+      FROM appointments a
+      LEFT JOIN tutors t ON t.id = a.tutor_id
+      LEFT JOIN pets p ON p.id = a.pet_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
+      WHERE a.id = $1 AND a.deleted_at IS NULL
+      GROUP BY a.id, t.name, t.whatsapp, p.name
+      LIMIT 1
+    `, [appointmentId]);
+    if (!appointment.rowCount) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+    const row = appointment.rows[0];
+    const context = {
+      petName: row.pet_name || 'Pet',
+      tutorName: row.tutor_name || '',
+      services: row.services || 'cuidado PetFunny',
+      status: row.status || '',
+      startsAt: row.starts_at
+    };
+    const localCaption = buildLocalCuteMediaCaption(context);
+    const aiCaption = await askOpenAiForMediaCaption(context);
+    res.json({ ok: true, caption: aiCaption || localCaption, openaiUsed: Boolean(aiCaption) });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/agenda/:id/media', requireAuth, async (req, res, next) => {
   try {
     const appointmentId = req.params.id;
@@ -5998,6 +6563,23 @@ app.post('/api/app/pets/:petId/media', requireClientAuth, async (req, res, next)
       petName: pet.name || '',
       createdAt: result.rows[0].created_at
     }, message: 'Momento enviado com sucesso.' });
+  } catch (error) { next(error); }
+});
+
+
+app.delete('/api/app/media/:mediaId', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const result = await query(`
+      UPDATE appointment_media
+      SET deleted_at = NOW()
+      WHERE id = $1::uuid
+        AND tutor_id = $2::uuid
+        AND deleted_at IS NULL
+      RETURNING id
+    `, [req.params.mediaId, tutorId]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Foto ou vídeo não encontrado.' });
+    res.json({ ok: true, message: 'Momento apagado com sucesso.' });
   } catch (error) { next(error); }
 });
 
@@ -7611,10 +8193,16 @@ async function finalizePaidAppointmentIntent(intentId, providerStatus = 'approve
     if (!services.rowCount) throw new Error('Serviços do agendamento não estão mais disponíveis.');
     const duration = services.rows.reduce((sum, row) => sum + Number(row.duration_minutes || 60), 0);
     const endsAt = new Date(new Date(startsAt).getTime() + duration * 60000).toISOString();
-    const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
+    const baseItems = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: isTransportServiceName(row.name) ? 0 : Number(row.price_cents || 0) }));
     const petForPromotion = await query(`SELECT size FROM pets WHERE id=$1::uuid LIMIT 1`, [petId]).catch(() => ({ rows: [] }));
     const activePromotions = await getActivePromotionsForSchedule({ startsAtLocal: startsAtLocal || startsAt, petSize: petForPromotion.rows[0]?.size || 'todos', serviceIds });
     const totals = applyPromotionsToItems(baseItems, activePromotions);
+    const transportQuote = payload.transport && Number(payload.transport.feeCents || 0) > 0 ? payload.transport : null;
+    if (transportQuote) {
+      totals.items.push({ serviceId: null, description: 'Transporte PetFunny · busca e entrega', quantity: 1, unitPriceCents: Number(transportQuote.feeCents || 0), discountPercent: 0, discountCents: 0, totalCents: Number(transportQuote.feeCents || 0), isTransport: true });
+      totals.subtotalCents += Number(transportQuote.feeCents || 0);
+      totals.totalCents += Number(transportQuote.feeCents || 0);
+    }
     const isCardPayment = isCardLikeAppPaymentType(intent.payment_type || 'pix');
     const paymentMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE $2) ORDER BY sort_order ASC LIMIT 1`, isCardPayment ? ['%cart%', '%card%'] : ['%pix%', '%pix%']).catch(() => ({ rows: [] }));
     const created = await query(`
@@ -8022,20 +8610,32 @@ app.post('/api/agenda', requireAuth, async (req, res, next) => {
     if (!services.rowCount) return res.status(400).json({ error: 'Nenhum serviço ativo encontrado para o agendamento.' });
     const duration = services.rows.reduce((sum, row) => sum + Number(row.duration_minutes || 60), 0);
     const endsAt = new Date(new Date(startsAt).getTime() + duration * 60000).toISOString();
-    const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
+    const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: isTransportServiceName(row.name) ? 0 : Number(row.price_cents || 0) }));
     const totals = centsFromServices(items, discountPercent);
+    const transportPayload = req.body?.transport && typeof req.body.transport === 'object' ? req.body.transport : null;
+    const transportFeeCents = transportPayload ? Number(transportPayload.feeCents || 0) : 0;
+    let appointmentNotes = cleanText(req.body?.notes);
+    if (transportFeeCents > 0) {
+      totals.items.push({ serviceId: null, description: 'Transporte PetFunny · Táxi Pet busca e entrega', quantity: 1, unitPriceCents: transportFeeCents, discountPercent: 0, discountCents: 0, totalCents: transportFeeCents, isTransport: true });
+      totals.subtotalCents += transportFeeCents;
+      totals.totalCents += transportFeeCents;
+      const transportLine = `🚗 Táxi PetFunny: ${brlFromCentsText(transportFeeCents)} · ${cleanText(transportPayload.summary || 'Busca e entrega calculadas automaticamente')} · ${cleanText(transportPayload.address || '')}`;
+      appointmentNotes = appointmentNotes ? `${transportLine}
+
+${appointmentNotes}` : transportLine;
+    }
 
     const created = await query(`
       INSERT INTO appointments (tutor_id, pet_id, collaborator_id, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, notes, payment_status, payment_method_id)
       VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::timestamptz, $5::timestamptz, $6::text, 'manual', $7::integer, $8::numeric, $9::integer, $10::integer, $11::text, $12::text, NULLIF($13::text,'')::uuid)
       RETURNING id
-    `, [tutorId, petId, collaboratorId || '', startsAt, endsAt, status, totals.subtotalCents, discountPercent, totals.discountCents, totals.totalCents, cleanText(req.body?.notes), paymentStatus, paymentMethodId || '']);
+    `, [tutorId, petId, collaboratorId || '', startsAt, endsAt, status, totals.subtotalCents, discountPercent, totals.discountCents, totals.totalCents, appointmentNotes, paymentStatus, paymentMethodId || '']);
 
-    for (const item of items) {
+    for (const item of totals.items) {
       await query(`
         INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents)
-        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text, $5::integer, $6::integer, 0, $7::integer)
-      `, [created.rows[0].id, petId, item.serviceId, item.description, item.quantity, item.unitPriceCents, item.unitPriceCents]);
+        VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::text, $5::integer, $6::integer, 0, $7::integer)
+      `, [created.rows[0].id, petId, item.serviceId || '', item.description, item.quantity, item.unitPriceCents, item.unitPriceCents]);
     }
     if (paymentStatus === 'paid') await syncFinancialTransactionWithAppointmentPayment(created.rows[0].id, paymentStatus, paymentMethodId || '');
     const appointment = await getAppointmentById(created.rows[0].id);
@@ -8081,8 +8681,20 @@ app.put('/api/agenda/:id', requireAuth, async (req, res, next) => {
     const services = await query(`SELECT id, name, price_cents, duration_minutes FROM services WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND is_active = TRUE`, [serviceIds]);
     const duration = services.rows.reduce((sum, row) => sum + Number(row.duration_minutes || 60), 0);
     const endsAt = new Date(new Date(startsAt).getTime() + duration * 60000).toISOString();
-    const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: Number(row.price_cents || 0) }));
+    const items = services.rows.map((row) => ({ serviceId: row.id, description: row.name, quantity: 1, unitPriceCents: isTransportServiceName(row.name) ? 0 : Number(row.price_cents || 0) }));
     const totals = centsFromServices(items, discountPercent);
+    const transportPayload = req.body?.transport && typeof req.body.transport === 'object' ? req.body.transport : null;
+    const transportFeeCents = transportPayload ? Number(transportPayload.feeCents || 0) : 0;
+    let appointmentNotes = cleanText(req.body?.notes);
+    if (transportFeeCents > 0) {
+      totals.items.push({ serviceId: null, description: 'Transporte PetFunny · Táxi Pet busca e entrega', quantity: 1, unitPriceCents: transportFeeCents, discountPercent: 0, discountCents: 0, totalCents: transportFeeCents, isTransport: true });
+      totals.subtotalCents += transportFeeCents;
+      totals.totalCents += transportFeeCents;
+      const transportLine = `🚗 Táxi PetFunny: ${brlFromCentsText(transportFeeCents)} · ${cleanText(transportPayload.summary || 'Busca e entrega calculadas automaticamente')} · ${cleanText(transportPayload.address || '')}`;
+      appointmentNotes = appointmentNotes ? `${transportLine}
+
+${appointmentNotes}` : transportLine;
+    }
 
     await query(`
       UPDATE appointments
@@ -8090,10 +8702,10 @@ app.put('/api/agenda/:id', requireAuth, async (req, res, next) => {
           subtotal_cents=$8::integer, discount_percent=$9::numeric, discount_cents=$10::integer, total_cents=$11::integer, notes=$12::text,
           payment_status=$13::text, payment_method_id=NULLIF($14::text,'')::uuid, updated_at=NOW()
       WHERE id=$1::uuid AND deleted_at IS NULL
-    `, [req.params.id, tutorId, petId, collaboratorId || '', startsAt, endsAt, status, totals.subtotalCents, discountPercent, totals.discountCents, totals.totalCents, cleanText(req.body?.notes), paymentStatus, paymentMethodId || '']);
+    `, [req.params.id, tutorId, petId, collaboratorId || '', startsAt, endsAt, status, totals.subtotalCents, discountPercent, totals.discountCents, totals.totalCents, appointmentNotes, paymentStatus, paymentMethodId || '']);
     await query('DELETE FROM appointment_items WHERE appointment_id = $1::uuid', [req.params.id]);
-    for (const item of items) {
-      await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid,$2::uuid,$3::uuid,$4::text,$5::integer,$6::integer,0,$7::integer)`, [req.params.id, petId, item.serviceId, item.description, item.quantity, item.unitPriceCents, item.unitPriceCents]);
+    for (const item of totals.items) {
+      await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,$4::text,$5::integer,$6::integer,0,$7::integer)`, [req.params.id, petId, item.serviceId || '', item.description, item.quantity, item.unitPriceCents, item.unitPriceCents]);
     }
     await syncFinancialTransactionWithAppointmentPayment(req.params.id, paymentStatus, paymentMethodId || '');
     const appointment = await getAppointmentById(req.params.id);
@@ -12063,6 +12675,451 @@ function buildWhatsAppUrl(phone, message) {
   return `https://wa.me/${normalized}?text=${encodeURIComponent(message || '')}`;
 }
 
+function isWhatsAppCloudConfigured() {
+  return Boolean(env.whatsappAccessToken && env.whatsappPhoneNumberId);
+}
+
+function normalizeWhatsAppForCloud(phone = '') {
+  const digits = onlyDigits(phone);
+  if (!digits) return '';
+  if (digits.startsWith('55')) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
+}
+
+function sanitizeWhatsAppMessage(row = {}) {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    direction: row.direction,
+    phone: row.phone,
+    messageType: row.message_type || 'text',
+    body: row.body || '',
+    status: row.status || 'received',
+    aiUsed: Boolean(row.ai_used),
+    providerMessageId: row.provider_message_id || '',
+    createdAt: row.created_at
+  };
+}
+
+function sanitizeWhatsAppConversation(row = {}) {
+  return {
+    id: row.id,
+    phone: row.phone,
+    profileName: row.profile_name || '',
+    tutorId: row.tutor_id || null,
+    tutorName: row.tutor_name || '',
+    status: row.status || 'open',
+    intent: row.intent || 'geral',
+    handoffRequired: Boolean(row.handoff_required),
+    summary: row.summary || '',
+    lastMessageAt: row.last_message_at,
+    lastInboundAt: row.last_inbound_at,
+    lastOutboundAt: row.last_outbound_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+let whatsappAgentTablesReady = false;
+async function ensureWhatsAppAgentTables() {
+  if (whatsappAgentTablesReady) return;
+  await query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      phone TEXT NOT NULL UNIQUE,
+      profile_name TEXT,
+      tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      intent TEXT NOT NULL DEFAULT 'geral',
+      handoff_required BOOLEAN NOT NULL DEFAULT FALSE,
+      summary TEXT,
+      last_message_at TIMESTAMPTZ,
+      last_inbound_at TIMESTAMPTZ,
+      last_outbound_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id UUID REFERENCES whatsapp_conversations(id) ON DELETE CASCADE,
+      direction TEXT NOT NULL DEFAULT 'inbound',
+      provider_message_id TEXT,
+      phone TEXT NOT NULL,
+      message_type TEXT NOT NULL DEFAULT 'text',
+      body TEXT,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'received',
+      ai_used BOOLEAN NOT NULL DEFAULT FALSE,
+      error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_conversation ON whatsapp_messages (conversation_id, created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_phone ON whatsapp_messages (phone, created_at DESC)`);
+  whatsappAgentTablesReady = true;
+}
+
+async function findTutorByWhatsapp(phone = '') {
+  const normalized = normalizeWhatsAppForCloud(phone);
+  if (!normalized) return null;
+  const local = normalized.startsWith('55') ? normalized.slice(2) : normalized;
+  const result = await query(`
+    SELECT *
+    FROM tutors
+    WHERE deleted_at IS NULL
+      AND regexp_replace(COALESCE(whatsapp,''), '\\D', '', 'g') IN ($1, $2)
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `, [normalized, local]);
+  return result.rows[0] || null;
+}
+
+async function getPetsForTutor(tutorId) {
+  if (!tutorId) return [];
+  const pets = await query(`
+    SELECT id, name, species, breed, size, coat_type
+    FROM pets
+    WHERE tutor_id=$1::uuid AND deleted_at IS NULL AND status='active'
+    ORDER BY name ASC
+    LIMIT 8
+  `, [tutorId]);
+  return pets.rows.map((pet) => ({
+    id: pet.id,
+    name: pet.name,
+    species: pet.species || 'dog',
+    breed: pet.breed || '',
+    size: pet.size || '',
+    coatType: pet.coat_type || ''
+  }));
+}
+
+async function upsertWhatsAppConversation({ phone, profileName = '', tutorId = null, intent = 'geral', handoffRequired = false, summary = '' }) {
+  await ensureWhatsAppAgentTables();
+  const normalized = normalizeWhatsAppForCloud(phone);
+  const result = await query(`
+    INSERT INTO whatsapp_conversations (phone, profile_name, tutor_id, intent, handoff_required, summary, last_message_at, last_inbound_at)
+    VALUES ($1, NULLIF($2,''), $3::uuid, $4, $5, NULLIF($6,''), NOW(), NOW())
+    ON CONFLICT (phone) DO UPDATE SET
+      profile_name = COALESCE(NULLIF(EXCLUDED.profile_name,''), whatsapp_conversations.profile_name),
+      tutor_id = COALESCE(EXCLUDED.tutor_id, whatsapp_conversations.tutor_id),
+      intent = COALESCE(NULLIF(EXCLUDED.intent,''), whatsapp_conversations.intent),
+      handoff_required = whatsapp_conversations.handoff_required OR EXCLUDED.handoff_required,
+      summary = COALESCE(NULLIF(EXCLUDED.summary,''), whatsapp_conversations.summary),
+      last_message_at = NOW(),
+      last_inbound_at = NOW(),
+      updated_at = NOW(),
+      deleted_at = NULL
+    RETURNING *
+  `, [normalized, profileName || '', tutorId || null, intent || 'geral', Boolean(handoffRequired), summary || '']);
+  return result.rows[0];
+}
+
+async function saveWhatsAppMessage({ conversationId, direction = 'inbound', phone, providerMessageId = '', messageType = 'text', body = '', payload = {}, status = 'received', aiUsed = false, errorMessage = '' }) {
+  await ensureWhatsAppAgentTables();
+  const result = await query(`
+    INSERT INTO whatsapp_messages (conversation_id, direction, provider_message_id, phone, message_type, body, payload, status, ai_used, error_message)
+    VALUES ($1::uuid, $2, NULLIF($3,''), $4, $5, $6, $7::jsonb, $8, $9, NULLIF($10,''))
+    RETURNING *
+  `, [conversationId || null, direction, providerMessageId || '', normalizeWhatsAppForCloud(phone), messageType || 'text', String(body || '').slice(0, 4000), JSON.stringify(payload || {}), status || 'received', Boolean(aiUsed), errorMessage || '']);
+  return result.rows[0];
+}
+
+async function markWhatsAppConversationOutbound(conversationId, intent = null, handoffRequired = null) {
+  if (!conversationId) return;
+  await query(`
+    UPDATE whatsapp_conversations
+    SET last_message_at=NOW(), last_outbound_at=NOW(),
+        intent=COALESCE(NULLIF($2,''), intent),
+        handoff_required=CASE WHEN $3::text IS NULL THEN handoff_required ELSE $3::boolean END,
+        updated_at=NOW()
+    WHERE id=$1::uuid
+  `, [conversationId, intent || '', handoffRequired === null || handoffRequired === undefined ? null : String(Boolean(handoffRequired))]);
+}
+
+function extractWhatsAppText(message = {}) {
+  if (message.text?.body) return String(message.text.body || '').trim();
+  if (message.button?.text) return String(message.button.text || '').trim();
+  if (message.interactive?.button_reply?.title) return String(message.interactive.button_reply.title || '').trim();
+  if (message.interactive?.list_reply?.title) return String(message.interactive.list_reply.title || '').trim();
+  if (message.image?.caption) return String(message.image.caption || '').trim();
+  if (message.audio) return '[áudio recebido]';
+  if (message.image) return '[imagem recebida]';
+  if (message.document) return '[documento recebido]';
+  return '';
+}
+
+function parseWhatsAppWebhookMessages(payload = {}) {
+  const events = [];
+  for (const entry of payload.entry || []) {
+    for (const change of entry.changes || []) {
+      const value = change.value || {};
+      const contacts = Array.isArray(value.contacts) ? value.contacts : [];
+      for (const message of value.messages || []) {
+        const contact = contacts.find((item) => item.wa_id === message.from) || contacts[0] || {};
+        events.push({
+          phone: message.from,
+          profileName: contact.profile?.name || '',
+          providerMessageId: message.id || '',
+          messageType: message.type || 'text',
+          text: extractWhatsAppText(message),
+          message,
+          value
+        });
+      }
+    }
+  }
+  return events;
+}
+
+function inferWhatsAppIntent(text = '') {
+  const normalized = String(text || '').toLowerCase();
+  if (/atendente|humano|pessoa|falar com algu[eé]m/.test(normalized)) return { intent: 'atendente', handoffRequired: true };
+  if (/agend|hor[aá]rio|banho|tosa|encaixe|marcar/.test(normalized)) return { intent: 'agendamento', handoffRequired: false };
+  if (/taxi|t[aá]xi|transporte|buscar|busca|entregar|leva|levar/.test(normalized)) return { intent: 'taxi_pet', handoffRequired: false };
+  if (/pre[cç]o|valor|quanto|pacote|mensal/.test(normalized)) return { intent: 'precos_pacotes', handoffRequired: false };
+  if (/pix|pagar|pagamento|cart[aã]o|cobran/.test(normalized)) return { intent: 'pagamento', handoffRequired: true };
+  if (/endereco|endere[cç]o|cep|rua|bairro/.test(normalized)) return { intent: 'endereco', handoffRequired: false };
+  return { intent: 'geral', handoffRequired: false };
+}
+
+async function getWhatsAppAgentSnapshot(phone = '') {
+  const tutor = await findTutorByWhatsapp(phone).catch(() => null);
+  const pets = tutor?.id ? await getPetsForTutor(tutor.id).catch(() => []) : [];
+  const upcoming = tutor?.id ? await query(`
+    SELECT a.id, a.starts_at, a.status, p.name AS pet_name, COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services
+    FROM appointments a
+    LEFT JOIN pets p ON p.id=a.pet_id
+    LEFT JOIN appointment_items ai ON ai.appointment_id=a.id
+    WHERE a.tutor_id=$1::uuid AND a.deleted_at IS NULL AND a.starts_at >= NOW()
+    GROUP BY a.id, p.name
+    ORDER BY a.starts_at ASC
+    LIMIT 3
+  `, [tutor.id]).then((r) => r.rows).catch(() => []) : [];
+  const today = getSaoPauloNowParts();
+  const nextSlots = [];
+  for (let i = 0; i < 7 && nextSlots.length < 6; i += 1) {
+    const d = new Date(`${today.date}T12:00:00`);
+    d.setDate(d.getDate() + i);
+    const date = d.toISOString().slice(0, 10);
+    const slots = await getAvailableAppSlotsForDate(date).catch(() => []);
+    for (const slot of slots.slice(0, 3)) {
+      if (nextSlots.length >= 6) break;
+      nextSlots.push({ date, time: slot.time, label: `${date.split('-').reverse().join('/')} às ${slot.time}` });
+    }
+  }
+  return {
+    tutor: tutor ? sanitizeTutor(tutor) : null,
+    pets,
+    upcoming: upcoming.map((item) => ({ id: item.id, startsAt: item.starts_at, status: item.status, petName: item.pet_name || '', services: item.services || '' })),
+    nextSlots
+  };
+}
+
+function buildLocalWhatsAppAgentReply({ inboundText = '', snapshot = {}, business = {} }) {
+  const { intent, handoffRequired } = inferWhatsAppIntent(inboundText);
+  const tutor = snapshot.tutor || null;
+  const pets = Array.isArray(snapshot.pets) ? snapshot.pets : [];
+  const nextSlots = Array.isArray(snapshot.nextSlots) ? snapshot.nextSlots : [];
+  const firstName = tutor?.name ? String(tutor.name).split(' ')[0] : 'tudo bem';
+  const petList = pets.length ? pets.map((pet) => pet.name).filter(Boolean).join(', ') : '';
+  const slotsText = nextSlots.length ? nextSlots.slice(0, 4).map((slot, index) => `${index + 1}) ${slot.label}`).join('\n') : '';
+
+  if (intent === 'atendente') {
+    return {
+      intent,
+      handoffRequired: true,
+      reply: `Oi, ${firstName}! Já vou chamar alguém da equipe PetFunny para te atender por aqui. 🐾`
+    };
+  }
+
+  if (intent === 'agendamento') {
+    const petLine = petList ? `Tenho aqui no cadastro: ${petList}.` : 'Me diga o nome do pet, porte e serviço desejado.';
+    const slotLine = slotsText ? `Tenho estes primeiros horários disponíveis:\n${slotsText}` : 'Vou verificar os próximos horários disponíveis para você.';
+    return {
+      intent,
+      handoffRequired: false,
+      reply: `Oi, ${firstName}! Claro, te ajudo com o agendamento. ${petLine}\n\n${slotLine}\n\nResponda com o número do horário ou me diga o melhor dia. Se precisar de Táxi Pet, escreva “Táxi Pet”.`
+    };
+  }
+
+  if (intent === 'taxi_pet') {
+    const hasAddress = Boolean(tutor?.address && tutor?.addressNumber && tutor?.addressZipcode);
+    return {
+      intent,
+      handoffRequired: !hasAddress,
+      reply: hasAddress
+        ? `Perfeito, ${firstName}! Tenho o endereço cadastrado: ${tutor.address}, ${tutor.addressNumber} - ${tutor.addressNeighborhood || ''}. Vou calcular o Táxi Pet junto com o agendamento. 🐶🚕`
+        : `Perfeito, ${firstName}! Para calcular o Táxi Pet, me envie o endereço completo com CEP, rua, número, bairro e cidade. Exemplo: CEP 14092-440, Rua Virgílio de Carvalho Neves Neto, 794.`
+    };
+  }
+
+  if (intent === 'precos_pacotes') {
+    return {
+      intent,
+      handoffRequired: false,
+      reply: `Oi, ${firstName}! Eu posso te ajudar com valores de banho, tosa, pacotes e Táxi Pet. Me diga o porte do pet e o serviço desejado. ${petList ? `Tenho no cadastro: ${petList}.` : ''}`
+    };
+  }
+
+  if (intent === 'pagamento') {
+    return {
+      intent,
+      handoffRequired: true,
+      reply: `Oi, ${firstName}! Para pagamento, Pix ou confirmação de cobrança, vou direcionar para a equipe conferir certinho no sistema e te responder por aqui. 🐾`
+    };
+  }
+
+  return {
+    intent,
+    handoffRequired,
+    reply: `Oi, ${firstName}! Eu sou o assistente do ${business.name || 'PetFunny'} 🐾 Posso ajudar com agendamento, banho, tosa, pacotes, Táxi Pet e horários disponíveis. ${petList ? `Tenho no cadastro: ${petList}.` : 'Me diga o nome do pet e o que você precisa.'}`
+  };
+}
+
+async function askOpenAiForWhatsAppAgent({ inboundText, snapshot, business, fallback }) {
+  if (!env.openaiApiKey || !env.whatsappAgentUseOpenAi || typeof fetch !== 'function') return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  try {
+    const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o agente de atendimento WhatsApp do PetFunny. Responda em português do Brasil, com tom humano, curto e objetivo. Não confirme agendamento, preço final ou pagamento sem dados suficientes. Se o assunto exigir intervenção humana, marque handoffRequired=true. Retorne APENAS JSON válido com: reply, intent, handoffRequired.`;
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${env.openaiApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: env.openaiModel,
+        temperature: 0.35,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify({ inboundText, snapshot, business, fallback }).slice(0, 12000) }
+        ]
+      })
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(content);
+    if (!parsed?.reply) return null;
+    return {
+      reply: String(parsed.reply || '').slice(0, 1400),
+      intent: String(parsed.intent || fallback.intent || 'geral').slice(0, 80),
+      handoffRequired: Boolean(parsed.handoffRequired)
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendWhatsAppCloudText(to, body) {
+  const normalized = normalizeWhatsAppForCloud(to);
+  if (!normalized) return { ok: false, skipped: true, error: 'Telefone inválido.' };
+  if (!isWhatsAppCloudConfigured()) return { ok: false, skipped: true, error: 'WhatsApp Cloud API não configurada.' };
+  const version = String(env.whatsappApiVersion || 'v21.0').replace(/^\/+/, '');
+  const url = `https://graph.facebook.com/${version}/${env.whatsappPhoneNumberId}/messages`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.whatsappAccessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: normalized,
+      type: 'text',
+      text: { preview_url: false, body: String(body || '').slice(0, 4000) }
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || `WhatsApp Cloud API retornou ${response.status}`;
+    return { ok: false, status: response.status, error: message, providerResponse: data };
+  }
+  return { ok: true, status: response.status, providerResponse: data, messageId: data?.messages?.[0]?.id || '' };
+}
+
+async function handleWhatsAppInboundEvent(event) {
+  const phone = normalizeWhatsAppForCloud(event.phone);
+  const text = event.text || '';
+  const tutor = await findTutorByWhatsapp(phone).catch(() => null);
+  const fallbackIntent = inferWhatsAppIntent(text);
+  const conversation = await upsertWhatsAppConversation({
+    phone,
+    profileName: event.profileName || '',
+    tutorId: tutor?.id || null,
+    intent: fallbackIntent.intent,
+    handoffRequired: fallbackIntent.handoffRequired,
+    summary: text ? text.slice(0, 500) : ''
+  });
+  await saveWhatsAppMessage({
+    conversationId: conversation.id,
+    direction: 'inbound',
+    phone,
+    providerMessageId: event.providerMessageId || '',
+    messageType: event.messageType || 'text',
+    body: text,
+    payload: event.message || {},
+    status: 'received'
+  });
+
+  if (!env.whatsappAgentEnabled || !env.whatsappAgentAutoReply) {
+    return { phone, conversationId: conversation.id, inboundSaved: true, autoReply: false };
+  }
+
+  const business = await getBusinessPayload().catch(() => ({ name: env.petfunnyName, whatsapp: env.petfunnyWhatsapp, city: env.petfunnyCity, state: env.petfunnyState }));
+  const snapshot = await getWhatsAppAgentSnapshot(phone).catch(() => ({ tutor: tutor ? sanitizeTutor(tutor) : null, pets: [], upcoming: [], nextSlots: [] }));
+  const local = buildLocalWhatsAppAgentReply({ inboundText: text, snapshot, business });
+  const ai = await askOpenAiForWhatsAppAgent({ inboundText: text, snapshot, business, fallback: local });
+  const answer = ai || local;
+  const sendResult = await sendWhatsAppCloudText(phone, answer.reply);
+  await saveWhatsAppMessage({
+    conversationId: conversation.id,
+    direction: 'outbound',
+    phone,
+    providerMessageId: sendResult.messageId || '',
+    messageType: 'text',
+    body: answer.reply,
+    payload: sendResult.providerResponse || {},
+    status: sendResult.ok ? 'sent' : 'failed',
+    aiUsed: Boolean(ai),
+    errorMessage: sendResult.error || ''
+  });
+  await markWhatsAppConversationOutbound(conversation.id, answer.intent, answer.handoffRequired || !sendResult.ok);
+  return { phone, conversationId: conversation.id, inboundSaved: true, autoReply: true, sent: sendResult.ok, aiUsed: Boolean(ai), error: sendResult.error || null };
+}
+
+async function getWhatsAppConversationsPayload(limit = 30) {
+  await ensureWhatsAppAgentTables();
+  const result = await query(`
+    SELECT wc.*, t.name AS tutor_name
+    FROM whatsapp_conversations wc
+    LEFT JOIN tutors t ON t.id=wc.tutor_id
+    WHERE wc.deleted_at IS NULL
+    ORDER BY COALESCE(wc.last_message_at, wc.updated_at, wc.created_at) DESC
+    LIMIT $1::int
+  `, [Math.max(1, Math.min(100, Number(limit || 30)))]);
+  return result.rows.map(sanitizeWhatsAppConversation);
+}
+
+async function getWhatsAppConversationMessages(conversationId, limit = 50) {
+  await ensureWhatsAppAgentTables();
+  const result = await query(`
+    SELECT * FROM whatsapp_messages
+    WHERE conversation_id=$1::uuid
+    ORDER BY created_at DESC
+    LIMIT $2::int
+  `, [conversationId, Math.max(1, Math.min(200, Number(limit || 50)))]);
+  return result.rows.reverse().map(sanitizeWhatsAppMessage);
+}
+
 async function getWhatsAppContext({ type, appointmentId, tutorId, transactionId, leadId, customerPackageId, receiptToken }) {
   const business = await getBusinessPayload().catch(() => ({ name: env.petfunnyName, whatsapp: env.petfunnyWhatsapp, city: env.petfunnyCity, state: env.petfunnyState }));
   const context = { business, type };
@@ -12159,6 +13216,103 @@ function makeWhatsAppMessage(type, context = {}, custom = {}) {
 
   return templates[type] || templates.personalizada;
 }
+
+app.get('/api/whatsapp/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === env.whatsappVerifyToken && challenge) {
+    return res.status(200).send(String(challenge));
+  }
+  return res.sendStatus(403);
+});
+
+app.post('/api/whatsapp/webhook', async (req, res) => {
+  // A Meta espera 200 rapidamente; processamos sem expor erro para o provedor.
+  try {
+    const events = parseWhatsAppWebhookMessages(req.body || {});
+    if (!events.length) return res.sendStatus(200);
+    for (const event of events) {
+      await handleWhatsAppInboundEvent(event).catch((error) => {
+        console.warn(`[whatsapp-agent] falha ao processar mensagem: ${error.message}`);
+      });
+    }
+    return res.sendStatus(200);
+  } catch (error) {
+    console.warn(`[whatsapp-agent] webhook ignorado: ${error.message}`);
+    return res.sendStatus(200);
+  }
+});
+
+app.get('/api/whatsapp/agent/status', requireAuth, async (req, res, next) => {
+  try {
+    await ensureWhatsAppAgentTables();
+    const [conversations, messages] = await Promise.all([
+      query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE handoff_required=TRUE)::int AS handoff FROM whatsapp_conversations WHERE deleted_at IS NULL`),
+      query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE direction='inbound')::int AS inbound, COUNT(*) FILTER (WHERE direction='outbound')::int AS outbound FROM whatsapp_messages`)
+    ]);
+    res.json({
+      status: 'ok',
+      cloudConfigured: isWhatsAppCloudConfigured(),
+      phoneNumberIdConfigured: Boolean(env.whatsappPhoneNumberId),
+      businessAccountIdConfigured: Boolean(env.whatsappBusinessAccountId),
+      verifyTokenConfigured: Boolean(env.whatsappVerifyToken),
+      agentEnabled: Boolean(env.whatsappAgentEnabled),
+      autoReply: Boolean(env.whatsappAgentAutoReply),
+      openaiConfigured: Boolean(env.openaiApiKey),
+      openaiAllowedForAgent: Boolean(env.whatsappAgentUseOpenAi),
+      apiVersion: env.whatsappApiVersion,
+      callbackUrl: `${String(env.appUrl || '').replace(/\/$/, '')}/api/whatsapp/webhook`,
+      metrics: {
+        conversations: Number(conversations.rows[0]?.total || 0),
+        handoff: Number(conversations.rows[0]?.handoff || 0),
+        messages: Number(messages.rows[0]?.total || 0),
+        inbound: Number(messages.rows[0]?.inbound || 0),
+        outbound: Number(messages.rows[0]?.outbound || 0)
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/whatsapp/agent/conversations', requireAuth, async (req, res, next) => {
+  try {
+    const items = await getWhatsAppConversationsPayload(req.query?.limit || 30);
+    res.json({ items, total: items.length });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/whatsapp/agent/conversations/:id/messages', requireAuth, async (req, res, next) => {
+  try {
+    const items = await getWhatsAppConversationMessages(req.params.id, req.query?.limit || 80);
+    res.json({ items, total: items.length });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/whatsapp/agent/send', requireAuth, async (req, res, next) => {
+  try {
+    await ensureWhatsAppAgentTables();
+    const phone = normalizeWhatsAppForCloud(req.body?.phone);
+    const message = cleanText(req.body?.message);
+    if (!phone || !message) return res.status(400).json({ error: 'Informe telefone e mensagem.' });
+    const tutor = await findTutorByWhatsapp(phone).catch(() => null);
+    const conversation = await upsertWhatsAppConversation({ phone, tutorId: tutor?.id || null, intent: 'manual_admin', handoffRequired: false, summary: message.slice(0, 500) });
+    const sendResult = await sendWhatsAppCloudText(phone, message);
+    const saved = await saveWhatsAppMessage({
+      conversationId: conversation.id,
+      direction: 'outbound',
+      phone,
+      providerMessageId: sendResult.messageId || '',
+      messageType: 'text',
+      body: message,
+      payload: sendResult.providerResponse || {},
+      status: sendResult.ok ? 'sent' : 'failed',
+      aiUsed: false,
+      errorMessage: sendResult.error || ''
+    });
+    await markWhatsAppConversationOutbound(conversation.id, 'manual_admin', !sendResult.ok);
+    res.json({ ok: sendResult.ok, message: sanitizeWhatsAppMessage(saved), provider: sendResult });
+  } catch (error) { next(error); }
+});
 
 app.get('/api/whatsapp/templates', requireAuth, async (req, res) => {
   res.json({

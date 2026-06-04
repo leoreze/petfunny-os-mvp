@@ -266,7 +266,7 @@ export function buildClientApp({ title = 'Meu PetFunny', subtitle = 'O app do se
       </div>
     </section>` : '';
 
-  document.body.classList.add('app-client', 'client-pwa-layout-v1652', 'client-pwa-layout-v1653', 'client-pwa-layout-v1655', 'client-pwa-layout-v1656', 'client-pwa-layout-v1657', 'client-pwa-layout-v1658', 'client-pwa-layout-v1659', 'client-pwa-layout-v1660', 'client-pwa-layout-v1662', 'client-pwa-layout-v1666');
+  document.body.classList.add('app-client', 'client-pwa-layout-v1652', 'client-pwa-layout-v1653', 'client-pwa-layout-v1655', 'client-pwa-layout-v1656', 'client-pwa-layout-v1657', 'client-pwa-layout-v1658', 'client-pwa-layout-v1659', 'client-pwa-layout-v1660', 'client-pwa-layout-v1662', 'client-pwa-layout-v1666', 'client-pwa-layout-v1676');
   document.body.innerHTML = `
     <main class="client-app-shell mobile-first client-fixed-app-shell">
       <header class="client-mobile-topbar client-fixed-topbar">

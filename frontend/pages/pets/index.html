@@ -35,6 +35,9 @@
     stats: { totalPets: 0, activePets: 0, tutorCount: 0, breedCount: 0 },
     tutors: [],
     petOptions: { types: [], sizes: [], breeds: [] },
+    viewMode: localStorage.getItem('admin_pets_view') || 'list',
+    currentPet: null,
+    currentMedia: [],
     sortKey: 'name',
     sortDir: 'asc'
   };
@@ -82,9 +85,13 @@
 
       <section class="module-card stack-md pets-list-card pets-page">
         <div class="section-toolbar pets-filter-toolbar">
-          <div><h3>Consulta de pets</h3><p>Busque por pet, tutor, raça ou WhatsApp. A lista carrega mais registros conforme você rola a página.</p></div>
+          <div><h3>Consulta de pets</h3><p>Busque por nome do pet, tutor, WhatsApp ou e-mail. A lista carrega mais registros conforme você rola a página.</p></div>
+          <div class="admin-view-toggle" aria-label="Alternar visão de pets">
+            <button class="btn btn-secondary pet-view-btn" data-view="list" type="button">Lista</button>
+            <button class="btn btn-secondary pet-view-btn" data-view="cards" type="button">Cards</button>
+          </div>
           <div class="compact-filter-row pets-filter-row">
-            <input class="input" id="search-pets" placeholder="Buscar pet, tutor, raça ou WhatsApp" autocomplete="off">
+            <input class="input admin-search-input" id="search-pets" type="search" data-mask="none" placeholder="Buscar pet, tutor, WhatsApp ou e-mail" autocomplete="off">
             <select class="select" id="size-filter"><option value="all">Todos os portes</option></select>
             <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
             <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
@@ -106,6 +113,7 @@
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais pets...</div>
           <div class="list-load-status" id="pets-load-status">0/0 pets carregados</div>
         </div>
+        <div class="admin-list-cards" id="pets-cards" hidden></div>
       </section>
 
       <dialog class="premium-modal" id="pet-modal">
@@ -150,14 +158,25 @@
           <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-modal">Cancelar</button><button class="btn" type="submit">Salvar pet</button></footer>
         </form>
       </dialog>
+
+      <dialog class="premium-modal" id="pet-moments-modal">
+        <article class="modal-card">
+          <header class="modal-header"><div><p class="eyebrow">Momentos Especiais</p><h3 id="pet-moments-title">Fotos do pet</h3><p id="pet-moments-subtitle">Fotos e vídeos enviados nos agendamentos.</p></div><button class="icon-btn" type="button" id="close-pet-moments-modal">×</button></header>
+          <div class="modal-body custom-scroll"><div class="admin-moments-grid" id="pet-moments-list"></div></div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-pet-moments-modal">Fechar</button></footer>
+        </article>
+      </dialog>
     `
   });
 
   const body = document.getElementById('pets-body');
   const scrollBox = document.getElementById('pets-scroll');
+  const cardsBox = document.getElementById('pets-cards');
   const loader = document.getElementById('infinite-loader');
   const loadStatus = document.getElementById('pets-load-status');
   const modal = document.getElementById('pet-modal');
+  const momentsModal = document.getElementById('pet-moments-modal');
+  const momentsList = document.getElementById('pet-moments-list');
   const form = document.getElementById('pet-form');
   const fields = ['pet-id','photoDataUrl','photoFile','tutorWhatsappSearch','tutorId','name','species','breed','size','coatType','birthDate','weightKg','status','preferences','restrictions','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
 
@@ -165,6 +184,17 @@
     const next = new DOMParser().parseFromString(avatarHtml(name || 'Pet', photoUrl || '', 'photo-preview'), 'text/html').body.firstElementChild;
     next.id = 'pet-photo-preview';
     document.getElementById('pet-photo-preview')?.replaceWith(next);
+  }
+
+  function petActionsMenu(item) {
+    return `<div class="row-actions pet-actions-menu-wrap">
+      <button class="icon-btn pet-menu-btn" data-id="${esc(item.id)}" type="button" title="Ações do pet" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="pet-row-menu" data-menu-for="${esc(item.id)}">
+        <button type="button" class="edit-btn" data-id="${esc(item.id)}">✎ Editar pet</button>
+        <button type="button" class="moments-btn" data-id="${esc(item.id)}">📸 Momentos Especiais</button>
+        <button type="button" class="delete-btn danger" data-id="${esc(item.id)}">🗑 Inativar pet</button>
+      </div>
+    </div>`;
   }
 
   function rowTemplate(item) {
@@ -176,8 +206,25 @@
       <td><strong>${esc(item.breed || 'não informada')}</strong><small>${esc(speciesLabel(item.species))}</small></td>
       <td><small>${esc(care || 'sem cuidados registrados')}</small></td>
       <td><span class="status-pill ${item.status === 'active' ? 'ok' : 'muted-pill'}">${item.status === 'active' ? 'Ativo' : 'Inativo'}</span></td>
-      <td><div class="row-actions"><button class="icon-btn edit-btn" data-id="${esc(item.id)}" type="button" title="Editar">✎</button><button class="icon-btn delete-btn" data-id="${esc(item.id)}" type="button" title="Inativar">🗑</button></div></td>
+      <td>${petActionsMenu(item)}</td>
     </tr>`;
+  }
+
+  function petCardTemplate(item) {
+    const care = item.restrictions || item.preferences || item.notes || '';
+    return `<article class="admin-entity-card" data-id="${esc(item.id)}">
+      <div class="admin-entity-card-header">
+        <div class="admin-entity-card-title">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(speciesLabel(item.species))} · ${esc(item.breed || 'raça não informada')}</small></div></div>
+        ${petActionsMenu(item)}
+      </div>
+      <div class="admin-entity-grid">
+        <span><b>Tutor</b>${esc(item.tutorName || 'Tutor não informado')}<br>${formatWhatsapp(item.tutorWhatsapp || '') || 'sem WhatsApp'}</span>
+        <span><b>Porte</b>${esc(sizeLabel(item.size))}<br>${esc(item.coatType || 'pelagem não informada')}</span>
+        <span><b>Status</b>${item.status === 'active' ? 'Ativo' : 'Inativo'}</span>
+        <span><b>Tipo</b>${esc(speciesLabel(item.species))}</span>
+      </div>
+      <div class="admin-entity-full"><b>Cuidados</b>${esc(care || 'sem cuidados registrados')}</div>
+    </article>`;
   }
 
   function updateLoadStatus() {
@@ -218,9 +265,18 @@
     });
   }
 
+  function applyPetViewMode() {
+    const isCards = state.viewMode === 'cards';
+    scrollBox.classList.toggle('is-hidden', isCards);
+    cardsBox.hidden = !isCards;
+    document.querySelectorAll('.pet-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
+  }
+
   function renderPets() {
     const rows = sortedItems();
     body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="7">Nenhum pet encontrado.</td></tr>';
+    cardsBox.innerHTML = rows.length ? rows.map(petCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum pet encontrado.</strong><p>Tente buscar por nome do pet, tutor, WhatsApp ou e-mail.</p></article>';
+    applyPetViewMode();
     document.querySelectorAll('.th-sort').forEach((button) => {
       const active = button.dataset.sort === state.sortKey;
       button.classList.toggle('active', active);
@@ -341,6 +397,46 @@
     }
   }
 
+  function closePetMenus() {
+    document.querySelectorAll('.pet-row-menu.open').forEach(menu => menu.classList.remove('open'));
+    document.querySelectorAll('.pet-actions-menu-wrap.is-menu-open').forEach(wrap => wrap.classList.remove('is-menu-open'));
+    document.querySelectorAll('.pet-menu-btn[aria-expanded="true"]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
+  }
+  function openPetMenu(button) {
+    const wrap = button?.closest?.('.pet-actions-menu-wrap');
+    const menu = wrap?.querySelector?.('.pet-row-menu');
+    if (!menu) return;
+    const isOpen = menu.classList.contains('open');
+    closePetMenus();
+    if (!isOpen) {
+      wrap?.classList.add('is-menu-open');
+      menu.classList.add('open');
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+  function petById(id) { return state.items.find(item => item.id === id) || state.currentPet || null; }
+  function mediaDate(value) { const d = value ? new Date(value) : null; return d && !Number.isNaN(d.getTime()) ? d.toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : 'sem data'; }
+  function mediaCardTemplate(item) {
+    const isVideo = String(item.mediaType || '').toLowerCase() === 'video';
+    const media = isVideo ? `<video src="${esc(item.url)}" controls></video>` : `<img src="${esc(item.url)}" alt="Momento especial">`;
+    return `<article class="admin-moment-card" data-id="${esc(item.id)}">${media}<div class="admin-moment-card-body"><strong>${esc(item.caption || 'Momento especial')}</strong><small>${esc(mediaDate(item.createdAt))}${item.services ? ` · ${esc(item.services)}` : ''}</small><button class="btn btn-secondary btn-sm delete-media-btn" data-id="${esc(item.id)}" type="button">Apagar foto</button></div></article>`;
+  }
+  async function openPetMoments(petId) {
+    try {
+      closePetMenus();
+      showLoading('Carregando momentos...', 'Buscando fotos e vídeos do pet.');
+      const data = await api.get(`/pets/${petId}/media`);
+      state.currentPet = petById(petId) || data.pet || null;
+      state.currentMedia = data.media || [];
+      document.getElementById('pet-moments-title').textContent = `Momentos de ${data.pet?.name || state.currentPet?.name || 'pet'}`;
+      document.getElementById('pet-moments-subtitle').textContent = data.pet?.tutorName ? `Tutor: ${data.pet.tutorName}` : 'Fotos e vídeos enviados nos agendamentos.';
+      momentsList.innerHTML = state.currentMedia.length ? state.currentMedia.map(mediaCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhuma foto enviada ainda.</strong><p>As fotos enviadas em Momentos do atendimento aparecerão aqui.</p></article>';
+      setupPremiumInteractions(momentsModal);
+      momentsModal.showModal();
+    } catch (error) { toast(error.message || 'Não foi possível carregar os momentos.', 'error'); }
+    finally { hideLoading(); }
+  }
+
   function openForm(item = null) {
     document.getElementById('modal-title').textContent = item ? 'Editar pet' : 'Novo pet';
     fields['pet-id'].value = item?.id || '';
@@ -401,7 +497,14 @@
   document.getElementById('new-pet-btn').addEventListener('click', () => openForm());
   document.getElementById('close-modal').addEventListener('click', () => modal.close());
   document.getElementById('cancel-modal').addEventListener('click', () => modal.close());
+  document.getElementById('close-pet-moments-modal')?.addEventListener('click', () => momentsModal.close());
+  document.getElementById('cancel-pet-moments-modal')?.addEventListener('click', () => momentsModal.close());
   document.getElementById('refresh-btn').addEventListener('click', () => loadPets(true));
+  document.querySelectorAll('.pet-view-btn').forEach((button) => button.addEventListener('click', () => {
+    state.viewMode = button.dataset.view || 'list';
+    localStorage.setItem('admin_pets_view', state.viewMode);
+    renderPets();
+  }));
   document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.sort;
     if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
@@ -412,17 +515,37 @@
   document.getElementById('search-pets').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__petSearch); window.__petSearch = window.setTimeout(() => loadPets(true), 320); });
   document.getElementById('size-filter').addEventListener('change', (event) => { state.size = event.target.value; loadPets(true); });
   document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadPets(true); });
-  body.addEventListener('click', async (event) => {
+  document.querySelector('.pets-list-card')?.addEventListener('click', async (event) => {
+    const menuBtn = event.target.closest('.pet-menu-btn');
     const edit = event.target.closest('.edit-btn');
+    const moments = event.target.closest('.moments-btn');
     const del = event.target.closest('.delete-btn');
-    if (edit) openForm(state.items.find(row => row.id === edit.dataset.id));
+    if (menuBtn) { event.preventDefault(); event.stopPropagation(); openPetMenu(menuBtn); return; }
+    if (edit) { closePetMenus(); openForm(state.items.find(row => row.id === edit.dataset.id)); return; }
+    if (moments) { closePetMenus(); await openPetMoments(moments.dataset.id); return; }
     if (del) {
+      closePetMenus();
       if (!confirm('Inativar este pet?')) return;
       try { showLoading('Inativando pet...'); await api.delete(`/pets/${del.dataset.id}`); toast('Pet inativado.', 'success'); await loadPets(true); }
       catch (error) { toast(error.message, 'error'); }
       finally { hideLoading(); }
     }
   });
+
+  momentsList?.addEventListener('click', async (event) => {
+    const del = event.target.closest('.delete-media-btn');
+    if (!del) return;
+    if (!confirm('Apagar esta foto/vídeo dos Momentos Especiais?')) return;
+    try {
+      showLoading('Apagando foto...', 'Removendo dos Momentos Especiais.');
+      await api.delete(`/agenda/media/${del.dataset.id}`);
+      toast('Foto removida dos Momentos Especiais.', 'success');
+      if (state.currentPet?.id) await openPetMoments(state.currentPet.id);
+    } catch (error) { toast(error.message || 'Não foi possível apagar a foto.', 'error'); }
+    finally { hideLoading(); }
+  });
+  document.addEventListener('click', (event) => { if (!event.target.closest('.pet-actions-menu-wrap')) closePetMenus(); });
+  window.addEventListener('resize', closePetMenus);
 
   document.getElementById('find-tutor-btn').addEventListener('click', () => findTutorByWhatsapp(false));
   fields.tutorWhatsappSearch.addEventListener('input', () => {

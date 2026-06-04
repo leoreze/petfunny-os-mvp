@@ -1,20 +1,4 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>Meu PetFunny · App do Tutor</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#F8A198">
-  
-  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
-  <meta name="msapplication-TileColor" content="#26b9c7">
-  <link rel="stylesheet" href="/assets/css/app.css">
-</head>
-<body>
-<script type="module">
+
   import { buildClientApp, clientCards, currentClientSection, renderAppointmentCard, renderPetCard, renderPackageCard, money, dateTime, shortDate } from '/assets/js/client-shell.js';
   import { clientApi } from '/assets/js/client-api.js';
   import { setClientUser, setClientToken, clientLogout } from '/assets/js/client-auth.js';
@@ -220,7 +204,7 @@
   function serviceOptionsForPet(petId) {
     const pet = options.pets.find((p) => p.id === petId);
     const size = pet?.size || 'todos';
-    return options.services.filter((service) => !isTransportService(service) && (!service.petSize || service.petSize === 'todos' || service.petSize === size));
+    return options.services.filter((service) => !service.petSize || service.petSize === 'todos' || service.petSize === size);
   }
 
   function normalizedServiceText(service = {}) {
@@ -235,202 +219,6 @@
   function isTosaService(service = {}) {
     const text = normalizedServiceText(service);
     return text.includes('tosa');
-  }
-
-  function isTransportService(service = {}) {
-    const text = normalizedServiceText(service);
-    return text.includes('transporte') || text.includes('leva e traz') || text.includes('buscar e entregar') || text.includes('taxi dog') || text.includes('taxidog');
-  }
-
-  function selectedTransportServiceIds(scope = document) {
-    return [...scope.querySelectorAll('input[name="serviceIds"]:checked')]
-      .map((input) => input.value)
-      .filter((serviceId) => isTransportService((options.services || []).find((item) => String(item.id) === String(serviceId)) || {}));
-  }
-
-  function isTransportSelected(scope = document) {
-    return selectedTransportServiceIds(scope).length > 0;
-  }
-
-  function tutorHasTransportAddress(tutor = data?.tutor || {}) {
-    return Boolean(String(tutor.address || '').trim() && String(tutor.addressNumber || '').trim() && String(tutor.addressNeighborhood || '').trim());
-  }
-
-  function tutorAddressText(tutor = data?.tutor || {}) {
-    const parts = [tutor.address, tutor.addressNumber, tutor.addressNeighborhood, tutor.city || 'Ribeirão Preto', tutor.state || 'SP'].filter(Boolean);
-    return parts.join(', ');
-  }
-
-  function friendlyTransportSummary(estimate = null) {
-    if (!estimate) return 'Selecione esta opção para calcular busca e entrega do pet pelo endereço cadastrado.';
-    const oneWay = Number(estimate.oneWayKm || 0);
-    const operational = Number(estimate.operationalKm || 0);
-    if (oneWay > 0 || operational > 0) {
-      return `Busca e entrega calculadas automaticamente: ${oneWay.toFixed(1)} km por trecho · ciclo operacional ${operational.toFixed(1)} km.`;
-    }
-    return estimate.summary || 'Busca e entrega calculadas automaticamente pelo endereço do tutor.';
-  }
-
-  function renderTransportEstimateBox(estimate = null) {
-    const hasEstimate = estimate && !estimate.requiresAddress;
-    return `<article class="client-transport-estimate" id="transport-estimate">
-      <div class="client-transport-estimate-icon">🚗</div>
-      <div class="client-transport-estimate-body">
-        <label class="client-transport-toggle"><input type="checkbox" name="transportRequested" value="true" ${hasEstimate ? 'checked' : ''}> <span>Precisa de Táxi Pet?</span></label>
-        <strong>${hasEstimate ? `Transporte estimado: ${money(estimate.feeCents || 0)}` : 'Táxi PetFunny'}</strong>
-        <p>${escapeHtml(hasEstimate ? friendlyTransportSummary(estimate) : 'Selecione esta opção para calcular busca e entrega do pet pelo endereço cadastrado.')}</p>
-        ${hasEstimate && estimate.warning ? `<small class="client-warning-text">${escapeHtml(estimate.warning)}</small>` : ''}
-        ${hasEstimate ? `<small>${escapeHtml(estimate.address || tutorAddressText())}</small>` : ''}
-      </div>
-      <div class="client-transport-estimate-actions"><button class="btn btn-sm btn-secondary" type="button" data-edit-transport-address>${hasEstimate ? 'Editar endereço' : 'Cadastrar endereço'}</button></div>
-    </article>`;
-  }
-
-
-  function appointmentSelectedServiceRows(form = document.getElementById('appointment-form')) {
-    if (!form) return [];
-    return [...form.querySelectorAll('input[name="serviceIds"]:checked')].map((input) => {
-      const service = (options.services || []).find((item) => String(item.id) === String(input.value)) || {};
-      return {
-        id: input.value,
-        name: service.name || input.closest('label')?.querySelector('strong')?.textContent || 'Serviço PetFunny',
-        priceCents: Number(service.priceCents || 0) || 0
-      };
-    });
-  }
-
-  function renderAppointmentSummaryBox() {
-    return `<article class="client-appointment-summary" id="appointment-summary-card" aria-live="polite">
-      <div class="client-appointment-summary-head">
-        <span>🧾</span>
-        <div><strong>Resumo do agendamento</strong><small>Serviços, Táxi Pet e total antes do pagamento.</small></div>
-      </div>
-      <div class="client-appointment-summary-body" id="appointment-summary-body">
-        <p class="client-muted">Selecione os serviços para montar o extrato.</p>
-      </div>
-    </article>`;
-  }
-
-  function updateAppointmentSummary() {
-    const form = document.getElementById('appointment-form');
-    const body = document.getElementById('appointment-summary-body');
-    if (!form || !body) return;
-    const services = appointmentSelectedServiceRows(form);
-    const transportRequested = Boolean(form.querySelector('[name="transportRequested"]')?.checked) || isTransportSelected(form);
-    const transportFeeCents = transportRequested ? (Number(form.querySelector('[name="transportFeeCents"]')?.value || 0) || 0) : 0;
-    const serviceTotal = services.reduce((sum, item) => sum + Number(item.priceCents || 0), 0);
-    const total = serviceTotal + transportFeeCents;
-    const rows = [];
-    if (services.length) {
-      rows.push(...services.map((item) => `<div class="client-appointment-summary-row"><span>${escapeHtml(item.name)}</span><strong>${money(item.priceCents)}</strong></div>`));
-    } else {
-      rows.push('<p class="client-muted">Nenhum serviço selecionado ainda.</p>');
-    }
-    if (transportRequested) {
-      rows.push(`<div class="client-appointment-summary-row taxi"><span>🚗 Táxi PetFunny</span><strong>${transportFeeCents ? money(transportFeeCents) : 'Calculando...'}</strong></div>`);
-    }
-    rows.push(`<div class="client-appointment-summary-total"><span>Total do agendamento</span><strong>${money(total)}</strong></div>`);
-    body.innerHTML = rows.join('');
-  }
-
-  function appWhatsappNumber() {
-    return String(data?.tutor?.whatsapp || data?.account?.whatsapp || data?.tutorWhatsapp || '').replace(/\D/g, '');
-  }
-
-  function appointmentConfirmationWhatsAppButton(appointment = {}, label = 'Enviar confirmação no WhatsApp') {
-    const phone = String(appointment.tutorWhatsapp || appWhatsappNumber() || '').replace(/\D/g, '');
-    const petName = appointment.petName || 'seu pet';
-    const when = appointment.startsAt ? dateTime(appointment.startsAt) : 'no horário escolhido';
-    const services = appointment.services ? `\nServiços: ${appointment.services}` : '';
-    const total = appointment.totalCents ? `\nTotal pago: ${money(appointment.totalCents)}` : '';
-    const message = `Oi! Tudo bem? Aqui é do PetFunny 🐾\n\nPagamento confirmado e agendamento do ${petName} realizado com sucesso!\nData e horário: ${when}${services}${total}\n\nEstamos esperando vocês com muito carinho 💚`;
-    const href = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;
-    return `<a class="btn client-whatsapp-confirm-btn" target="_blank" rel="noopener" href="${href}">💬 ${escapeHtml(label)}</a>`;
-  }
-
-  function formatCepInput(value = '') {
-    const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
-    return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
-  }
-
-  async function fillAddressByCep(input) {
-    const form = input?.closest?.('form');
-    const cep = String(input?.value || '').replace(/\D/g, '');
-    if (!form || cep.length !== 8) return;
-    input.dataset.loadingCep = 'true';
-    try {
-      const result = await clientApi.get(`/cep/${encodeURIComponent(cep)}`);
-      if (result.address && form.address) form.address.value = result.address;
-      if (result.addressNeighborhood && form.addressNeighborhood) form.addressNeighborhood.value = result.addressNeighborhood;
-      if (result.city && form.city) form.city.value = result.city;
-      if (result.state && form.state) form.state.value = result.state;
-      if (result.zipcode) input.value = result.zipcode;
-    } catch (error) {
-      toast(error.message || 'CEP não encontrado. Preencha o endereço manualmente.');
-    } finally {
-      delete input.dataset.loadingCep;
-    }
-  }
-
-  function transportAddressForm() {
-    const tutor = data?.tutor || {};
-    return `<form id="transport-address-form" class="client-form-grid">
-      ${field('CEP', 'addressZipcode', tutor.addressZipcode || '', 'placeholder="14000-000" inputmode="numeric" maxlength="9" autocomplete="postal-code" data-cep-input')}
-      ${field('Rua / Avenida', 'address', tutor.address || '', 'required')}
-      ${field('Número', 'addressNumber', tutor.addressNumber || '', 'required')}
-      ${field('Bairro', 'addressNeighborhood', tutor.addressNeighborhood || '', 'required')}
-      ${field('Cidade', 'city', tutor.city || 'Ribeirão Preto')}
-      ${field('Estado', 'state', tutor.state || 'SP', 'maxlength="2"')}
-      <input type="hidden" name="name" value="${escapeHtml(tutor.name || 'Tutor PetFunny')}">
-      <input type="hidden" name="email" value="${escapeHtml(tutor.email || '')}">
-      <p class="client-muted">Digite o CEP para preencher rua, bairro, cidade e UF automaticamente. O número continua manual.</p>
-      <button class="btn" type="submit">Salvar endereço e calcular transporte</button>
-    </form>`;
-  }
-
-  async function openTransportAddressModal() {
-    openModal('Endereço para transporte', transportAddressForm(), '<button class="btn btn-secondary" data-close-modal>Cancelar</button>');
-  }
-
-  async function refreshTransportEstimate({ forceModal = false } = {}) {
-    const form = document.getElementById('appointment-form');
-    if (!form) return null;
-    const box = document.getElementById('transport-estimate');
-    const feeInput = form.querySelector('[name="transportFeeCents"]');
-    const summaryInput = form.querySelector('[name="transportSummary"]');
-    const wantsTransport = Boolean(form.querySelector('[name="transportRequested"]')?.checked) || isTransportSelected(form);
-    if (!wantsTransport) {
-      if (feeInput) feeInput.value = '0';
-      if (summaryInput) summaryInput.value = '';
-      if (box) box.outerHTML = renderTransportEstimateBox(null);
-      updateAppointmentSummary();
-      return null;
-    }
-    if (!tutorHasTransportAddress(data?.tutor || {})) {
-      if (box) {
-        box.hidden = false;
-        box.innerHTML = `<div class="client-transport-estimate-icon">📍</div><div class="client-transport-estimate-body"><label class="client-transport-toggle"><input type="checkbox" name="transportRequested" value="true" checked> <span>Precisa de Táxi Pet?</span></label><strong>Endereço necessário</strong><p>Cadastre o endereço para calcular a busca e entrega do pet.</p></div><div class="client-transport-estimate-actions"><button class="btn btn-sm" type="button" data-edit-transport-address>Cadastrar endereço</button></div>`;
-      }
-      updateAppointmentSummary();
-      if (forceModal) await openTransportAddressModal();
-      return { requiresAddress: true };
-    }
-    if (box) {
-      box.hidden = false;
-      box.innerHTML = `<div class="client-transport-estimate-icon">🚗</div><div class="client-transport-estimate-body"><label class="client-transport-toggle"><input type="checkbox" name="transportRequested" value="true" checked> <span>Precisa de Táxi Pet?</span></label><strong>Calculando transporte...</strong><p>Estimando busca e entrega pelo endereço do tutor.</p></div>`;
-    }
-    try {
-      const estimate = await clientApi.get('/app/transport/estimate');
-      if (feeInput) feeInput.value = String(estimate.feeCents || 0);
-      if (summaryInput) summaryInput.value = estimate.summary || '';
-      if (box) box.outerHTML = renderTransportEstimateBox(estimate);
-      updateAppointmentSummary();
-      return estimate;
-    } catch (error) {
-      if (box) box.innerHTML = `<div class="client-transport-estimate-icon">⚠️</div><div class="client-transport-estimate-body"><label class="client-transport-toggle"><input type="checkbox" name="transportRequested" value="true" checked> <span>Precisa de Táxi Pet?</span></label><strong>Não foi possível calcular</strong><p>${escapeHtml(error.message || 'Tente novamente em instantes.')}</p></div><div class="client-transport-estimate-actions"><button class="btn btn-sm btn-secondary" type="button" data-edit-transport-address>Editar endereço</button></div>`;
-      updateAppointmentSummary();
-      return null;
-    }
   }
 
   function hasBathSelected(scope = document) {
@@ -945,11 +733,7 @@
         ${field('Data do atendimento', 'appointmentDate', initialDate, `type="date" min="${today()}"`)}
         <label class="client-field"><span>Horário disponível</span><select name="appointmentTime" id="appointment-time"><option value="">Carregando horários...</option></select><small class="client-field-hint" id="appointment-time-hint">Os horários seguem as Configurações do admin.</small></label>
         <div class="client-field"><span>Serviços</span><div class="client-check-list" id="services-list">${renderServiceChecks(serviceList)}</div></div>
-        ${renderTransportEstimateBox()}
-        <input type="hidden" name="transportFeeCents" value="0">
-        <input type="hidden" name="transportSummary" value="">
         ${textArea('Observações para a equipe', 'notes', roletaNote)}
-        ${renderAppointmentSummaryBox()}
         ${paymentMethodChoicesHtml({ fieldName: 'paymentType', selected: 'pix' })}
         <button class="btn" type="submit">Criar agendamento</button>
       </form>
@@ -2041,7 +1825,7 @@
         ${field('WhatsApp', 'whatsapp', tutor.whatsapp || data.account?.whatsapp || '', 'data-mask="whatsapp" disabled')}
         ${field('E-mail', 'email', tutor.email || '', 'type="email"')}
         <div class="client-form-subtitle">Endereço</div>
-        ${field('CEP', 'addressZipcode', tutor.addressZipcode || '', 'data-mask="cep" data-cep-input placeholder="14000-000" inputmode="numeric" maxlength="9" autocomplete="postal-code"')}
+        ${field('CEP', 'addressZipcode', tutor.addressZipcode || '', 'data-mask="cep" placeholder="14000-000"')}
         ${field('Rua / Avenida', 'address', tutor.address || '')}
         ${field('Número', 'addressNumber', tutor.addressNumber || '')}
         ${field('Bairro', 'addressNeighborhood', tutor.addressNeighborhood || '')}
@@ -2338,7 +2122,7 @@
                 localStorage.removeItem('petfunny_last_pending_pix_intent');
                 const target = paymentKind === 'package' ? '/app/pacotes' : paymentKind === 'teleconsultation' ? '/app/teleconsultas' : '/app/agenda';
                 const label = paymentKind === 'package' ? 'Ver meus pacotes' : paymentKind === 'teleconsultation' ? 'Ver Tele Consultas' : 'Ver minha agenda';
-                document.getElementById('pix-page-card').innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento aprovado com sucesso.')}</div>${paymentKind === 'appointment' && response.appointment ? appointmentConfirmationWhatsAppButton(response.appointment) : ''}<a class="btn" href="${target}">${label}</a>`;
+                document.getElementById('pix-page-card').innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento aprovado com sucesso.')}</div><a class="btn" href="${target}">${label}</a>`;
                 toast(response.message || 'Pagamento aprovado.');
                 resolve();
                 return;
@@ -2389,7 +2173,7 @@
       intent = response.paymentIntent || intent;
       if (response.appointment || intent?.status === 'paid') {
         clearRoletaScheduleContext();
-        card.innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento confirmado com sucesso.')}</div>${paymentKind === 'appointment' && response.appointment ? appointmentConfirmationWhatsAppButton(response.appointment) : ''}<a class="btn" href="${paymentKind === 'teleconsultation' ? '/app/teleconsultas' : '/app/agenda'}">${paymentKind === 'teleconsultation' ? 'Ver Tele Consultas' : 'Ver minha agenda'}</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
+        card.innerHTML = `<div class="client-pix-status">${escapeHtml(response.message || 'Pagamento confirmado com sucesso.')}</div><a class="btn" href="${paymentKind === 'teleconsultation' ? '/app/teleconsultas' : '/app/agenda'}">${paymentKind === 'teleconsultation' ? 'Ver Tele Consultas' : 'Ver minha agenda'}</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
         return;
       }
     } catch {}
@@ -2411,7 +2195,7 @@
       const paid = await waitPixConfirmation(intentId, paymentKind);
       clearRoletaScheduleContext();
       sessionStorage.removeItem('petfunny_pending_pix_intent');
-      card.innerHTML = `<div class="client-pix-status">${escapeHtml(paid.message || 'Pagamento confirmado com sucesso.')}</div>${paymentKind === 'appointment' && paid.appointment ? appointmentConfirmationWhatsAppButton(paid.appointment) : ''}<a class="btn" href="/app/agenda">Ver minha agenda</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
+      card.innerHTML = `<div class="client-pix-status">${escapeHtml(paid.message || 'Pagamento confirmado com sucesso.')}</div><a class="btn" href="/app/agenda">Ver minha agenda</a><a class="btn btn-secondary" href="/app/pacotes">Ver pacotes</a>`;
     } catch (error) {
       card.innerHTML += `<div class="client-pix-status">${escapeHtml(error.message)}</div>`;
     }
@@ -2608,19 +2392,8 @@
       if (event.target.name === 'petId') {
         document.getElementById('services-list').innerHTML = renderServiceChecks(serviceOptionsForPet(event.target.value));
         syncTosaServiceAvailability();
-        refreshTransportEstimate().catch(() => null);
       }
-      if (event.target.name === 'serviceIds') {
-        syncTosaServiceAvailability();
-        const transportToggle = event.currentTarget.querySelector('[name="transportRequested"]');
-        if (isTransportSelected(event.currentTarget) && transportToggle) transportToggle.checked = true;
-        refreshTransportEstimate({ forceModal: isTransportSelected(event.currentTarget) }).catch(() => null);
-        updateAppointmentSummary();
-      }
-      if (event.target.name === 'transportRequested') {
-        refreshTransportEstimate({ forceModal: event.target.checked }).catch(() => null);
-        updateAppointmentSummary();
-      }
+      if (event.target.name === 'serviceIds') syncTosaServiceAvailability();
       if (event.target.name === 'appointmentDate') {
         const form = event.currentTarget;
         const petValue = form.querySelector('[name="petId"]')?.value || '';
@@ -2632,20 +2405,9 @@
         }
         document.getElementById('services-list').innerHTML = renderServiceChecks(serviceOptionsForPet(petValue));
         syncTosaServiceAvailability();
-        refreshTransportEstimate().catch(() => null);
-        updateAppointmentSummary();
       }
     });
     syncTosaServiceAvailability();
-    updateAppointmentSummary();
-
-    document.body.addEventListener('input', (event) => {
-      const cepInput = event.target?.matches?.('[data-cep-input]') ? event.target : null;
-      if (!cepInput) return;
-      cepInput.value = formatCepInput(cepInput.value);
-      const digits = cepInput.value.replace(/\D/g, '');
-      if (digits.length === 8 && cepInput.dataset.loadingCep !== 'true') fillAddressByCep(cepInput).catch(() => null);
-    });
 
     document.body.addEventListener('click', (event) => {
       const petButton = event.target?.closest?.('[data-select-appointment-pet]');
@@ -2664,7 +2426,6 @@
         if (servicesList && form?.id === 'appointment-form') {
           servicesList.innerHTML = renderServiceChecks(serviceOptionsForPet(petId));
           syncTosaServiceAvailability();
-          refreshTransportEstimate().catch(() => null);
         }
         const teleFlow = document.getElementById('teleconsultas-flow');
         if (teleFlow && form?.id === 'teleconsultas-pet-form') {
@@ -2672,30 +2433,10 @@
         }
         return;
       }
-      const editTransportButton = event.target?.closest?.('[data-edit-transport-address]');
-      if (editTransportButton) {
-        openTransportAddressModal().catch(() => null);
-        return;
-      }
       const addPetButton = event.target?.closest?.('[data-add-pet-agenda]');
       if (addPetButton) {
         window.__petfunnyPetFormReturn = addPetButton.dataset.addPetReturn || currentClientSection() || 'agenda';
         openModal('Adicionar pet', petForm());
-      }
-    });
-
-    document.body.addEventListener('submit', async (event) => {
-      if (event.target.id !== 'transport-address-form') return;
-      event.preventDefault();
-      try {
-        const payload = formPayload(event.target);
-        const response = await clientApi.put('/app/profile', payload);
-        data.tutor = response.tutor || { ...(data.tutor || {}), ...payload };
-        closeModal();
-        toast(response.message || 'Endereço salvo.');
-        await refreshTransportEstimate();
-      } catch (error) {
-        openModal('Não foi possível salvar endereço', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
       }
     });
 
@@ -2901,11 +2642,6 @@
         openModal('Banho obrigatório para tosa', '<p>Para selecionar serviços de tosa, escolha primeiro um banho no agendamento.</p>', '<button class="btn" data-close-modal>OK</button>');
         return;
       }
-      if (Boolean(form.querySelector('[name="transportRequested"]')?.checked) || isTransportSelected(form)) {
-        const estimate = await refreshTransportEstimate({ forceModal: true });
-        if (!estimate || estimate.requiresAddress) return;
-        payload.transportRequested = true;
-      }
       try {
         const response = await clientApi.post('/app/appointments', payload);
         if (response.requiresPayment && response.paymentIntent) {
@@ -3100,6 +2836,3 @@
     document.body.innerHTML = `<main class="page-center"><section class="card"><h1>Não foi possível carregar o app.</h1><p>${escapeHtml(error.message)}</p><a class="btn" href="/app/login">Voltar ao login</a></section></main>`;
     finishPageLoading();
   }
-</script>
-</body>
-</html>

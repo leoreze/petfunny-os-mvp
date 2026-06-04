@@ -712,6 +712,40 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone TEXT NOT NULL UNIQUE,
+  profile_name TEXT,
+  tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  intent TEXT NOT NULL DEFAULT 'geral',
+  handoff_required BOOLEAN NOT NULL DEFAULT FALSE,
+  summary TEXT,
+  last_message_at TIMESTAMPTZ,
+  last_inbound_at TIMESTAMPTZ,
+  last_outbound_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS whatsapp_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES whatsapp_conversations(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL DEFAULT 'inbound',
+  provider_message_id TEXT,
+  phone TEXT NOT NULL,
+  message_type TEXT NOT NULL DEFAULT 'text',
+  body TEXT,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'received',
+  ai_used BOOLEAN NOT NULL DEFAULT FALSE,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_conversation ON whatsapp_messages (conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_phone ON whatsapp_messages (phone, created_at DESC);
+
 
 ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS website_url TEXT;
 ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS instagram_url TEXT;

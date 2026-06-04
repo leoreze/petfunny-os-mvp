@@ -34,7 +34,8 @@
     items: [],
     serviceTypes: [],
     petSizes: [],
-    summary: {}
+    summary: {},
+    viewMode: localStorage.getItem('admin_servicos_view') || 'list'
   };
 
   const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -62,9 +63,13 @@
       </section>
 
       <section class="module-card stack-md">
-        <div class="section-toolbar">
+        <div class="section-toolbar admin-query-toolbar">
           <div><h3>Consulta rápida</h3><p>Busque e filtre os serviços cadastrados.</p></div>
-          <div class="filter-row compact-filter-row">
+          <div class="admin-view-toggle" aria-label="Alternar visão de serviços">
+            <button class="btn btn-secondary service-view-btn" data-view="list" type="button">Lista</button>
+            <button class="btn btn-secondary service-view-btn" data-view="cards" type="button">Cards</button>
+          </div>
+          <div class="filter-row compact-filter-row filters-below full-row">
             <input class="input" id="search-services" placeholder="Buscar serviço" autocomplete="off">
             <select class="select" id="category-filter"><option value="all">Todos os tipos</option></select>
             <select class="select" id="size-filter"><option value="all">Todos os portes</option></select>
@@ -79,6 +84,7 @@
           </table>
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais serviços...</div>
         </div>
+        <div class="admin-list-cards" id="services-cards" hidden></div>
       </section>
 
 
@@ -110,6 +116,7 @@
 
   const body = document.getElementById('services-body');
   const scrollBox = document.getElementById('services-scroll');
+  const cardsBox = document.getElementById('services-cards');
   const loader = document.getElementById('infinite-loader');
   const modal = document.getElementById('service-modal');
   const form = document.getElementById('service-form');
@@ -133,6 +140,35 @@
     return `<option value="${esc(value)}" ${selected ? 'selected' : ''}>${esc(label)}</option>`;
   }
 
+  function serviceActionsMenu(id) {
+    return `<div class="row-actions service-actions-menu-wrap">
+      <button class="icon-btn service-menu-btn" data-id="${esc(id)}" type="button" title="Ações do serviço" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="service-row-menu" data-menu-for="${esc(id)}">
+        <button type="button" class="edit-btn" data-id="${esc(id)}">✎ Editar serviço</button>
+        <button type="button" class="delete-btn danger" data-id="${esc(id)}">🗑 Inativar</button>
+      </div>
+    </div>`;
+  }
+
+  function closeServiceMenus() {
+    document.querySelectorAll('.service-row-menu.open').forEach(menu => menu.classList.remove('open'));
+    document.querySelectorAll('.service-actions-menu-wrap.is-menu-open').forEach(wrap => wrap.classList.remove('is-menu-open'));
+    document.querySelectorAll('.service-menu-btn[aria-expanded="true"]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
+  }
+
+  function openServiceMenu(button) {
+    const wrap = button?.closest?.('.service-actions-menu-wrap');
+    const menu = wrap?.querySelector?.('.service-row-menu');
+    if (!menu) return;
+    const isOpen = menu.classList.contains('open');
+    closeServiceMenus();
+    if (!isOpen) {
+      wrap?.classList.add('is-menu-open');
+      menu.classList.add('open');
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+
   function fillOptions() {
     categoryFilter.innerHTML = optionHtml('all', 'Todos os tipos') + state.serviceTypes.map(item => optionHtml(item.id, item.name)).join('');
     sizeFilter.innerHTML = optionHtml('all', 'Todos os portes') + state.petSizes.map(item => optionHtml(item.code, item.name)).join('');
@@ -149,9 +185,32 @@
       <td><strong>${money(item.priceCents)}</strong><small>valor base</small></td>
       <td><strong>${Number(item.durationMinutes || 0)} min</strong><small>agenda</small></td>
       <td><span class="status-pill ${item.isActive ? 'ok' : 'muted-pill'}">${item.isActive ? 'Ativo' : 'Inativo'}</span></td>
-      <td><div class="row-actions"><button class="icon-btn edit-btn" data-id="${item.id}" type="button">✎</button><button class="icon-btn delete-btn" data-id="${item.id}" type="button">🗑</button></div></td>
+      <td>${serviceActionsMenu(item.id)}</td>
     </tr>`;
   }
+  function serviceCardTemplate(item) {
+    return `<article class="admin-entity-card" data-id="${esc(item.id)}">
+      <div class="admin-entity-card-header">
+        <div class="admin-entity-card-title"><div><strong>${esc(item.name)}</strong><small>${esc(item.description || 'sem descrição')}</small></div></div>
+        ${serviceActionsMenu(item.id)}
+      </div>
+      <div class="admin-entity-grid">
+        <span><b>Tipo</b>${esc(item.categoryName || 'Sem tipo')}</span>
+        <span><b>Porte</b>${esc(item.petSizeName || item.petSize || 'Todos')}</span>
+        <span><b>Preço</b>${money(item.priceCents)}</span>
+        <span><b>Duração</b>${Number(item.durationMinutes || 0)} min</span>
+      </div>
+      <div class="admin-entity-full"><b>Status</b><span class="status-pill ${item.isActive ? 'ok' : 'muted-pill'}">${item.isActive ? 'Ativo' : 'Inativo'}</span></div>
+    </article>`;
+  }
+
+  function applyServiceViewMode() {
+    const isCards = state.viewMode === 'cards';
+    scrollBox.classList.toggle('is-hidden', isCards);
+    if (cardsBox) cardsBox.hidden = !isCards;
+    document.querySelectorAll('.service-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
+  }
+
 
   function getSortValue(item, key) {
     if (key === 'categoryName') return item.categoryName || '';
@@ -183,6 +242,8 @@
   function renderRows() {
     const sorted = getSortedItems();
     body.innerHTML = sorted.length ? sorted.map(rowTemplate).join('') : '<tr><td colspan="7">Nenhum serviço encontrado.</td></tr>';
+    if (cardsBox) cardsBox.innerHTML = sorted.length ? sorted.map(serviceCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum serviço encontrado.</strong><p>Ajuste os filtros ou cadastre um novo serviço.</p></article>';
+    applyServiceViewMode();
     updateSortHeaders();
   }
 
@@ -294,14 +355,28 @@
   document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadServices(true); });
   categoryFilter.addEventListener('change', (event) => { state.categoryId = event.target.value; loadServices(true); });
   sizeFilter.addEventListener('change', (event) => { state.petSize = event.target.value; loadServices(true); });
+  document.querySelectorAll('.service-view-btn').forEach((button) => button.addEventListener('click', () => {
+    state.viewMode = button.dataset.view || 'list';
+    localStorage.setItem('admin_servicos_view', state.viewMode);
+    renderRows();
+  }));
+  document.getElementById('search-services').setAttribute('data-mask', 'none');
   document.getElementById('search-services').addEventListener('input', debounce((event) => { state.search = event.target.value.trim(); loadServices(true); }));
   window.addEventListener('scroll', () => {
     const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 220;
     if (nearBottom) loadServices(false);
   }, { passive: true });
   document.addEventListener('click', (event) => {
+    const menuBtn = event.target.closest('.service-menu-btn');
+    if (menuBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      openServiceMenu(menuBtn);
+      return;
+    }
     const sort = event.target.closest('.th-sort');
     if (sort) {
+      closeServiceMenus();
       const key = sort.dataset.sort;
       if (state.sortBy === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
       else { state.sortBy = key; state.sortDir = 'asc'; }
@@ -310,9 +385,11 @@
     }
     const edit = event.target.closest('.edit-btn');
     const del = event.target.closest('.delete-btn');
-    if (edit) openForm(findService(edit.dataset.id));
-    if (del) deleteService(del.dataset.id);
+    if (edit) { closeServiceMenus(); openForm(findService(edit.dataset.id)); return; }
+    if (del) { closeServiceMenus(); deleteService(del.dataset.id); return; }
+    if (!event.target.closest('.service-actions-menu-wrap')) closeServiceMenus();
   });
+  window.addEventListener('resize', closeServiceMenus);
 
   boot();
 </script>

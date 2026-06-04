@@ -26,6 +26,22 @@
     .appointment-media-share p{margin:0;color:#475569;font-size:13px;line-height:1.45}
     .appointment-media-share-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
     .appointment-media-share .input{background:#fff}
+    .appointment-media-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:2px 0 4px}
+    .appointment-media-camera-btn,.appointment-media-caption-ai{border:0;border-radius:999px;padding:11px 15px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 12px 28px rgba(15,23,42,.10)}
+    .appointment-media-camera-btn{background:linear-gradient(135deg,#01ADB7,#F9A197);color:#fff}
+    .appointment-media-caption-ai{background:#fff;color:#0f172a;border:1px solid rgba(15,23,42,.10)}
+    .appointment-media-caption-ai:disabled{opacity:.55;cursor:wait}
+
+    .agenda-transport-card{border-color:rgba(1,173,183,.22)!important;background:linear-gradient(135deg,rgba(1,173,183,.08),rgba(249,161,151,.10));margin-top:15px;}
+    .agenda-transport-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .agenda-transport-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;border-top:1px dashed rgba(15,23,42,.12);padding-top:10px;margin-top:2px}
+    .agenda-transport-actions .btn{white-space:nowrap}
+    .agenda-transport-toggle{display:inline-flex;align-items:center;gap:10px;font-weight:900;color:#0f172a;cursor:pointer}
+    .agenda-transport-toggle input{width:20px;height:20px;accent-color:#01ADB7}
+    .agenda-transport-content{display:grid;gap:6px;color:#475569;font-size:13px;line-height:1.45}
+    .agenda-transport-content strong{color:#0f172a;font-size:15px}
+    .agenda-transport-card.is-loading{opacity:.78}
+    .agenda-cep-hint{font-size:12px;color:#64748b;margin:0;grid-column:1/-1}
   </style>
 </head>
 <body>
@@ -54,7 +70,8 @@
     collaborators: [],
     slots: [],
     editing: null,
-    packageEditLocked: false
+    packageEditLocked: false,
+    transportQuote: null
   };
 
   const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -69,6 +86,7 @@
   const statusName = (code) => statusByCode(code).name || code;
   const paymentStatusName = (code) => (state.paymentStatuses || []).find(p => p.code === code)?.name || (code === 'paid' ? 'Pago' : 'Pendente');
   const isPaymentPaid = (appointment = {}) => String(appointment.paymentStatus || '').toLowerCase() === 'paid' || String(paymentStatusName(appointment.paymentStatus)).toLowerCase() === 'pago';
+  const sourceBadge = (appointment = {}) => String(appointment.source || '').toLowerCase() === 'app_tutor' ? '<span class="admin-source-badge-app">📱 Veio pelo app do tutor</span>' : '';
   const initials = (name = 'P') => String(name || 'P').trim().split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase() || 'P';
   const petPhoto = (appointment = {}) => appointment.petPhotoUrl || petById(appointment.petId)?.photoUrl || '';
   const petAvatar = (appointment = {}, size = 'sm') => {
@@ -185,6 +203,11 @@
             <input type="hidden" id="appointment-media-id">
             <div class="form-grid">
               <label class="form-field full-width"><span>Arquivo</span><input class="input" id="appointment-media-file" type="file" accept="image/*,video/mp4,video/webm,video/quicktime"></label>
+              <input id="appointment-media-camera-input" type="file" accept="image/*" capture="environment" hidden>
+              <div class="appointment-media-tools full-width">
+                <button class="appointment-media-camera-btn" type="button" id="appointment-media-camera-btn">📷 Bater foto pelo celular</button>
+                <button class="appointment-media-caption-ai" type="button" id="appointment-media-caption-ai">✨ Gerar outra legenda IA</button>
+              </div>
               <label class="form-field full-width"><span>Ou URL da foto/vídeo</span><input class="input" id="appointment-media-url" placeholder="https://... ou /uploads/..." inputmode="url"></label>
               <label class="form-field"><span>Tipo</span><select class="select" id="appointment-media-type"><option value="photo">Foto</option><option value="video">Vídeo</option></select></label>
               <label class="form-field"><span>Destaque</span><select class="select" id="appointment-media-featured"><option value="false">Normal</option><option value="true">Foto principal</option></select></label>
@@ -263,6 +286,18 @@
               <p>Os serviços são agrupados por tipo de serviço e filtrados pelo tipo de pet e porte cadastrados.</p>
               <div class="service-check-grid" id="service-checks"></div>
             </div>
+            <div class="module-card stack-sm soft-card agenda-transport-card" id="agenda-transport-card">
+              <div class="agenda-transport-head">
+                <label class="agenda-transport-toggle"><input type="checkbox" id="agenda-transport-toggle"> <span>Precisa de Táxi Pet?</span></label>
+              </div>
+              <div class="agenda-transport-content" id="agenda-transport-content">
+                <strong>Transporte PetFunny</strong>
+                <span>Selecione para calcular automaticamente busca e entrega do pet pelo endereço do tutor.</span>
+              </div>
+              <div class="agenda-transport-actions">
+                <button class="btn btn-sm btn-secondary" type="button" id="agenda-edit-transport-address">Cadastrar/editar endereço</button>
+              </div>
+            </div>
             <div class="form-grid form-row-gap">
               <label class="form-field"><span>Desconto promocional global (%)</span><input class="input" type="number" min="0" max="100" step="0.01" id="discount-percent" value="0"></label>
               <label class="form-field"><span>Total previsto</span><input class="input" id="total-preview" readonly value="R$ 0,00"></label>
@@ -277,6 +312,31 @@
         </form>
       
 </dialog>
+
+      <dialog class="modal-shell agenda-appointment-modal" id="agenda-transport-address-modal">
+        <form method="dialog" class="modal-card agenda-appointment-modal-card" id="agenda-transport-address-form">
+          <header class="modal-header agenda-modal-header">
+            <div class="modal-title-block">
+              <p class="eyebrow">Táxi PetFunny</p>
+              <h2>Endereço do tutor</h2>
+              <p class="modal-subtitle">Digite o CEP para preencher rua, bairro, cidade e UF automaticamente. O número continua manual.</p>
+            </div>
+            <button class="icon-btn modal-close-btn" type="button" id="close-agenda-transport-address-modal" aria-label="Fechar modal">✕</button>
+          </header>
+          <div class="modal-body custom-scroll">
+            <div class="form-grid form-row-gap">
+              <label class="form-field"><span>CEP</span><input class="input" id="agenda-address-zipcode" name="addressZipcode" placeholder="14000-000" inputmode="numeric" maxlength="9" autocomplete="postal-code" data-admin-cep-input></label>
+              <label class="form-field"><span>Rua / Avenida</span><input class="input" id="agenda-address" name="address" required></label>
+              <label class="form-field"><span>Número</span><input class="input" id="agenda-address-number" name="addressNumber" required></label>
+              <label class="form-field"><span>Bairro</span><input class="input" id="agenda-address-neighborhood" name="addressNeighborhood" required></label>
+              <label class="form-field"><span>Cidade</span><input class="input" id="agenda-address-city" name="city" value="Ribeirão Preto"></label>
+              <label class="form-field"><span>Estado</span><input class="input" id="agenda-address-state" name="state" value="SP" maxlength="2"></label>
+              <p class="agenda-cep-hint">O endereço será salvo no cadastro do tutor e usado para calcular o transporte.</p>
+            </div>
+          </div>
+          <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-agenda-transport-address-modal">Cancelar</button><button class="btn" type="submit">Salvar endereço e calcular</button></footer>
+        </form>
+      </dialog>
 
       <dialog class="modal-shell agenda-appointment-modal" id="historical-appointment-modal">
         <form method="dialog" class="modal-card agenda-appointment-modal-card" id="historical-appointment-form">
@@ -348,7 +408,24 @@
     discount: document.getElementById('discount-percent'),
     total: document.getElementById('total-preview'),
     notes: document.getElementById('notes'),
-    packageLockNote: document.getElementById('package-session-lock-note')
+    packageLockNote: document.getElementById('package-session-lock-note'),
+    transportToggle: document.getElementById('agenda-transport-toggle'),
+    transportContent: document.getElementById('agenda-transport-content'),
+    transportCard: document.getElementById('agenda-transport-card'),
+    transportEditAddress: document.getElementById('agenda-edit-transport-address')
+  };
+
+  const transportAddressModal = {
+    modal: document.getElementById('agenda-transport-address-modal'),
+    form: document.getElementById('agenda-transport-address-form'),
+    zipcode: document.getElementById('agenda-address-zipcode'),
+    address: document.getElementById('agenda-address'),
+    number: document.getElementById('agenda-address-number'),
+    neighborhood: document.getElementById('agenda-address-neighborhood'),
+    city: document.getElementById('agenda-address-city'),
+    state: document.getElementById('agenda-address-state'),
+    close: document.getElementById('close-agenda-transport-address-modal'),
+    cancel: document.getElementById('cancel-agenda-transport-address-modal')
   };
   const appointmentServiceCard = document.getElementById('appointment-service-card');
 
@@ -400,6 +477,9 @@
     openLink: document.getElementById('appointment-media-open-link'),
     copyLink: document.getElementById('appointment-media-copy-link'),
     sendWhatsapp: document.getElementById('appointment-media-send-whatsapp'),
+    camera: document.getElementById('appointment-media-camera-btn'),
+    cameraInput: document.getElementById('appointment-media-camera-input'),
+    generateCaption: document.getElementById('appointment-media-caption-ai'),
     close: document.getElementById('close-appointment-media-modal'),
     cancel: document.getElementById('cancel-appointment-media-modal')
   };
@@ -606,7 +686,7 @@
       const serviceSizeOk = s.petSize === 'todos' || s.petSize === petSize;
       const categorySizeOk = !s.categoryPetSizeCode || s.categoryPetSizeCode === petSize || s.categoryPetSizeCode === 'todos';
       const categoryTypeOk = !s.categoryPetTypeCode || s.categoryPetTypeCode === petType;
-      return serviceSizeOk && categorySizeOk && categoryTypeOk;
+      return !isTransportServiceItem(s) && serviceSizeOk && categorySizeOk && categoryTypeOk;
     });
     const byCategory = new Map();
     services.forEach(service => {
@@ -662,15 +742,145 @@
     finally { hideLoading(); }
   }
 
+
+  function normalizeTransportText(value = '') {
+    return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function isTransportServiceItem(service = {}) {
+    const text = normalizeTransportText(`${service.name || ''} ${service.categoryName || ''} ${service.category || ''}`);
+    return text.includes('transporte') || text.includes('leva e traz') || text.includes('buscar e entregar') || text.includes('taxi dog') || text.includes('taxidog');
+  }
+
+  function selectedTransportServiceIdsAdmin() {
+    return Array.from(fields.services?.querySelectorAll('input:checked') || [])
+      .map(input => input.value)
+      .filter(id => isTransportServiceItem(serviceById(id) || {}));
+  }
+
+  function selectedTutor() {
+    return state.tutors.find(t => String(t.id) === String(fields.tutorId.value)) || null;
+  }
+
+  function tutorHasTransportAddressAdmin(tutor = selectedTutor() || {}) {
+    return Boolean(String(tutor.address || '').trim() && String(tutor.addressNumber || tutor.address_number || '').trim() && String(tutor.addressNeighborhood || tutor.address_neighborhood || '').trim());
+  }
+
+  function tutorAddressTextAdmin(tutor = selectedTutor() || {}) {
+    return [tutor.address, tutor.addressNumber || tutor.address_number, tutor.addressNeighborhood || tutor.address_neighborhood, tutor.city || 'Ribeirão Preto', tutor.state || 'SP'].filter(Boolean).join(', ');
+  }
+
+  function formatCepInput(value = '') {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+    return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+  }
+
+  async function fillAdminAddressByCep(input) {
+    const cep = String(input?.value || '').replace(/\D/g, '');
+    if (cep.length !== 8) return;
+    input.dataset.loadingCep = 'true';
+    try {
+      const result = await api.get(`/cep/${encodeURIComponent(cep)}`);
+      if (transportAddressModal.address && result.address) transportAddressModal.address.value = result.address;
+      if (transportAddressModal.neighborhood && result.addressNeighborhood) transportAddressModal.neighborhood.value = result.addressNeighborhood;
+      if (transportAddressModal.city && result.city) transportAddressModal.city.value = result.city;
+      if (transportAddressModal.state && result.state) transportAddressModal.state.value = result.state;
+      if (result.zipcode) input.value = result.zipcode;
+    } catch (error) {
+      toast(error.message || 'CEP não encontrado. Preencha manualmente.');
+    } finally {
+      delete input.dataset.loadingCep;
+    }
+  }
+
+  function adminFriendlyTransportSummary(quote = null) {
+    const oneWay = Number(quote?.oneWayKm || 0);
+    const operational = Number(quote?.operationalKm || 0);
+    if (oneWay > 0 || operational > 0) return `Busca e entrega calculadas automaticamente: ${oneWay.toFixed(1)} km por trecho · ciclo operacional ${operational.toFixed(1)} km.`;
+    return quote?.summary || 'Busca e entrega calculadas automaticamente.';
+  }
+
+  function renderAdminTransportContent(quote = null) {
+    if (quote && !quote.requiresAddress) {
+      fields.transportContent.innerHTML = `<strong>Táxi Pet estimado: ${money(quote.feeCents || 0)}</strong><span>${esc(adminFriendlyTransportSummary(quote))}</span>${quote.warning ? `<small class="client-warning-text">${esc(quote.warning)}</small>` : ''}<small>${esc(quote.address || tutorAddressTextAdmin())}</small>`;
+      return;
+    }
+    if (fields.transportToggle?.checked) {
+      fields.transportContent.innerHTML = '<strong>Táxi PetFunny</strong><span>Calcule automaticamente o valor de buscar e entregar o pet pelo endereço do tutor.</span>';
+      return;
+    }
+    fields.transportContent.innerHTML = '<strong>Transporte PetFunny</strong><span>Selecione “Precisa de Táxi Pet?” para calcular busca e entrega.</span>';
+  }
+
+  function resetAdminTransportQuote() {
+    state.transportQuote = null;
+    renderAdminTransportContent(null);
+    updateTotal();
+  }
+
+  function openAdminTransportAddressModal() {
+    const tutor = selectedTutor() || {};
+    if (!tutor.id) {
+      toast('Selecione o tutor antes de cadastrar o endereço.');
+      return;
+    }
+    transportAddressModal.zipcode.value = tutor.addressZipcode || tutor.address_zipcode || '';
+    transportAddressModal.address.value = tutor.address || '';
+    transportAddressModal.number.value = tutor.addressNumber || tutor.address_number || '';
+    transportAddressModal.neighborhood.value = tutor.addressNeighborhood || tutor.address_neighborhood || '';
+    transportAddressModal.city.value = tutor.city || 'Ribeirão Preto';
+    transportAddressModal.state.value = tutor.state || 'SP';
+    if (!transportAddressModal.modal.open) transportAddressModal.modal.showModal();
+  }
+
+  async function calculateAdminTransport({ forceModal = false } = {}) {
+    if (!fields.transportToggle?.checked && !selectedTransportServiceIdsAdmin().length) {
+      resetAdminTransportQuote();
+      return null;
+    }
+    if (fields.transportToggle) fields.transportToggle.checked = true;
+    const tutor = selectedTutor();
+    if (!tutor?.id) {
+      resetAdminTransportQuote();
+      toast('Selecione o tutor para calcular o Táxi Pet.');
+      return null;
+    }
+    if (!tutorHasTransportAddressAdmin(tutor)) {
+      state.transportQuote = null;
+      fields.transportContent.innerHTML = '<strong>Endereço necessário</strong><span>Cadastre CEP, rua, número e bairro para calcular o Táxi Pet.</span>';
+      updateTotal();
+      if (forceModal) openAdminTransportAddressModal();
+      return { requiresAddress: true };
+    }
+    fields.transportCard?.classList.add('is-loading');
+    fields.transportContent.innerHTML = '<strong>Calculando Táxi Pet...</strong><span>Consultando a rota de busca e entrega do pet.</span>';
+    try {
+      const quote = await api.get(`/transport/estimate?tutorId=${encodeURIComponent(tutor.id)}`);
+      state.transportQuote = quote;
+      renderAdminTransportContent(quote);
+      updateTotal();
+      return quote;
+    } catch (error) {
+      state.transportQuote = null;
+      fields.transportContent.innerHTML = `<strong>Não foi possível calcular</strong><span>${esc(error.message || 'Tente novamente em instantes.')}</span>`;
+      updateTotal();
+      return null;
+    } finally {
+      fields.transportCard?.classList.remove('is-loading');
+    }
+  }
+
   function updateTotal() {
     if (state.packageEditLocked && state.editing) {
       fields.total.value = money(state.editing.totalCents || state.editing.total_cents || 0);
       return;
     }
     const ids = Array.from(fields.services.querySelectorAll('input:checked')).map(i => i.value);
-    const subtotal = ids.reduce((sum, id) => sum + Number(serviceById(id)?.priceCents || 0), 0);
+    const servicesSubtotal = ids.reduce((sum, id) => sum + Number(isTransportServiceItem(serviceById(id) || {}) ? 0 : (serviceById(id)?.priceCents || 0)), 0);
+    const transportFee = fields.transportToggle?.checked && state.transportQuote && !state.transportQuote.requiresAddress ? Number(state.transportQuote.feeCents || 0) : 0;
+    const subtotal = servicesSubtotal + transportFee;
     const disc = Math.max(0, Math.min(100, Number(fields.discount.value || 0)));
-    fields.total.value = money(Math.max(0, subtotal - Math.round(subtotal * disc / 100)));
+    fields.total.value = money(Math.max(0, subtotal - Math.round(servicesSubtotal * disc / 100)));
   }
 
   function statusMessageContextHtml(payload = {}) {
@@ -802,17 +1012,50 @@
     });
   }
 
+  function localCuteMomentCaption(appointment = {}) {
+    const pet = appointment.petName || 'esse amor';
+    const tutor = appointment.tutorName ? String(appointment.tutorName).trim().split(/\s+/)[0] : '';
+    const options = [
+      `${pet} passou pelo PetFunny e saiu prontinho para ganhar muitos carinhos. 🐾✨`,
+      `Momento especial do ${pet}: banho, cuidado e muito charme do jeitinho PetFunny. 💚`,
+      `Olha que fofura! ${pet} ficou ainda mais lindo depois do cuidado de hoje. 🛁🐶`,
+      `${tutor ? `${tutor}, olha só: ` : ''}${pet} brilhou por aqui e já deixou saudade na equipe PetFunny. ✨`,
+      `Registro cheio de carinho do ${pet}, porque cada cuidado merece virar lembrança. 📸💚`,
+      `${pet} recebeu aquele cuidado caprichado e saiu com cheirinho de felicidade. 🌸🐾`
+    ];
+    return options[Math.floor(Math.random() * options.length)];
+  }
+
+  async function generateAppointmentMediaCaption(id, { force = false } = {}) {
+    const appointment = state.items.find(item => item.id === id) || {};
+    if (!mediaModal.caption) return;
+    if (!force && mediaModal.caption.value.trim()) return;
+    const fallback = localCuteMomentCaption(appointment);
+    mediaModal.caption.value = fallback;
+    try {
+      if (mediaModal.generateCaption) mediaModal.generateCaption.disabled = true;
+      const response = await api.post(`/agenda/${id}/media-caption`, { force: true });
+      if (response?.caption) mediaModal.caption.value = response.caption;
+    } catch (_) {
+      mediaModal.caption.value = fallback;
+    } finally {
+      if (mediaModal.generateCaption) mediaModal.generateCaption.disabled = false;
+    }
+  }
+
   function openAppointmentMediaModal(id) {
     const appointment = state.items.find(item => item.id === id) || {};
     if (!mediaModal.modal || !id) return;
     mediaModal.id.value = id;
     mediaModal.form?.reset();
+    if (mediaModal.cameraInput) mediaModal.cameraInput.value = '';
     resetAppointmentMediaShare();
     if (mediaModal.type) mediaModal.type.value = 'photo';
     if (mediaModal.featured) mediaModal.featured.value = 'false';
     if (mediaModal.title) mediaModal.title.textContent = `Momento de ${appointment.petName || 'pet'}`;
     if (mediaModal.subtitle) mediaModal.subtitle.textContent = `${appointment.tutorName || 'Tutor'} · ${appointment.startsAt ? dt(appointment.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : 'Atendimento PetFunny'}`;
     if (!mediaModal.modal.open) mediaModal.modal.showModal();
+    generateAppointmentMediaCaption(id, { force: true });
   }
 
   function resetAppointmentMediaShare() {
@@ -835,7 +1078,7 @@
     event.preventDefault();
     const id = mediaModal.id?.value;
     if (!id) return toast('Agendamento não identificado.', 'error');
-    const file = mediaModal.file?.files?.[0];
+    const file = mediaModal.cameraInput?.files?.[0] || mediaModal.file?.files?.[0];
     const url = mediaModal.url?.value?.trim() || '';
     if (!file && !url) return toast('Selecione uma foto/vídeo ou informe uma URL.', 'warning');
     try {
@@ -871,7 +1114,7 @@
       <div class="appointment-status-line"><span class="status-pill" style="--status-color:${esc(color)}">${esc(st.name || a.status)}</span></div>
       <div class="appointment-card-head">
         ${petAvatar(a, 'md')}
-        <div><h3>${hm(a.startsAt)} · ${esc(a.petName || 'Pet')}</h3><small>${esc(a.tutorName || 'Tutor')}</small></div>
+        <div><h3>${hm(a.startsAt)} · ${esc(a.petName || 'Pet')}</h3><small>${esc(a.tutorName || 'Tutor')}</small>${sourceBadge(a)}</div>
       </div>
       <p><strong>${esc(a.services || 'Serviço não informado')}</strong></p>
       <div class="appointment-meta-row"><small>${esc(a.collaboratorName || 'Equipe PetFunny')}<span class="payment-info-line">${esc(paymentStatusName(a.paymentStatus))}${a.paymentMethodName ? ` · ${esc(a.paymentMethodName)}` : ''}</span></small><b>${money(a.totalCents)}</b></div>
@@ -1158,6 +1401,9 @@
     renderServiceChecks();
     const ids = new Set((item?.items || []).map(i => i.serviceId));
     fields.services.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = ids.has(input.value); });
+    state.transportQuote = null;
+    if (fields.transportToggle) fields.transportToggle.checked = false;
+    renderAdminTransportContent(null);
     applyPackageEditLock(item);
     updateTotal();
     setupPremiumInteractions(nodes.modal);
@@ -1325,6 +1571,11 @@
       await showResultModal({ type: 'error', title: 'Horário indisponível', message: editing ? 'O horário original do agendamento não foi carregado. Feche o modal e tente editar novamente.' : 'Escolha uma data e horário disponíveis antes de salvar.', okText: 'OK' });
       return;
     }
+    if (fields.transportToggle?.checked) {
+      const quote = state.transportQuote && !state.transportQuote.requiresAddress ? state.transportQuote : await calculateAdminTransport({ forceModal: true });
+      if (!quote || quote.requiresAddress) return;
+      payload.transport = { feeCents: quote.feeCents, summary: quote.summary, address: quote.address, method: quote.method, provider: quote.provider };
+    }
     try {
       if (editing) await api.put(`/agenda/${fields.id.value}`, payload); else await api.post('/agenda', payload);
       nodes.modal.close();
@@ -1395,6 +1646,39 @@
   historicalFields.form?.addEventListener('submit', saveHistoricalAppointment);
   document.getElementById('close-modal').addEventListener('click', () => { applyPackageEditLock(null); nodes.modal.close(); });
   document.getElementById('cancel-modal').addEventListener('click', () => { applyPackageEditLock(null); nodes.modal.close(); });
+  transportAddressModal.close?.addEventListener('click', () => transportAddressModal.modal?.close());
+  transportAddressModal.cancel?.addEventListener('click', () => transportAddressModal.modal?.close());
+  fields.transportEditAddress?.addEventListener('click', openAdminTransportAddressModal);
+  fields.transportToggle?.addEventListener('change', (event) => calculateAdminTransport({ forceModal: event.target.checked }).catch(() => null));
+  transportAddressModal.zipcode?.addEventListener('input', (event) => {
+    event.target.value = formatCepInput(event.target.value);
+    const digits = event.target.value.replace(/\D/g, '');
+    if (digits.length === 8 && event.target.dataset.loadingCep !== 'true') fillAdminAddressByCep(event.target).catch(() => null);
+  });
+  transportAddressModal.form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const tutor = selectedTutor();
+    if (!tutor?.id) return toast('Selecione um tutor antes de salvar o endereço.', 'warning');
+    const payload = {
+      addressZipcode: transportAddressModal.zipcode.value,
+      address: transportAddressModal.address.value,
+      addressNumber: transportAddressModal.number.value,
+      addressNeighborhood: transportAddressModal.neighborhood.value,
+      city: transportAddressModal.city.value,
+      state: transportAddressModal.state.value
+    };
+    try {
+      const response = await api.patch(`/tutores/${encodeURIComponent(tutor.id)}/address`, payload);
+      const updated = response.tutor || { ...tutor, ...payload };
+      const idx = state.tutors.findIndex(t => String(t.id) === String(tutor.id));
+      if (idx >= 0) state.tutors[idx] = { ...state.tutors[idx], ...updated };
+      transportAddressModal.modal?.close();
+      toast(response.message || 'Endereço salvo.', 'success');
+      await calculateAdminTransport({ forceModal: false });
+    } catch (error) {
+      await showResultModal({ type: 'error', title: 'Não foi possível salvar endereço', message: error.message || 'Revise o endereço e tente novamente.', okText: 'OK' });
+    }
+  });
   document.getElementById('close-document-modal')?.addEventListener('click', () => document.getElementById('agenda-document-modal')?.close());
   messageModal.close?.addEventListener('click', () => messageModal.modal?.close());
   messageModal.cancel?.addEventListener('click', () => messageModal.modal?.close());
@@ -1406,6 +1690,16 @@
     const file = mediaModal.file?.files?.[0];
     if (file?.type?.startsWith('video/') && mediaModal.type) mediaModal.type.value = 'video';
     if (file?.type?.startsWith('image/') && mediaModal.type) mediaModal.type.value = 'photo';
+    if (mediaModal.id?.value) generateAppointmentMediaCaption(mediaModal.id.value, { force: false });
+  });
+  mediaModal.camera?.addEventListener('click', () => mediaModal.cameraInput?.click?.());
+  mediaModal.cameraInput?.addEventListener('change', () => {
+    if (mediaModal.cameraInput?.files?.[0] && mediaModal.type) mediaModal.type.value = 'photo';
+    if (mediaModal.id?.value) generateAppointmentMediaCaption(mediaModal.id.value, { force: false });
+  });
+  mediaModal.generateCaption?.addEventListener('click', () => {
+    if (!mediaModal.id?.value) return;
+    generateAppointmentMediaCaption(mediaModal.id.value, { force: true });
   });
   mediaModal.copyLink?.addEventListener('click', async () => {
     const link = mediaModal.shareLink?.value || '';
@@ -1430,11 +1724,15 @@
     event.target.value = d.length > 7 ? `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}` : d.length > 2 ? `(${d.slice(0,2)}) ${d.slice(2)}` : d;
   });
   fields.whatsapp?.addEventListener('blur', lookupClientByWhatsapp);
-  fields.tutorId?.addEventListener('change', () => { renderPetsForTutor({ autoSelectSingle: true }); completeFieldsFromSelection({ forceNotes: true }); });
-  fields.petId?.addEventListener('change', () => { completeFieldsFromSelection({ forceNotes: true }); renderServiceChecks(); });
+  fields.tutorId?.addEventListener('change', () => { renderPetsForTutor({ autoSelectSingle: true }); completeFieldsFromSelection({ forceNotes: true }); resetAdminTransportQuote(); if (fields.transportToggle?.checked) calculateAdminTransport({ forceModal: false }).catch(() => null); });
+  fields.petId?.addEventListener('change', () => { completeFieldsFromSelection({ forceNotes: true }); renderServiceChecks(); resetAdminTransportQuote(); if (fields.transportToggle?.checked) calculateAdminTransport({ forceModal: false }).catch(() => null); });
   fields.date?.addEventListener('change', () => renderTimes(''));
   if (fields.date && fields.date.min !== undefined) fields.date.min = localToday();
-  fields.services?.addEventListener('change', updateTotal);
+  fields.services?.addEventListener('change', () => {
+    if (selectedTransportServiceIdsAdmin().length && fields.transportToggle) fields.transportToggle.checked = true;
+    if (fields.transportToggle?.checked) calculateAdminTransport({ forceModal: selectedTransportServiceIdsAdmin().length > 0 }).catch(() => null);
+    else updateTotal();
+  });
   fields.discount?.addEventListener('input', updateTotal);
   nodes.form?.addEventListener('submit', saveAppointment);
   // v1.6.19: não fechar o menu dos 3 pontinhos ao rolar; ele tem scroll interno próprio.

@@ -21,24 +21,39 @@
   import { showToast } from '/assets/js/toast.js';
   import { generateWhatsAppMessage, openWhatsAppUrl } from '/assets/js/whatsapp.js';
 
-  const state = { templates: [] };
+  const state = { templates: [], status: null, conversations: [] };
 
   buildShell({
     active: 'WhatsApp',
     eyebrow: 'Atendimento híbrido',
     title: 'WhatsApp inteligente',
-    subtitle: 'A IA prepara a mensagem, abre o WhatsApp com tudo preenchido e a equipe revisa antes de enviar.',
+    subtitle: 'Agente conectado à WhatsApp Cloud API, com webhook, resposta automática, histórico de conversas e fallback para atendimento humano.',
     content: `
       <section class="hero-panel stack-md">
         <div class="page-heading-row between">
           <div>
-            <p class="eyebrow">Sem API oficial, sem risco técnico</p>
-            <h1>Mensagens prontas para atendimento humano</h1>
-            <p>Use este módulo para confirmar horários, cobrar pendências, reativar clientes, renovar pacotes e enviar recibos com textos profissionais e personalizados.</p>
+            <p class="eyebrow">Cloud API + agente híbrido</p>
+            <h1>Agente WhatsApp PetFunny</h1>
+            <p>Receba mensagens pelo webhook oficial, responda automaticamente com IA/regras do PetFunny e assuma a conversa quando precisar de atendimento humano.</p>
           </div>
-          <span class="badge">Modelo híbrido: IA + atendente</span>
+          <span class="badge">Agente: IA + atendente</span>
         </div>
-        <div id="whatsapp-metrics">${bigNumberGrid([['Envio manual','Seguro','sem disparo automático'],['WhatsApp','Pré-preenchido','revisar e enviar'],['IA','Opcional','não trava o sistema']])}</div>
+        <div id="whatsapp-metrics">${bigNumberGrid([['Webhook','Pronto','recebe mensagens'],['Resposta','Automática','com fallback'],['Atendente','Handoff','quando necessário']])}</div>
+      </section>
+
+      <section class="module-card stack-md" id="agent-status-card">
+        <div class="table-header">
+          <div><h3>Status do agente</h3><p>Configure as variáveis do .env, cole a URL de callback na Meta e acompanhe se o agente está respondendo.</p></div>
+          <button class="btn btn-secondary" id="refresh-agent" type="button">Atualizar</button>
+        </div>
+        <div id="agent-status" class="muted">Carregando status do agente...</div>
+      </section>
+
+      <section class="module-card stack-md" id="agent-conversations-card">
+        <div class="table-header">
+          <div><h3>Conversas recentes</h3><p>Mensagens recebidas pelo webhook do WhatsApp Cloud API.</p></div>
+        </div>
+        <div id="agent-conversations" class="stack-sm"></div>
       </section>
 
       <section class="module-card stack-md">
@@ -87,6 +102,52 @@
     };
   }
 
+  function renderAgentStatus(status = {}) {
+    const ok = status.cloudConfigured;
+    const callback = status.callbackUrl || '';
+    const metrics = status.metrics || {};
+    $('#agent-status').innerHTML = `
+      <div class="module-grid compact-grid">
+        <article class="soft-card"><strong>${ok ? '✅ Cloud API configurada' : '⚠️ Falta configurar Cloud API'}</strong><p>${ok ? 'Token e Phone Number ID encontrados no ambiente.' : 'Preencha WHATSAPP_ACCESS_TOKEN e WHATSAPP_PHONE_NUMBER_ID no .env.'}</p></article>
+        <article class="soft-card"><strong>${status.agentEnabled ? '✅ Agente ativo' : '⏸️ Agente pausado'}</strong><p>Auto resposta: ${status.autoReply ? 'ativada' : 'desativada'} · OpenAI: ${status.openaiConfigured ? 'configurada' : 'fallback local'}</p></article>
+        <article class="soft-card"><strong>${metrics.conversations || 0} conversa(s)</strong><p>${metrics.inbound || 0} recebidas · ${metrics.outbound || 0} enviadas · ${metrics.handoff || 0} em handoff.</p></article>
+      </div>
+      <div class="codebox" style="white-space:normal;word-break:break-all;margin-top:12px"><strong>Callback URL:</strong> ${callback || 'Configure APP_URL no .env para gerar a URL pública.'}<br><strong>Verify token:</strong> WHATSAPP_VERIFY_TOKEN</div>
+    `;
+  }
+
+  function renderConversations(items = []) {
+    if (!items.length) {
+      $('#agent-conversations').innerHTML = '<div class="empty-state"><strong>Nenhuma conversa recebida ainda.</strong><p>Depois que a Meta enviar mensagens para o webhook, elas aparecem aqui.</p></div>';
+      return;
+    }
+    $('#agent-conversations').innerHTML = items.map((item) => `
+      <article class="soft-card">
+        <div class="page-heading-row between">
+          <div><strong>${item.profileName || item.tutorName || item.phone}</strong><p>${item.phone}${item.tutorName ? ` · Tutor: ${item.tutorName}` : ''}</p></div>
+          <span class="badge ${item.handoffRequired ? 'badge-danger' : ''}">${item.handoffRequired ? 'Handoff' : item.intent || 'geral'}</span>
+        </div>
+        <p class="muted">${item.summary || 'Sem resumo ainda.'}</p>
+      </article>
+    `).join('');
+  }
+
+  async function loadAgent() {
+    try {
+      const [status, conversations] = await Promise.all([
+        api.get('/whatsapp/agent/status'),
+        api.get('/whatsapp/agent/conversations?limit=12')
+      ]);
+      state.status = status;
+      state.conversations = conversations.items || [];
+      renderAgentStatus(status);
+      renderConversations(state.conversations);
+    } catch (error) {
+      $('#agent-status').innerHTML = `<div class="empty-state"><strong>Agente ainda não inicializado.</strong><p>${error.message || 'Verifique o banco e as variáveis de ambiente.'}</p></div>`;
+      renderConversations([]);
+    }
+  }
+
   async function loadTemplates() {
     showLoading('Carregando WhatsApp inteligente...', 'Preparando modelos de mensagem do PetFunny.');
     try {
@@ -112,6 +173,7 @@
     } finally { hideLoading(); }
   }
 
+  $('#refresh-agent').addEventListener('click', loadAgent);
   $('#preview-btn').addEventListener('click', preview);
   $('#whatsapp-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -122,6 +184,7 @@
 
   setupPremiumInteractions(document);
   loadTemplates();
+  loadAgent();
 </script>
 </body>
 </html>

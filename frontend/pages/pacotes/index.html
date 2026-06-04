@@ -44,7 +44,9 @@
     sortBy: 'name',
     sortDir: 'asc',
     saleSortBy: 'createdAt',
-    saleSortDir: 'desc'
+    saleSortDir: 'desc',
+    packageViewMode: localStorage.getItem('admin_pacotes_view') || 'list',
+    saleViewMode: localStorage.getItem('admin_pacotes_vendidos_view') || 'list'
   };
 
   const content = `
@@ -75,7 +77,11 @@
             <p>Busque pacotes, revise valores, sessões e frequência antes de oferecer ao tutor.</p>
           </div>
         </div>
-        <div class="packages-consulta-actions">
+        <div class="packages-consulta-actions admin-card-actions-right">
+          <div class="admin-view-toggle" aria-label="Alternar visão de pacotes">
+            <button class="btn btn-secondary package-view-btn" data-view="list" type="button">Lista</button>
+            <button class="btn btn-secondary package-view-btn" data-view="cards" type="button">Cards</button>
+          </div>
           <button class="btn" id="new-package" type="button">＋ Novo pacote</button>
         </div>
         <div class="filter-row compact-filter-row filters-below">
@@ -106,6 +112,7 @@
         </table>
         <div class="infinite-loader" id="packages-loader" hidden>Carregando mais pacotes...</div>
       </div>
+      <div class="admin-list-cards" id="packages-cards" hidden></div>
     </section>
 
     <section class="module-card stack-md package-sales-card">
@@ -115,7 +122,13 @@
             <h3>Pacotes vendidos</h3>
             <p>Acompanhe sessões usadas, sessões restantes, pagamento e andamento dos pacotes contratados.</p>
           </div>
-          <button class="btn packages-sales-action" id="sell-package-secondary" type="button">🎁 Vender pacote</button>
+          <div class="admin-card-actions-right packages-sales-action-wrap">
+            <div class="admin-view-toggle" aria-label="Alternar visão de pacotes vendidos">
+              <button class="btn btn-secondary sale-view-btn" data-view="list" type="button">Lista</button>
+              <button class="btn btn-secondary sale-view-btn" data-view="cards" type="button">Cards</button>
+            </div>
+            <button class="btn packages-sales-action" id="sell-package-secondary" type="button">🎁 Vender pacote</button>
+          </div>
         </div>
         <div class="filter-row compact-filter-row filters-below">
           <select class="select" id="sold-status-filter">
@@ -146,6 +159,7 @@
         </table>
         <div class="infinite-loader" id="sales-loader" hidden>Carregando mais contratos...</div>
       </div>
+      <div class="admin-list-cards" id="sales-cards" hidden></div>
     </section>
 
     <div class="floating-sale-menu" id="sale-floating-menu" hidden></div>
@@ -596,6 +610,67 @@
     }
   }
 
+  function statusLabelPt(status = '') {
+    const value = String(status || 'active').toLowerCase();
+    const labels = { active: 'Ativo', finished: 'Finalizado', cancelled: 'Cancelado', expired: 'Expirado', pending: 'Pendente', inactive: 'Inativo' };
+    return labels[value] || value.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+  }
+  function statusTone(status = '') {
+    const value = String(status || '').toLowerCase();
+    if (['active', 'paid', 'pago', 'finished'].includes(value)) return 'ok';
+    if (['pending', 'pendente'].includes(value)) return 'warning';
+    if (['cancelled', 'expired', 'overdue', 'atrasado'].includes(value)) return 'danger';
+    return 'info-pill';
+  }
+  function paymentLabelPt(status = '') {
+    const value = String(status || 'pending').toLowerCase();
+    if (value === 'paid' || value === 'pago') return 'Pago';
+    if (value === 'pending' || value === 'pendente') return 'Pendente';
+    if (value === 'refunded') return 'Estornado';
+    if (value === 'cancelled') return 'Cancelado';
+    return statusLabelPt(value);
+  }
+  function applyPackageViewMode() {
+    const isCards = state.packageViewMode === 'cards';
+    ids('packages-scroll')?.classList.toggle('is-hidden', isCards);
+    if (ids('packages-cards')) ids('packages-cards').hidden = !isCards;
+    document.querySelectorAll('.package-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.packageViewMode));
+  }
+  function applySaleViewMode() {
+    const isCards = state.saleViewMode === 'cards';
+    ids('sales-scroll')?.classList.toggle('is-hidden', isCards);
+    if (ids('sales-cards')) ids('sales-cards').hidden = !isCards;
+    document.querySelectorAll('.sale-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.saleViewMode));
+  }
+
+  function packageActionsMenu(id) {
+    return `<div class="row-actions package-actions-menu-wrap">
+      <button class="kebab-btn package-menu-btn" type="button" data-id="${esc(id)}" title="Ações do pacote" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="package-row-menu" data-menu-for="${esc(id)}">
+        <button type="button" class="edit-package" data-id="${esc(id)}">✎ Editar pacote</button>
+      </div>
+    </div>`;
+  }
+
+  function closePackageMenus() {
+    document.querySelectorAll('.package-row-menu.open').forEach(menu => menu.classList.remove('open'));
+    document.querySelectorAll('.package-actions-menu-wrap.is-menu-open').forEach(wrap => wrap.classList.remove('is-menu-open'));
+    document.querySelectorAll('.package-menu-btn[aria-expanded="true"]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
+  }
+
+  function openPackageMenu(button) {
+    const wrap = button?.closest?.('.package-actions-menu-wrap');
+    const menu = wrap?.querySelector?.('.package-row-menu');
+    if (!menu) return;
+    const isOpen = menu.classList.contains('open');
+    closePackageMenus();
+    if (!isOpen) {
+      wrap?.classList.add('is-menu-open');
+      menu.classList.add('open');
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+
   function packageRow(p) {
     return `<tr data-id="${esc(p.id)}">
       <td><strong>${esc(p.name)}</strong><small>${esc(p.description || 'Sem descrição comercial')}</small></td>
@@ -604,8 +679,24 @@
       <td><strong>${Number(p.appointmentsPerMonth || 0)}/mês</strong><small>${Number(p.appointmentsPerMonth || 0) === 4 ? 'semanal' : Number(p.appointmentsPerMonth || 0) === 2 ? 'quinzenal' : 'personalizado'}</small></td>
       <td><strong>${Number(p.customersCount || 0)}</strong><small>contrato(s)</small></td>
       <td><span class="status-pill ${p.isActive ? 'ok' : 'muted-pill'}">${p.isActive ? 'Ativo' : 'Inativo'}</span></td>
-      <td><div class="row-actions"><button class="icon-btn edit-package" data-id="${esc(p.id)}" type="button" title="Editar pacote">✎</button></div></td>
+      <td>${packageActionsMenu(p.id)}</td>
     </tr>`;
+  }
+
+  function packageCard(p) {
+    return `<article class="admin-entity-card" data-id="${esc(p.id)}">
+      <div class="admin-entity-card-header">
+        <div class="admin-entity-card-title"><div><strong>${esc(p.name)}</strong><small>${esc(p.description || 'Sem descrição comercial')}</small></div></div>
+        ${packageActionsMenu(p.id)}
+      </div>
+      <div class="admin-entity-grid">
+        <span><b>Valor</b>${money(p.priceCents)}</span>
+        <span><b>Sessões</b>${Number(p.sessionsCount || 0)} sessões<br>Porte: ${esc(p.petSizeName || p.petSize || 'todos')}</span>
+        <span><b>Frequência</b>${Number(p.appointmentsPerMonth || 0)}/mês<br>${Number(p.appointmentsPerMonth || 0) === 4 ? 'semanal' : Number(p.appointmentsPerMonth || 0) === 2 ? 'quinzenal' : 'personalizado'}</span>
+        <span><b>Clientes</b>${Number(p.customersCount || 0)} contrato(s)</span>
+      </div>
+      <div class="admin-entity-full"><b>Status</b><span class="status-pill ${p.isActive ? 'ok' : 'muted-pill'}">${p.isActive ? 'Ativo' : 'Inativo'}</span></div>
+    </article>`;
   }
 
   function saleRow(cp) {
@@ -616,8 +707,8 @@
       <td>${esc(cp.petName || '—')}</td>
       <td><strong>${esc(cp.packageName || 'Pacote')}</strong><small>${recurring ? 'Recorrência automática ativa' : 'Sem recorrência automática'}</small></td>
       <td><span class="mini-badge">${esc(cp.progressLabel || `${cp.usedSessions || 0} de ${cp.totalSessions || 0}`)}</span><small>${Number(cp.remainingSessions || 0)} restante(s) · ${Number(cp.appointmentCount || 0)} agenda(s)</small>${cp.packageCommandUrl ? `<a class="inline-link" href="${esc(cp.packageCommandUrl)}" target="_blank" rel="noopener">Abrir comanda do pacote</a>` : ''}</td>
-      <td><span class="status-pill ${paid ? 'ok' : 'warning-pill'}">${paid ? 'Pago' : 'Pendente'}</span><small>${esc(cp.paymentMethodName || 'forma não informada')}</small></td>
-      <td><span class="status-pill info-pill">${esc(cp.status || 'ativo')}</span></td>
+      <td><span class="status-pill ${statusTone(cp.paymentStatus)}">${esc(paymentLabelPt(cp.paymentStatus))}</span><br><small>${esc(cp.paymentMethodName || 'forma não informada')}</small></td>
+      <td><span class="status-pill ${statusTone(cp.status)}">${esc(statusLabelPt(cp.status))}</span><br><small>${esc(recurring ? 'recorrência automática' : 'contrato comum')}</small></td>
       <td><strong>${money(cp.amountCents)}</strong></td>
       <td>
         <div class="row-menu-wrap">
@@ -627,14 +718,33 @@
     </tr>`;
   }
 
+  function saleCard(cp) {
+    const recurring = cp.recurring || cp.recurrenceRule?.enabled;
+    return `<article class="admin-entity-card" data-id="${esc(cp.id)}">
+      <div class="admin-entity-card-header">
+        <div class="admin-entity-card-title"><div><strong>${esc(cp.tutorName || 'Tutor')}</strong><small>${esc(cp.petName || 'Pet')}<br>${esc(cp.packageName || 'Pacote')}</small></div></div>
+        <div class="row-menu-wrap"><button class="kebab-btn sale-menu-btn" type="button" data-id="${esc(cp.id)}" title="Ações do pacote" aria-expanded="false">⋯</button></div>
+      </div>
+      <div class="admin-entity-grid">
+        <span><b>Progresso</b>${esc(cp.progressLabel || `${cp.usedSessions || 0} de ${cp.totalSessions || 0}`)}<br>${Number(cp.remainingSessions || 0)} restante(s)</span>
+        <span><b>Pagamento</b><span class="status-pill ${statusTone(cp.paymentStatus)}">${esc(paymentLabelPt(cp.paymentStatus))}</span><br>${esc(cp.paymentMethodName || 'forma não informada')}</span>
+        <span><b>Status</b><span class="status-pill ${statusTone(cp.status)}">${esc(statusLabelPt(cp.status))}</span><br>${esc(recurring ? 'recorrência automática' : 'contrato comum')}</span>
+        <span><b>Valor</b>${money(cp.amountCents)}</span>
+      </div>
+      ${cp.packageCommandUrl ? `<div class="admin-entity-full"><a class="inline-link" href="${esc(cp.packageCommandUrl)}" target="_blank" rel="noopener">Abrir comanda do pacote</a></div>` : ''}
+    </article>`;
+  }
+
   function renderPackages(reset = true) {
     const sorted = sortItems(state.packages, state.sortBy, state.sortDir);
     const end = state.packagePage * state.limit;
     const visible = sorted.slice(0, end);
     state.packageDone = visible.length >= sorted.length;
     ids('packages-body').innerHTML = visible.length ? visible.map(packageRow).join('') : '<tr><td colspan="7">Nenhum pacote encontrado.</td></tr>';
+    if (ids('packages-cards')) ids('packages-cards').innerHTML = visible.length ? visible.map(packageCard).join('') : '<article class="module-card empty-state"><strong>Nenhum pacote encontrado.</strong><p>Cadastre um novo pacote ou ajuste os filtros.</p></article>';
     ids('packages-loader').hidden = state.packageDone;
-    document.querySelectorAll('.edit-package').forEach((btn) => btn.addEventListener('click', () => openPackage(btn.dataset.id)));
+    document.querySelectorAll('.edit-package').forEach((btn) => btn.addEventListener('click', (ev) => { ev.stopPropagation(); closePackageMenus(); openPackage(btn.dataset.id); }));
+    applyPackageViewMode();
     updateSortIndicators();
   }
 
@@ -644,7 +754,9 @@
     const visible = sorted.slice(0, end);
     state.saleDone = visible.length >= sorted.length;
     ids('customer-packages').innerHTML = visible.length ? visible.map(saleRow).join('') : '<tr><td colspan="8">Nenhum pacote vendido encontrado.</td></tr>';
+    if (ids('sales-cards')) ids('sales-cards').innerHTML = visible.length ? visible.map(saleCard).join('') : '<article class="module-card empty-state"><strong>Nenhum pacote vendido encontrado.</strong><p>Venda um pacote ou ajuste o filtro de contratos.</p></article>';
     ids('sales-loader').hidden = state.saleDone;
+    applySaleViewMode();
     bindSaleMenus();
     updateSortIndicators();
   }
@@ -811,33 +923,40 @@
     menu.style.top = `${top}px`;
   }
 
-  function bindSaleMenus() {
+  function openSaleFloatingMenuFromButton(btn) {
     const floating = ids('sale-floating-menu');
-    document.querySelectorAll('.sale-menu-btn').forEach((btn) => {
-      btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const id = btn.dataset.id;
-        const item = state.customerPackages.find((cp) => String(cp.id) === String(id)) || {};
-        const alreadyOpen = !floating.hidden && floating.dataset.id === id;
-        closeSaleFloatingMenu();
-        if (alreadyOpen) return;
-        floating.dataset.id = id;
-        floating.innerHTML = `
-          <button type="button" data-sale-action="view" data-id="${esc(id)}">👁 Visualizar pacote</button>
-          <button type="button" data-sale-action="payment" data-id="${esc(id)}">💳 Alterar pagamento</button>
-          <button type="button" data-sale-action="message" data-id="${esc(id)}">💬 Enviar mensagem</button>
-          <a href="${esc(item.packageCommandUrl || '#')}" target="_blank" rel="noopener">🧾 Comanda do pacote</a>
-          <a href="${esc(item.packageReceiptUrl || '#')}" target="_blank" rel="noopener">✅ Recibo do pacote</a>
-          ${item.status === 'cancelled' ? '' : `<button type="button" data-sale-action="cancel" data-id="${esc(id)}">⛔ Cancelar pacote</button>`}
-          <button type="button" data-sale-action="delete" data-id="${esc(id)}" class="danger-menu-action">🗑️ Excluir pacote</button>
-        `;
-        btn.setAttribute('aria-expanded', 'true');
-        positionSaleFloatingMenu(btn, floating);
-      });
-    });
+    if (!floating || !btn) return;
+    const id = btn.dataset.id;
+    const item = state.customerPackages.find((cp) => String(cp.id) === String(id)) || {};
+    const alreadyOpen = !floating.hidden && floating.dataset.id === id;
+    closeSaleFloatingMenu();
+    if (alreadyOpen) return;
+    floating.dataset.id = id;
+    floating.innerHTML = `
+      <button type="button" data-sale-action="view" data-id="${esc(id)}">👁 Visualizar pacote</button>
+      <button type="button" data-sale-action="payment" data-id="${esc(id)}">💳 Alterar pagamento</button>
+      <button type="button" data-sale-action="message" data-id="${esc(id)}">💬 Enviar mensagem</button>
+      <a href="${esc(item.packageCommandUrl || '#')}" target="_blank" rel="noopener">🧾 Comanda do pacote</a>
+      <a href="${esc(item.packageReceiptUrl || '#')}" target="_blank" rel="noopener">✅ Recibo do pacote</a>
+      ${item.status === 'cancelled' ? '' : `<button type="button" data-sale-action="cancel" data-id="${esc(id)}">⛔ Cancelar pacote</button>`}
+      <button type="button" data-sale-action="delete" data-id="${esc(id)}" class="danger-menu-action">🗑️ Excluir pacote</button>
+    `;
+    btn.setAttribute('aria-expanded', 'true');
+    positionSaleFloatingMenu(btn, floating);
+  }
+
+  function bindSaleMenus() {
+    // A abertura agora é delegada no document para funcionar em Lista e Cards após rerender.
   }
 
   document.addEventListener('click', (event) => {
+    const saleBtn = event.target.closest('.sale-menu-btn');
+    if (saleBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      openSaleFloatingMenuFromButton(saleBtn);
+      return;
+    }
     if (!event.target.closest('.floating-sale-menu') && !event.target.closest('.sale-menu-btn')) closeSaleFloatingMenu();
   });
   window.addEventListener('resize', closeSaleFloatingMenu);
@@ -882,7 +1001,8 @@
           <article><span>Tutor</span><strong>${esc(item.tutorName || '—')}</strong><small>${esc(item.tutorWhatsapp || '')}</small></article>
           <article><span>Pet</span><strong>${esc(item.petName || '—')}</strong></article>
           <article><span>Pacote</span><strong>${esc(item.packageName || '—')}</strong><small>${esc(item.recurring || item.recurrenceRule?.enabled ? 'Recorrência automática ativa' : 'Sem recorrência automática')}</small></article>
-          <article><span>Pagamento</span><strong>${esc(item.paymentStatus || 'pending')}</strong><small>${esc(item.paymentMethodName || 'forma não informada')}</small></article>
+          <article><span>Pagamento</span><strong>${esc(paymentLabelPt(item.paymentStatus))}</strong><small>${esc(item.paymentMethodName || 'forma não informada')}</small></article>
+          <article><span>Status</span><strong>${esc(statusLabelPt(item.status))}</strong><small>${esc(item.recurring || item.recurrenceRule?.enabled ? 'recorrência automática' : 'contrato comum')}</small></article>
           <article><span>Progresso</span><strong>${esc(item.progressLabel || '')}</strong><small>${Number(item.remainingSessions || 0)} sessão(ões) restante(s)</small></article>
           <article><span>Valor</span><strong>${money(item.amountCents)}</strong></article>
         </div>
@@ -958,7 +1078,28 @@
     ids('sell-package-id').addEventListener('change', renderSellPets);
     ids('reload').addEventListener('click', refreshAll);
     ids('reload-sales').addEventListener('click', refreshAll);
+    document.addEventListener('click', (event) => {
+      const packageMenuBtn = event.target.closest('.package-menu-btn');
+      if (packageMenuBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        openPackageMenu(packageMenuBtn);
+        return;
+      }
+      if (!event.target.closest('.package-actions-menu-wrap')) closePackageMenus();
+    });
+    window.addEventListener('resize', closePackageMenus);
     ids('search').addEventListener('input', debounce(() => { state.search = ids('search').value.trim(); refreshAll(); }, 320));
+    document.querySelectorAll('.package-view-btn').forEach((button) => button.addEventListener('click', () => {
+      state.packageViewMode = button.dataset.view || 'list';
+      localStorage.setItem('admin_pacotes_view', state.packageViewMode);
+      renderPackages();
+    }));
+    document.querySelectorAll('.sale-view-btn').forEach((button) => button.addEventListener('click', () => {
+      state.saleViewMode = button.dataset.view || 'list';
+      localStorage.setItem('admin_pacotes_vendidos_view', state.saleViewMode);
+      renderCustomerPackages();
+    }));
     ids('status-filter').addEventListener('change', () => { state.status = ids('status-filter').value; refreshAll(); });
     ids('sold-status-filter').addEventListener('change', () => { state.soldStatus = ids('sold-status-filter').value; refreshAll(); });
     document.querySelectorAll('.package-sort').forEach((btn) => btn.addEventListener('click', () => {

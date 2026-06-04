@@ -1,23 +1,4 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Dashboard · PetFunny OS</title>
-  
-  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
-  <meta name="msapplication-TileColor" content="#26b9c7">
-  <link rel="manifest" href="/admin-manifest.webmanifest">
-  <meta name="theme-color" content="#01ADB7">
-  <link rel="stylesheet" href="/assets/css/app.css">
-</head>
-<body>
-  <script>
-    window.__PETFUNNY_MANUAL_PAGE_READY = true;
-  </script>
-  <script type="module">
+
     import { api } from '/assets/js/api.js';
     import { buildShell, setupPremiumInteractions } from '/assets/js/shell.js';
     import { showLoading, hideLoading, finishPageLoading, waitForPagePaintAndImages, showSuccessModal, showResultModal } from '/assets/js/loading.js';
@@ -410,7 +391,6 @@
           </div>
           <p><strong>${esc(item.services || 'Serviço não informado')}</strong></p>
           <div class="appointment-meta-row"><small>${esc(item.collaboratorName || 'Equipe PetFunny')}<span class="payment-info-line">${esc(paymentLine)}</span>${item.packageSessionLabel ? `<span class="payment-info-line package-info-line">📦 ${esc(item.packageSessionLabel)}</span>` : ''}</small><b>${brl(item.totalCents)}</b></div>
-          <button class="kebab-btn dashboard-kebab-btn dashboard-card-kebab" type="button" data-dashboard-menu-button="true" data-id="${esc(item.id)}" aria-label="Abrir ações do atendimento" aria-expanded="false">⋯</button>
         </article>`;
     }
 
@@ -1331,6 +1311,4 @@
 
 
     loadDashboard();
-  </script>
-</body>
-</html>
+  

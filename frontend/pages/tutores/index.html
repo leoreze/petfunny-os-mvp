@@ -34,6 +34,7 @@
     stats: { totalTutors: 0, activeTutors: 0, petsCount: 0, lastAppointmentAt: null },
     sortKey: 'updatedAt',
     sortDir: 'desc',
+    viewMode: localStorage.getItem('admin_tutores_view') || 'list',
     currentTutor: null,
     currentHistory: [],
     currentPets: [],
@@ -77,8 +78,11 @@
   function daysWithoutLabel(value) { return value === null || value === undefined || value === '' ? '—' : `${Number(value)} dia${Number(value) === 1 ? '' : 's'}`; }
   function crmBadge(status) {
     const profile = crmProfile(status);
-    const toneClass = profile.tone === 'danger' ? 'danger' : profile.tone === 'warning' ? 'warning' : profile.tone === 'muted' ? 'muted-pill' : 'ok';
-    return `<span class="status-pill ${toneClass}">${esc(profile.label)}</span><small>${esc(profile.hint)}</small>`;
+    const toneClass = profile.tone === 'danger' ? 'danger' : profile.tone === 'warning' ? 'warning' : profile.tone === 'success' ? 'success' : profile.tone === 'muted' ? 'muted-pill' : 'ok';
+    return `<span class="status-pill crm-status-pill ${toneClass}">${esc(profile.label)}</span><br><small class="crm-status-hint">${esc(profile.hint)}</small>`;
+  }
+  function lastPetLabel(item = {}) {
+    return item.lastPetName ? `Último pet: ${item.lastPetName}` : 'Sem pet cadastrado';
   }
 
   buildShell({
@@ -100,12 +104,16 @@
       </section>
 
       <section class="module-card stack-md tutors-list-card">
-        <div class="tutors-query-header">
-          <h3>Consulta de tutores</h3>
-          <p>Busque por nome, WhatsApp ou e-mail. A lista carrega mais registros conforme você rola a página.</p>
+        <div class="tutors-query-header section-toolbar">
+          <div><h3>Consulta de tutores</h3>
+          <p>Busque por nome, WhatsApp ou e-mail. A lista carrega mais registros conforme você rola a página.</p></div>
+          <div class="admin-view-toggle" aria-label="Alternar visão de tutores">
+            <button class="btn btn-secondary tutor-view-btn" data-view="list" type="button">Lista</button>
+            <button class="btn btn-secondary tutor-view-btn" data-view="cards" type="button">Cards</button>
+          </div>
         </div>
         <div class="filter-row tutors-filter-row tutors-filter-row-single">
-          <input class="input" id="search-tutors" placeholder="Buscar por nome, WhatsApp ou e-mail" autocomplete="off">
+          <input class="input admin-search-input" id="search-tutors" type="search" data-mask="none" placeholder="Buscar por nome, WhatsApp ou e-mail" autocomplete="off">
           <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
           <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
         </div>
@@ -127,6 +135,7 @@
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais tutores...</div>
           <div class="list-load-status" id="tutors-load-status">0/0 tutores carregados</div>
         </div>
+        <div class="admin-list-cards" id="tutors-cards" hidden></div>
       </section>
 
       <dialog class="premium-modal" id="tutor-modal">
@@ -151,9 +160,12 @@
               <div class="form-field span-2 tutor-whatsapp-check" id="whatsapp-duplicate-feedback" hidden></div>
               <label class="form-field"><span>E-mail</span><input class="input" id="email" type="email" placeholder="cliente@email.com"></label>
               <label class="form-field"><span>Documento</span><input class="input" id="documentNumber" placeholder="CPF/CNPJ opcional"></label>
+              <label class="form-field"><span>CEP</span><input class="input" id="addressZipcode" data-mask="cep" inputmode="numeric" maxlength="9" autocomplete="postal-code" placeholder="14000-000"></label>
+              <label class="form-field"><span>Número</span><input class="input" id="addressNumber" placeholder="794"></label>
+              <label class="form-field span-2"><span>Rua / Avenida</span><input class="input" id="address" placeholder="Rua, avenida ou travessa"></label>
+              <label class="form-field"><span>Bairro</span><input class="input" id="addressNeighborhood" placeholder="Bairro"></label>
               <label class="form-field"><span>Cidade</span><input class="input" id="city" value="Ribeirão Preto"></label>
               <label class="form-field"><span>Estado</span><input class="input" id="state" maxlength="2" value="SP"></label>
-              <label class="form-field span-2"><span>Endereço</span><input class="input" id="address" placeholder="Rua, número, bairro"></label>
               <label class="form-field"><span>Tags</span><input class="input" id="tags" placeholder="recorrente, pacote, vip"></label>
               <label class="form-field"><span>Status</span><select class="select" id="status"><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
               <label class="form-field span-2"><span>Observações</span><textarea class="textarea" id="notes" rows="4" placeholder="Preferências do tutor, restrições, histórico rápido..."></textarea></label>
@@ -224,6 +236,7 @@
 
   const body = document.getElementById('tutors-body');
   const scrollBox = document.getElementById('tutors-scroll');
+  const cardsBox = document.getElementById('tutors-cards');
   const loader = document.getElementById('infinite-loader');
   const loadStatus = document.getElementById('tutors-load-status');
   const modal = document.getElementById('tutor-modal');
@@ -234,8 +247,29 @@
   const petsModalList = document.getElementById('pets-modal-list');
   const quickPetForm = document.getElementById('quick-pet-form');
   const form = document.getElementById('tutor-form');
-  const fields = ['tutor-id','photoDataUrl','photoFile','name','whatsapp','email','documentNumber','city','state','address','tags','status','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
+  const fields = ['tutor-id','photoDataUrl','photoFile','name','whatsapp','email','documentNumber','addressZipcode','addressNumber','addressNeighborhood','city','state','address','tags','status','notes'].reduce((acc, id) => (acc[id] = document.getElementById(id), acc), {});
   const whatsappDuplicateFeedback = document.getElementById('whatsapp-duplicate-feedback');
+  const formatCepInput = (value = '') => {
+    const d = onlyDigits(value).slice(0, 8);
+    return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+  };
+  async function fillTutorAddressByCep(input) {
+    const cep = onlyDigits(input?.value || '');
+    if (cep.length !== 8 || input.dataset.loadingCep === 'true') return;
+    input.dataset.loadingCep = 'true';
+    try {
+      const result = await api.get(`/cep/${encodeURIComponent(cep)}`);
+      if (result.zipcode) input.value = result.zipcode;
+      if (result.address && fields.address) fields.address.value = result.address;
+      if (result.addressNeighborhood && fields.addressNeighborhood) fields.addressNeighborhood.value = result.addressNeighborhood;
+      if (result.city && fields.city) fields.city.value = result.city;
+      if (result.state && fields.state) fields.state.value = result.state;
+    } catch (error) {
+      toast(error.message || 'CEP não encontrado. Preencha manualmente.', 'warning');
+    } finally {
+      delete input.dataset.loadingCep;
+    }
+  }
   function setTutorPhotoPreview(name, photoUrl) {
     const next = new DOMParser().parseFromString(avatarHtml(name || 'Tutor', photoUrl || '', 'photo-preview'), 'text/html').body.firstElementChild;
     next.id = 'tutor-photo-preview';
@@ -247,7 +281,7 @@
     const days = daysWithoutLabel(item.daysWithoutAppointment);
     return `<tr data-id="${item.id}">
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(item.city || 'Ribeirão Preto')} / ${esc(item.state || 'SP')}</small></div></div></td>
-      <td><strong>${formatWhatsapp(item.whatsapp)}</strong><small>${esc(item.email || 'sem e-mail')}</small></td>
+      <td><strong>${formatWhatsapp(item.whatsapp)}</strong><br><small>${esc(lastPetLabel(item))}</small></td>
       <td><strong>${item.petsCount || 0}</strong><small>pet(s) vinculados</small></td>
       <td><strong>${item.appointmentsCount || 0}</strong><small>agendamento(s)</small></td>
       <td><strong>${esc(lastAppointment)}</strong><small>${item.lastAppointmentAt ? 'último registro' : 'sem histórico'}</small></td>
@@ -318,9 +352,48 @@
     });
   }
 
+  function tutorCardTemplate(item) {
+    const lastAppointment = formatDateBR(item.lastAppointmentAt);
+    const days = daysWithoutLabel(item.daysWithoutAppointment);
+    return `<article class="admin-entity-card" data-id="${esc(item.id)}">
+      <div class="admin-entity-card-header">
+        <div class="admin-entity-card-title">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${formatWhatsapp(item.whatsapp)}<br>${esc(lastPetLabel(item))}</small></div></div>
+        <div class="row-actions tutor-actions-menu-wrap">
+          <button class="icon-btn tutor-menu-btn" data-id="${esc(item.id)}" type="button" title="Ações do tutor" aria-haspopup="true" aria-expanded="false">⋯</button>
+          <div class="tutor-row-menu" data-menu-for="${esc(item.id)}">
+            <button type="button" class="history-btn" data-id="${esc(item.id)}">📋 Histórico</button>
+            <button type="button" class="pets-btn" data-id="${esc(item.id)}">🐾 Pets</button>
+            <button type="button" class="schedule-btn" data-id="${esc(item.id)}">＋ Agendar</button>
+            <button type="button" class="app-message-btn" data-id="${esc(item.id)}">📱 Mensagem do app</button>
+            <button type="button" class="access-log-btn" data-id="${esc(item.id)}">📊 Acessos do App</button>
+            <button type="button" class="crm-message-btn" data-kind="auto" data-id="${esc(item.id)}">🤖 Mensagem CRM sugerida</button>
+            <button type="button" class="edit-btn" data-id="${esc(item.id)}">✎ Editar tutor</button>
+            <button type="button" class="delete-btn danger" data-id="${esc(item.id)}">🗑 Inativar</button>
+          </div>
+        </div>
+      </div>
+      <div class="admin-entity-grid">
+        <span><b>Pets</b>${Number(item.petsCount || 0)} vinculado(s)</span>
+        <span><b>Agendamentos</b>${Number(item.appointmentsCount || 0)} registro(s)</span>
+        <span><b>Último</b>${esc(lastAppointment)}</span>
+        <span><b>Sem agendar</b>${esc(days)}</span>
+      </div>
+      <div class="admin-entity-full"><b>Status CRM</b>${crmBadge(item.crmStatus)}</div>
+    </article>`;
+  }
+
+  function applyTutorViewMode() {
+    const isCards = state.viewMode === 'cards';
+    scrollBox.classList.toggle('is-hidden', isCards);
+    cardsBox.hidden = !isCards;
+    document.querySelectorAll('.tutor-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
+  }
+
   function renderTutores() {
     const rows = sortedItems();
     body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="10">Nenhum tutor encontrado.</td></tr>';
+    cardsBox.innerHTML = rows.length ? rows.map(tutorCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum tutor encontrado.</strong><p>Tente buscar por nome, WhatsApp ou e-mail.</p></article>';
+    applyTutorViewMode();
     document.querySelectorAll('.th-sort').forEach((button) => {
       const active = button.dataset.sort === state.sortKey;
       button.classList.toggle('active', active);
@@ -428,6 +501,9 @@
     fields.whatsapp.value = formatWhatsapp(item?.whatsapp || '');
     fields.email.value = item?.email || '';
     fields.documentNumber.value = item?.documentNumber || '';
+    fields.addressZipcode.value = item?.addressZipcode || item?.address_zipcode || '';
+    fields.addressNumber.value = item?.addressNumber || item?.address_number || '';
+    fields.addressNeighborhood.value = item?.addressNeighborhood || item?.address_neighborhood || '';
     fields.city.value = item?.city || 'Ribeirão Preto';
     fields.state.value = item?.state || 'SP';
     fields.address.value = item?.address || '';
@@ -447,6 +523,9 @@
       whatsapp: fields.whatsapp.value,
       email: fields.email.value,
       documentNumber: fields.documentNumber.value,
+      addressZipcode: fields.addressZipcode.value,
+      addressNumber: fields.addressNumber.value,
+      addressNeighborhood: fields.addressNeighborhood.value,
       city: fields.city.value,
       state: fields.state.value,
       address: fields.address.value,
@@ -479,15 +558,17 @@
   function tutorById(id) { return state.items.find(item => item.id === id) || state.currentTutor || null; }
   function closeTutorMenus() {
     document.querySelectorAll('.tutor-row-menu.open').forEach(menu => menu.classList.remove('open'));
+    document.querySelectorAll('.tutor-actions-menu-wrap.is-menu-open').forEach(wrap => wrap.classList.remove('is-menu-open'));
     document.querySelectorAll('.tutor-menu-btn[aria-expanded="true"]').forEach(btn => btn.setAttribute('aria-expanded', 'false'));
   }
   function openTutorMenu(button) {
-    const id = button.dataset.id;
-    const menu = document.querySelector(`.tutor-row-menu[data-menu-for="${CSS.escape(id)}"]`);
+    const wrap = button?.closest?.('.tutor-actions-menu-wrap');
+    const menu = wrap?.querySelector?.('.tutor-row-menu');
     if (!menu) return;
     const isOpen = menu.classList.contains('open');
     closeTutorMenus();
     if (!isOpen) {
+      wrap?.classList.add('is-menu-open');
       menu.classList.add('open');
       button.setAttribute('aria-expanded', 'true');
     }
@@ -758,12 +839,22 @@
   document.getElementById('schedule-from-pets-modal').addEventListener('click', () => state.currentTutor?.id && scheduleTutor(state.currentTutor.id));
   historyPetFilter.addEventListener('change', renderHistoryItems);
   document.getElementById('refresh-btn').addEventListener('click', () => loadTutores(true));
+  document.querySelectorAll('.tutor-view-btn').forEach((button) => button.addEventListener('click', () => {
+    state.viewMode = button.dataset.view || 'list';
+    localStorage.setItem('admin_tutores_view', state.viewMode);
+    renderTutores();
+  }));
   document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.sort;
     if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
     else { state.sortKey = key; state.sortDir = key === 'name' ? 'asc' : 'desc'; }
     renderTutores();
   }));
+  fields.addressZipcode?.addEventListener('input', (event) => {
+    event.target.value = formatCepInput(event.target.value);
+    const digits = onlyDigits(event.target.value);
+    if (digits.length === 8) fillTutorAddressByCep(event.target).catch(() => null);
+  });
   form.addEventListener('submit', saveTutor);
   fields.whatsapp?.addEventListener('input', () => {
     window.clearTimeout(state.whatsappCheck.timer);
@@ -789,7 +880,7 @@
   });
   document.getElementById('search-tutors').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__tutorSearch); window.__tutorSearch = window.setTimeout(() => loadTutores(true), 320); });
   document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadTutores(true); });
-  body.addEventListener('click', async (event) => {
+  document.querySelector('.tutors-list-card')?.addEventListener('click', async (event) => {
     const menuBtn = event.target.closest('.tutor-menu-btn');
     const edit = event.target.closest('.edit-btn');
     const history = event.target.closest('.history-btn');
