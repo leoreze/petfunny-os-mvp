@@ -13418,3 +13418,147 @@ body.app-client .client-moment-camera-btn:active {
     position: static !important;
   }
 }
+
+/* v1.6.69 — Agenda: filtros rápidos integrados ao header do calendário */
+.agenda-hidden-filters {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.agenda-primary-actions {
+  margin: 0 0 4px !important;
+  justify-content: flex-start !important;
+}
+.agenda-calendar-toolbar {
+  gap: 14px !important;
+  align-items: center !important;
+}
+.agenda-calendar-left {
+  flex: 1 1 620px !important;
+  min-width: min(100%, 620px) !important;
+  gap: 10px !important;
+}
+.agenda-nav-btn,
+.agenda-calendar-icon-btn {
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  padding: 0 !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  border-radius: 15px !important;
+  font-size: 1.05rem !important;
+  line-height: 1 !important;
+}
+.agenda-calendar-icon-btn {
+  border: 1px solid rgba(38,48,95,.10) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(246,251,255,.96)) !important;
+  color: var(--pf-graphite) !important;
+  box-shadow: 0 10px 24px rgba(7,27,44,.08) !important;
+  cursor: pointer !important;
+}
+.agenda-calendar-icon-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px rgba(7,27,44,.12) !important;
+}
+.agenda-date-inline {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+.agenda-date-native {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 42px !important;
+  height: 42px !important;
+  opacity: 0 !important;
+  border: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important;
+}
+.agenda-today-btn {
+  min-height: 42px !important;
+  border-radius: 999px !important;
+  padding-inline: 18px !important;
+  white-space: nowrap !important;
+}
+.agenda-quick-search-inline {
+  flex: 1 1 220px !important;
+  min-width: 180px !important;
+  max-width: 340px !important;
+  min-height: 42px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,.92) !important;
+  border: 1px solid rgba(38,48,95,.10) !important;
+  box-shadow: 0 12px 28px rgba(7,27,44,.08) !important;
+}
+.agenda-quick-search-inline span {
+  flex: 0 0 auto !important;
+  opacity: .72 !important;
+}
+.agenda-quick-search-inline .input {
+  flex: 1 1 auto !important;
+  min-height: 38px !important;
+  height: 38px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  font-weight: 850 !important;
+}
+.agenda-calendar-toolbar .agenda-view-tabs {
+  flex: 0 0 auto !important;
+  margin-left: auto !important;
+}
+@media (max-width: 980px) {
+  .agenda-calendar-left {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+  }
+  .agenda-calendar-toolbar .agenda-view-tabs {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+  .agenda-calendar-toolbar .agenda-view-tabs button {
+    flex: 1 1 0 !important;
+  }
+}
+@media (max-width: 640px) {
+  .agenda-calendar-left {
+    display: grid !important;
+    grid-template-columns: 42px minmax(0,1fr) 42px 42px 76px !important;
+    gap: 8px !important;
+  }
+  .agenda-calendar-left .calendar-title {
+    text-align: center !important;
+    min-width: 0 !important;
+    font-size: 1rem !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  .agenda-quick-search-inline {
+    grid-column: 1 / -1 !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+  .agenda-today-btn {
+    padding-inline: 10px !important;
+    min-width: 76px !important;
+  }
+  .agenda-primary-actions .actions {
+    width: 100% !important;
+  }
+  .agenda-primary-actions .btn {
+    flex: 1 1 auto !important;
+    justify-content: center !important;
+  }
+}

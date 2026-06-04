@@ -96,35 +96,39 @@
         <div id="agenda-metrics">${bigNumberGrid([['Agendamentos','--','no período'],['Faturamento','--','previsto'],['Slots','--','configurados']])}</div>
       </section>
 
-      <section class="module-card stack-sm agenda-filter-card">
-        <div class="section-toolbar compact-toolbar">
-          <div><h3>Filtros rápidos</h3><p>Encontre atendimentos por data, status, colaborador, tutor, pet ou serviço.</p></div>
-        </div>
-        <div class="form-grid form-row-gap agenda-filter-grid">
-          <label class="form-field agenda-date-field"><span>Data base</span><div class="agenda-date-picker"><input class="input" type="date" id="agenda-date"></div></label>
-          <label class="form-field"><span>Status</span><select class="select" id="status-filter"><option value="all">Todos</option></select></label>
-          <label class="form-field"><span>Colaborador</span><select class="select" id="collab-filter"><option value="all">Todos</option></select></label>
-          <label class="form-field"><span>Busca rápida</span><input class="input" id="quick-search" placeholder="Tutor, pet ou serviço"></label>
-        </div>
-      </section>
+      <div class="agenda-hidden-filters" aria-hidden="true">
+        <select id="status-filter"><option value="all">Todos</option></select>
+        <select id="collab-filter"><option value="all">Todos</option></select>
+      </div>
 
-      <section class="agenda-floating-actions">
+      <section class="agenda-floating-actions agenda-primary-actions">
         <div class="actions">
           <button class="btn" id="new-appointment-btn" type="button">＋ Novo agendamento</button>
           <button class="btn btn-secondary" id="historical-appointment-btn" type="button">↶ Agendamento antigo</button>
-          <button class="btn btn-secondary" id="today-btn" type="button">Hoje</button>
-        </div>
-        <div class="actions calendar-views agenda-view-tabs" id="view-buttons">
-          <button type="button" data-view="day" class="active">Dia</button>
-          <button type="button" data-view="week">Semana</button>
-          <button type="button" data-view="month">Mês</button>
         </div>
       </section>
 
       <section class="calendar-pro stack-md" id="agenda-calendar" data-view="day">
-        <div class="calendar-pro-header">
-          <div class="calendar-nav"><button type="button" id="prev-btn">←</button><strong class="calendar-title" id="calendar-title">Agenda</strong><button type="button" id="next-btn">→</button></div>
-          <div class="actions"><span class="badge">🧲 Arraste no calendário</span><span class="badge">⏱ Slots de 1h</span></div>
+        <div class="calendar-pro-header agenda-calendar-toolbar">
+          <div class="calendar-nav agenda-calendar-left">
+            <button type="button" id="prev-btn" class="agenda-nav-btn" aria-label="Data anterior">←</button>
+            <strong class="calendar-title" id="calendar-title">Agenda</strong>
+            <button type="button" id="next-btn" class="agenda-nav-btn" aria-label="Próxima data">→</button>
+            <div class="agenda-date-inline">
+              <button class="agenda-calendar-icon-btn" id="agenda-date-picker-btn" type="button" aria-label="Selecionar data">📅</button>
+              <input class="agenda-date-native" type="date" id="agenda-date" aria-label="Data da agenda">
+            </div>
+            <button class="btn btn-secondary agenda-today-btn" id="today-btn" type="button">Hoje</button>
+            <label class="agenda-quick-search-inline" aria-label="Busca rápida">
+              <span>🔎</span>
+              <input class="input" id="quick-search" placeholder="Busca rápida">
+            </label>
+          </div>
+          <div class="actions calendar-views agenda-view-tabs" id="view-buttons" aria-label="Visualização do calendário">
+            <button type="button" data-view="day" class="active">Dia</button>
+            <button type="button" data-view="week">Semana</button>
+            <button type="button" data-view="month">Mês</button>
+          </div>
         </div>
         <div class="calendar-scroll custom-scroll">
           <div class="calendar-weekdays month-only"><span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span></div>
