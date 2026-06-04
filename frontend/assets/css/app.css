@@ -13216,3 +13216,205 @@ body.app-client .client-moment-camera-btn:active {
     height: 58px;
   }
 }
+
+/* v1.6.68 — Admin mobile premium header, menu overlay e PWA install */
+.admin-install-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(7, 27, 44, .56);
+  backdrop-filter: blur(10px);
+}
+.admin-install-modal {
+  position: relative;
+  width: min(430px, calc(100vw - 32px));
+  border: 1px solid rgba(255,255,255,.58);
+  border-radius: 30px;
+  padding: 28px;
+  background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(246,252,255,.94));
+  box-shadow: 0 38px 110px rgba(7,27,44,.28);
+  text-align: left;
+  overflow: hidden;
+}
+.admin-install-modal::before {
+  content: '';
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  right: -54px;
+  top: -54px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(1,173,183,.22), transparent 68%);
+}
+.admin-install-logo {
+  width: 66px;
+  height: 66px;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(1,173,183,.12), rgba(248,161,152,.18));
+  border: 1px solid rgba(13,57,94,.08);
+  box-shadow: 0 14px 36px rgba(7,27,44,.10);
+  margin-bottom: 14px;
+  position: relative;
+  z-index: 1;
+}
+.admin-install-logo img { width: 48px; height: 48px; object-fit: contain; }
+.admin-install-modal h2 { margin: 4px 0 10px; color: var(--pf-blue-900); letter-spacing: -.04em; }
+.admin-install-modal p { color: var(--pf-muted); line-height: 1.55; margin-bottom: 12px; }
+.admin-install-tip {
+  border: 1px solid rgba(1,173,183,.18);
+  border-radius: 18px;
+  padding: 12px;
+  background: rgba(1,173,183,.08);
+  color: var(--pf-blue-800);
+  font-weight: 850;
+  margin: 12px 0;
+}
+.admin-install-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.admin-install-actions .btn { flex: 1 1 160px; }
+.admin-install-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(13,57,94,.08);
+  color: var(--pf-blue-900);
+  font-size: 1.4rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+@media (max-width: 860px) {
+  .mobile-topbar {
+    position: sticky !important;
+    top: 0;
+    z-index: 2147483600 !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 70px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,.94);
+    border-bottom: 1px solid rgba(13,57,94,.08);
+    box-shadow: 0 14px 38px rgba(7,27,44,.08);
+  }
+  .mobile-brand-icon-wrap {
+    width: 50px;
+    height: 50px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 18px;
+    background: #fff;
+  }
+  .mobile-brand-wrap::before { display: none; }
+  .mobile-logo.mobile-logo-icon {
+    width: 40px !important;
+    height: 40px;
+    object-fit: contain;
+  }
+  .mobile-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .mobile-topbar-actions .icon-btn,
+  .mobile-menu-btn-premium {
+    width: 48px;
+    height: 48px;
+    border-radius: 18px;
+    border: 1px solid rgba(13,57,94,.10);
+    background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(247,251,255,.92));
+    box-shadow: 0 10px 26px rgba(7,27,44,.09);
+  }
+  .mobile-notification-btn,
+  .mobile-profile-btn {
+    position: relative;
+    font-size: 1.08rem;
+  }
+  .mobile-menu-btn-premium {
+    gap: 5px;
+    background: linear-gradient(135deg, rgba(1,173,183,.12), rgba(248,161,152,.18));
+  }
+  .mobile-menu-btn-premium span {
+    width: 22px;
+    height: 3px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--pf-blue-900), var(--pf-cyan));
+    box-shadow: 0 1px 0 rgba(255,255,255,.8);
+  }
+  .mobile-menu-btn-premium span:nth-child(2) { width: 16px; justify-self: end; }
+  .mobile-menu-backdrop {
+    z-index: 2147483500 !important;
+    background: rgba(4,16,31,.58) !important;
+    backdrop-filter: blur(6px);
+  }
+  .sidebar {
+    z-index: 2147483601 !important;
+    width: min(88vw, 360px) !important;
+    border-radius: 0 32px 32px 0 !important;
+    box-shadow: 28px 0 90px rgba(7,27,44,.34) !important;
+  }
+  .sidebar.mobile-open {
+    z-index: 2147483601 !important;
+  }
+  body.menu-open { overflow: hidden; }
+  .mobile-close-btn {
+    background: rgba(255,255,255,.92) !important;
+    border-radius: 16px !important;
+  }
+  .topbar-actions {
+    display: none !important;
+  }
+  .topbar {
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .profile-menu {
+    position: fixed !important;
+    right: 12px !important;
+    left: auto !important;
+    top: 76px !important;
+    z-index: 2147483647 !important;
+  }
+  .notification-menu.mobile-panel-open {
+    position: fixed !important;
+    top: 76px !important;
+    right: 12px !important;
+    left: 12px !important;
+    width: auto !important;
+    max-width: none !important;
+    z-index: 2147483647 !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .topbar-actions {
+    display: block !important;
+    position: absolute !important;
+    top: 0;
+    right: 0;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .topbar-actions > .notifications-wrap > .notification-btn,
+  .topbar-actions > .profile-wrap > .profile-btn {
+    display: none !important;
+  }
+  .topbar-actions .notifications-wrap,
+  .topbar-actions .profile-wrap {
+    position: static !important;
+  }
+}

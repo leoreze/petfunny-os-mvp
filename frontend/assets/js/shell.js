@@ -26,6 +26,117 @@ const menuItems = [
 
 const storageKey = 'petfunny_sidebar_collapsed';
 
+
+const ADMIN_INSTALL_DISMISS_KEY = 'petfunny_admin_pwa_install_dismissed_until';
+let adminInstallPromptEvent = null;
+let adminInstallInitialized = false;
+
+function isAdminStandalone() {
+  return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
+}
+
+function ensureAdminManifestLink() {
+  if (!document.querySelector('link[rel="manifest"]')) {
+    const manifest = document.createElement('link');
+    manifest.rel = 'manifest';
+    manifest.href = '/admin-manifest.webmanifest';
+    document.head.appendChild(manifest);
+  } else {
+    document.querySelectorAll('link[rel="manifest"]').forEach((link) => {
+      if (!String(link.getAttribute('href') || '').includes('admin-manifest')) link.setAttribute('href', '/admin-manifest.webmanifest');
+    });
+  }
+  if (!document.querySelector('meta[name="theme-color"]')) {
+    const theme = document.createElement('meta');
+    theme.name = 'theme-color';
+    theme.content = '#01ADB7';
+    document.head.appendChild(theme);
+  }
+}
+
+function wasAdminInstallDismissed() {
+  const until = Number(localStorage.getItem(ADMIN_INSTALL_DISMISS_KEY) || 0);
+  return until && Date.now() < until;
+}
+
+function dismissAdminInstall(days = 1) {
+  localStorage.setItem(ADMIN_INSTALL_DISMISS_KEY, String(Date.now() + days * 24 * 60 * 60 * 1000));
+}
+
+async function registerAdminServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    return await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+  } catch (error) {
+    console.warn('[pwa] Não foi possível registrar service worker do admin:', error?.message || error);
+    return null;
+  }
+}
+
+function closeAdminInstallModal() {
+  document.querySelector('.admin-install-backdrop')?.remove();
+}
+
+function renderAdminInstallModal() {
+  if (isAdminStandalone() || wasAdminInstallDismissed() || document.querySelector('.admin-install-backdrop')) return;
+  const canInstall = Boolean(adminInstallPromptEvent);
+  const modal = document.createElement('div');
+  modal.className = 'admin-install-backdrop';
+  modal.innerHTML = `
+    <section class="admin-install-modal" role="dialog" aria-modal="true" aria-label="Instalar PetFunny OS">
+      <button class="admin-install-close" type="button" data-admin-install-dismiss aria-label="Fechar">×</button>
+      <div class="admin-install-logo"><img src="/assets/img/logo-petfunny-round.png" alt="PetFunny OS"></div>
+      <p class="eyebrow">PetFunny OS no celular</p>
+      <h2>Instale o painel administrativo</h2>
+      <p>Abra agenda, notificações, tutores, financeiro e operação do PetFunny em tela cheia, como aplicativo.</p>
+      ${canInstall ? '' : '<div class="admin-install-tip">Quando o navegador liberar a instalação, use o botão abaixo ou o ícone de instalação na barra do Chrome/Edge.</div>'}
+      <div class="admin-install-actions">
+        <button class="btn" id="admin-install-action" type="button">${canInstall ? 'Instalar agora' : 'Entendi'}</button>
+        <button class="btn btn-secondary" type="button" data-admin-install-dismiss>Depois</button>
+      </div>
+    </section>`;
+  document.body.appendChild(modal);
+  modal.querySelectorAll('[data-admin-install-dismiss]').forEach((button) => button.addEventListener('click', () => {
+    dismissAdminInstall(1);
+    closeAdminInstallModal();
+  }));
+  modal.querySelector('#admin-install-action')?.addEventListener('click', async () => {
+    if (!adminInstallPromptEvent) {
+      dismissAdminInstall(1);
+      closeAdminInstallModal();
+      return;
+    }
+    try {
+      adminInstallPromptEvent.prompt();
+      const choice = await adminInstallPromptEvent.userChoice.catch(() => null);
+      if (choice?.outcome === 'accepted') dismissAdminInstall(365);
+    } finally {
+      adminInstallPromptEvent = null;
+      closeAdminInstallModal();
+    }
+  });
+}
+
+function initAdminPwaInstallPrompt() {
+  ensureAdminManifestLink();
+  registerAdminServiceWorker();
+  if (adminInstallInitialized) {
+    window.setTimeout(renderAdminInstallModal, 700);
+    return;
+  }
+  adminInstallInitialized = true;
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    adminInstallPromptEvent = event;
+    window.setTimeout(renderAdminInstallModal, 500);
+  });
+  window.addEventListener('appinstalled', () => {
+    dismissAdminInstall(365);
+    closeAdminInstallModal();
+  });
+  window.setTimeout(renderAdminInstallModal, 1200);
+}
+
 function userMenu() {
   return `
     <div class="profile-menu" id="profile-menu" hidden>
@@ -50,8 +161,12 @@ export function buildShell({ active = 'Dashboard', title = 'Dashboard PetFunny',
   const preservedLoadingModal = document.getElementById('safe-loading');
   document.body.innerHTML = `
     <div class="mobile-topbar">
-      <div class="mobile-brand-wrap"><img class="mobile-logo" src="/assets/img/logo-petfunny-full.png" alt="PetFunny" /></div>
-      <button class="mobile-menu-btn" id="mobile-menu-open" type="button" aria-label="Abrir menu"><span></span><span></span><span></span></button>
+      <div class="mobile-brand-wrap mobile-brand-icon-wrap"><img class="mobile-logo mobile-logo-icon" src="/assets/img/logo-petfunny-round.png" alt="PetFunny" /></div>
+      <div class="mobile-topbar-actions" aria-label="Ações rápidas do admin">
+        <button class="icon-btn mobile-notification-btn" id="mobile-notification-btn" type="button" title="Notificações" aria-label="Abrir notificações">🔔<span class="notification-badge mobile-notification-badge" id="mobile-notification-badge" hidden>0</span></button>
+        <button class="icon-btn mobile-profile-btn" id="mobile-profile-btn" type="button" title="Usuário" aria-label="Abrir menu do usuário">🐶</button>
+        <button class="mobile-menu-btn mobile-menu-btn-premium" id="mobile-menu-open" type="button" aria-label="Abrir menu"><span></span><span></span><span></span></button>
+      </div>
     </div>
     <div class="mobile-menu-backdrop" id="mobile-backdrop" hidden></div>
     <div class="shell" id="app-shell">
@@ -107,9 +222,12 @@ export function buildShell({ active = 'Dashboard', title = 'Dashboard PetFunny',
   const profileButton = document.getElementById('profile-btn');
   const profileMenu = document.getElementById('profile-menu');
   const profileLogout = document.getElementById('profile-logout');
+  const mobileProfileButton = document.getElementById('mobile-profile-btn');
   const notificationButton = document.getElementById('notification-btn');
   const notificationMenu = document.getElementById('notification-menu');
   const notificationBadge = document.getElementById('notification-badge');
+  const mobileNotificationButton = document.getElementById('mobile-notification-btn');
+  const mobileNotificationBadge = document.getElementById('mobile-notification-badge');
   const notificationMini = document.getElementById('notification-list-mini');
   const notificationSubtitle = document.getElementById('notification-subtitle');
 
@@ -149,7 +267,18 @@ export function buildShell({ active = 'Dashboard', title = 'Dashboard PetFunny',
     event.stopPropagation();
     profileMenu.hidden = !profileMenu.hidden;
   });
-  document.addEventListener('click', () => { profileMenu.hidden = true; if (notificationMenu) notificationMenu.hidden = true; });
+  mobileProfileButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    profileMenu.hidden = !profileMenu.hidden;
+    if (notificationMenu) notificationMenu.hidden = true;
+  });
+  document.addEventListener('click', () => {
+    profileMenu.hidden = true;
+    if (notificationMenu) {
+      notificationMenu.hidden = true;
+      notificationMenu.classList.remove('mobile-panel-open');
+    }
+  });
   profileMenu.addEventListener('click', (event) => event.stopPropagation());
 
   async function refreshNotifications() {
@@ -158,6 +287,10 @@ export function buildShell({ active = 'Dashboard', title = 'Dashboard PetFunny',
       const unread = Number(data.unread || 0);
       notificationBadge.hidden = unread <= 0;
       notificationBadge.textContent = unread > 99 ? '99+' : String(unread);
+      if (mobileNotificationBadge) {
+        mobileNotificationBadge.hidden = unread <= 0;
+        mobileNotificationBadge.textContent = unread > 99 ? '99+' : String(unread);
+      }
       notificationSubtitle.textContent = unread ? `${unread} não lida(s)` : 'Tudo em dia';
       notificationMini.innerHTML = (data.latest || []).length ? (data.latest || []).map((n) => `
         <a class="notification-mini-item ${n.read ? '' : 'unread'}" href="${n.actionUrl || '/admin/notificacoes'}" data-id="${n.id}">
@@ -174,7 +307,15 @@ export function buildShell({ active = 'Dashboard', title = 'Dashboard PetFunny',
 
   notificationButton?.addEventListener('click', async (event) => {
     event.stopPropagation();
+    notificationMenu.classList.remove('mobile-panel-open');
     notificationMenu.hidden = !notificationMenu.hidden;
+    if (!notificationMenu.hidden) await refreshNotifications();
+  });
+  mobileNotificationButton?.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    notificationMenu.classList.add('mobile-panel-open');
+    notificationMenu.hidden = !notificationMenu.hidden;
+    profileMenu.hidden = true;
     if (!notificationMenu.hidden) await refreshNotifications();
   });
   notificationMenu?.addEventListener('click', (event) => event.stopPropagation());
@@ -184,6 +325,7 @@ export function buildShell({ active = 'Dashboard', title = 'Dashboard PetFunny',
   profileLogout?.addEventListener('click', logout);
   setupPremiumInteractions(document);
   setupAdminContextChat({ active, title });
+  initAdminPwaInstallPrompt();
   startPageLoading('Abrindo página...', 'Carregando informações e preparando a tela do PetFunny.');
 }
 
