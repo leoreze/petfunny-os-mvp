@@ -8139,9 +8139,25 @@ function toIsoOrNull(value) {
 }
 
 function centsFromServices(items = [], discountPercent = 0) {
-  const subtotal = items.reduce((sum, item) => sum + Number(item.unitPriceCents || item.priceCents || 0) * Number(item.quantity || 1), 0);
-  const discount = Math.round(subtotal * Math.max(0, Math.min(100, Number(discountPercent || 0))) / 100);
-  return { subtotalCents: subtotal, discountCents: discount, totalCents: Math.max(0, subtotal - discount) };
+  const safeDiscountPercent = Math.max(0, Math.min(100, Number(discountPercent || 0)));
+  const adjustedItems = (Array.isArray(items) ? items : []).map((item) => {
+    const quantity = Number(item.quantity || 1);
+    const unitPriceCents = Number(item.unitPriceCents || item.priceCents || 0);
+    const grossCents = unitPriceCents * quantity;
+    const discountCents = Math.round(grossCents * safeDiscountPercent / 100);
+    const totalCents = Math.max(0, grossCents - discountCents);
+    return {
+      ...item,
+      quantity,
+      unitPriceCents,
+      discountPercent: safeDiscountPercent,
+      discountCents,
+      totalCents
+    };
+  });
+  const subtotal = adjustedItems.reduce((sum, item) => sum + Number(item.unitPriceCents || 0) * Number(item.quantity || 1), 0);
+  const discount = adjustedItems.reduce((sum, item) => sum + Number(item.discountCents || 0), 0);
+  return { items: adjustedItems, subtotalCents: subtotal, discountCents: discount, totalCents: Math.max(0, subtotal - discount) };
 }
 
 function isMercadoPagoConfigured() {
@@ -9099,8 +9115,8 @@ ${appointmentNotes}` : transportLine;
     for (const item of totals.items) {
       await query(`
         INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents)
-        VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::text, $5::integer, $6::integer, 0, $7::integer)
-      `, [created.rows[0].id, petId, item.serviceId || '', item.description, item.quantity, item.unitPriceCents, item.unitPriceCents]);
+        VALUES ($1::uuid, $2::uuid, NULLIF($3::text,'')::uuid, $4::text, $5::integer, $6::integer, $7::numeric, $8::integer)
+      `, [created.rows[0].id, petId, item.serviceId || '', item.description, item.quantity, item.unitPriceCents, item.discountPercent || 0, item.totalCents]);
     }
     if (paymentStatus === 'paid') await syncFinancialTransactionWithAppointmentPayment(created.rows[0].id, paymentStatus, paymentMethodId || '');
     const appointment = await getAppointmentById(created.rows[0].id);
@@ -9170,7 +9186,7 @@ ${appointmentNotes}` : transportLine;
     `, [req.params.id, tutorId, petId, collaboratorId || '', startsAt, endsAt, status, totals.subtotalCents, discountPercent, totals.discountCents, totals.totalCents, appointmentNotes, paymentStatus, paymentMethodId || '']);
     await query('DELETE FROM appointment_items WHERE appointment_id = $1::uuid', [req.params.id]);
     for (const item of totals.items) {
-      await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,$4::text,$5::integer,$6::integer,0,$7::integer)`, [req.params.id, petId, item.serviceId || '', item.description, item.quantity, item.unitPriceCents, item.unitPriceCents]);
+      await query(`INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents) VALUES ($1::uuid,$2::uuid,NULLIF($3::text,'')::uuid,$4::text,$5::integer,$6::integer,$7::numeric,$8::integer)`, [req.params.id, petId, item.serviceId || '', item.description, item.quantity, item.unitPriceCents, item.discountPercent || 0, item.totalCents]);
     }
     await syncFinancialTransactionWithAppointmentPayment(req.params.id, paymentStatus, paymentMethodId || '');
     const appointment = await getAppointmentById(req.params.id);
