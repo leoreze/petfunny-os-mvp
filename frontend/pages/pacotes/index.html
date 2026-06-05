@@ -251,8 +251,9 @@
             <label class="form-field"><span>Status do pagamento</span><select class="select" id="hist-package-payment"><option value="pending">Pendente</option><option value="paid" selected>Pago</option></select></label>
             <label class="form-field"><span>Forma de pagamento</span><select class="select" id="hist-package-payment-method"></select></label>
           </div>
+          <label class="toggle-line mt-20"><input type="checkbox" id="hist-package-recurring"> Recorrência automática: ao acabar as sessões, gerar novo ciclo de agendamentos até o pacote ser cancelado</label>
           <label class="form-field mt-20"><span>Observações internas</span><textarea class="textarea" id="hist-package-notes" rows="4" placeholder="Ex.: pacote vendido no balcão antes da implantação do sistema..."></textarea></label>
-          <p class="muted mt-20">O sistema gera as sessões a partir da data e horário escolhidos: datas passadas entram como finalizadas e datas futuras ficam agendadas. Nenhuma notificação é disparada para o tutor.</p>
+          <p class="muted mt-20">O sistema gera as sessões a partir da data e horário escolhidos: datas passadas entram como finalizadas e datas futuras ficam agendadas. Se a recorrência estiver marcada, os ciclos antigos também serão reconstruídos até o ciclo atual/futuro. Nenhuma notificação é disparada para o tutor.</p>
         </div>
         <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-package-modal">Cancelar</button><button class="btn" type="submit">Salvar pacote antigo</button></footer>
       </form>
@@ -844,6 +845,7 @@
     if (ids('hist-package-starts')) ids('hist-package-starts').value = today;
     if (ids('hist-package-time')) ids('hist-package-time').value = '09:00';
     if (ids('hist-package-amount')) ids('hist-package-amount').value = '';
+    if (ids('hist-package-recurring')) ids('hist-package-recurring').checked = false;
     renderHistoricalPackagePets();
     ids('historical-package-modal')?.showModal();
     setTimeout(() => ids('hist-package-whatsapp-search')?.focus(), 80);
@@ -861,6 +863,7 @@
       amountCents: histCentsFromInput(ids('hist-package-amount').value),
       paymentStatus: ids('hist-package-payment').value,
       paymentMethodId: ids('hist-package-payment-method')?.value || '',
+      recurring: ids('hist-package-recurring')?.checked || false,
       notes: ids('hist-package-notes')?.value || ''
     };
     if (!payload.tutorId || !payload.petId || !payload.packageId || !payload.startsOn || !payload.firstTime || payload.amountCents <= 0) {

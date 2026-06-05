@@ -87,6 +87,22 @@
   const paymentStatusName = (code) => (state.paymentStatuses || []).find(p => p.code === code)?.name || (code === 'paid' ? 'Pago' : 'Pendente');
   const isPaymentPaid = (appointment = {}) => String(appointment.paymentStatus || '').toLowerCase() === 'paid' || String(paymentStatusName(appointment.paymentStatus)).toLowerCase() === 'pago';
   const sourceBadge = (appointment = {}) => String(appointment.source || '').toLowerCase() === 'app_tutor' ? '<span class="admin-source-badge-app">📱 Veio pelo app do tutor</span>' : '';
+  const packageSessionText = (appointment = {}) => {
+    const label = String(appointment.packageSessionLabel || '').trim();
+    if (label && !/^pacote$/i.test(label)) return label;
+    const number = Number(appointment.packageSessionNumber || 0);
+    const total = Number(appointment.packageTotalSessions || appointment.totalSessions || 0);
+    if (number > 0 && total > 0) return `${number} de ${total}`;
+    const searchable = [appointment.notes, appointment.services, appointment.description].filter(Boolean).join(' · ');
+    const match = String(searchable || '').match(/(?:sess(?:ão|ao)?\s*)?(\d+)\s*de\s*(\d+)/i);
+    if (match && Number(match[1]) > 0 && Number(match[2]) > 0) return `${Number(match[1])} de ${Number(match[2])}`;
+    return appointment.customerPackageId ? 'Pacote' : '';
+  };
+  const packageSessionBadge = (appointment = {}, extraClass = '') => {
+    const label = packageSessionText(appointment);
+    const extra = String(extraClass || '').trim();
+    return label ? `<span class="package-calendar-badge appointment-package-badge${extra ? ` ${esc(extra)}` : ''}">📦 ${esc(label)}</span>` : '';
+  };
   const initials = (name = 'P') => String(name || 'P').trim().split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase() || 'P';
   const petPhoto = (appointment = {}) => appointment.petPhotoUrl || petById(appointment.petId)?.photoUrl || '';
   const petAvatar = (appointment = {}, size = 'sm') => {
@@ -1109,12 +1125,14 @@
   function appointmentCard(a) {
     const st = statusByCode(a.status);
     const color = st.color || '#00A9B7';
+    const packageBadge = packageSessionBadge(a, 'status-package-badge');
     return `<article class="appointment-card module-card status-tinted-card agenda-compact-card" draggable="true" data-id="${esc(a.id)}" data-status="${esc(a.status)}" style="--status-color:${esc(color)}">
       ${appointmentActionsMenu(a)}
       <div class="appointment-status-line"><span class="status-pill" style="--status-color:${esc(color)}">${esc(st.name || a.status)}</span></div>
+      ${packageBadge ? `<div class="appointment-package-line">${packageBadge}</div>` : ''}
       <div class="appointment-card-head">
         ${petAvatar(a, 'md')}
-        <div><h3>${hm(a.startsAt)} · ${esc(a.petName || 'Pet')}</h3><small>${esc(a.tutorName || 'Tutor')}</small>${sourceBadge(a)}</div>
+        <div class="appointment-card-main"><h3 class="appointment-card-title"><span class="appointment-title-main">${esc(a.petName || 'Pet')}</span></h3><small>${hm(a.startsAt)} · ${esc(a.tutorName || 'Tutor')}</small>${sourceBadge(a)}</div>
       </div>
       <p><strong>${esc(a.services || 'Serviço não informado')}</strong></p>
       <div class="appointment-meta-row"><small>${esc(a.collaboratorName || 'Equipe PetFunny')}<span class="payment-info-line">${esc(paymentStatusName(a.paymentStatus))}${a.paymentMethodName ? ` · ${esc(a.paymentMethodName)}` : ''}</span></small><b>${money(a.totalCents)}</b></div>
@@ -1273,12 +1291,16 @@
     const paymentLine = `${paymentStatusName(a.paymentStatus)}${a.paymentMethodName ? ` · ${a.paymentMethodName}` : ''}`;
     const st = statusByCode(a.status);
     const color = st.color || statusColor(a.status);
-    const packageBadge = a.packageSessionLabel ? `<span class="package-calendar-badge">📦 ${esc(a.packageSessionLabel)}</span>` : '';
+    const packageBadge = packageSessionBadge(a, 'calendar-session-badge');
     return `<article draggable="true" class="cal-event calendar-appointment-card" style="--status-color:${esc(color)}" data-id="${esc(a.id)}" data-start="${esc(a.startsAt)}">
       ${appointmentActionsMenu(a)}
       <div class="cal-event-main edit-appointment" data-id="${esc(a.id)}">
         ${petAvatar(a, compact ? 'xs' : 'sm')}
-        <div class="cal-event-text"><strong>${compact ? `${hm(a.startsAt)} ${esc(a.petName)}` : `${hm(a.startsAt)} · ${esc(a.petName)}`} ${packageBadge}</strong><small>${esc(a.tutorName)}${compact ? '' : ` · ${money(a.totalCents)}`}<span class="payment-info-line">${esc(paymentLine)}</span><span class="mini-status-name">${esc(st.name || a.status)}</span></small></div>
+        <div class="cal-event-text">
+          ${packageBadge ? `<div class="calendar-package-line">${packageBadge}</div>` : ''}
+          <strong class="calendar-event-title"><span class="calendar-event-time">${hm(a.startsAt)}</span><span class="calendar-event-separator">·</span><span class="calendar-event-pet">${esc(a.petName || 'Pet')}</span></strong>
+          <small>${esc(a.tutorName || 'Tutor')}${compact ? '' : ` · ${money(a.totalCents)}`}<span class="payment-info-line">${esc(paymentLine)}</span><span class="mini-status-name">${esc(st.name || a.status)}</span></small>
+        </div>
       </div>
     </article>`;
   }

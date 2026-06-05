@@ -4127,6 +4127,9 @@ function sanitizeClientPackage(row = {}) {
 
 function sanitizeClientAppointment(row = {}) {
   const links = appDocumentLinks(row);
+  const packageSessionNumber = row.package_session_number ? Number(row.package_session_number) : null;
+  const packageTotalSessions = row.package_total_sessions ? Number(row.package_total_sessions) : null;
+  const packageSessionLabel = row.package_session_label || (packageSessionNumber && packageTotalSessions ? `${packageSessionNumber} de ${packageTotalSessions}` : null);
   return {
     id: row.id,
     petId: row.pet_id,
@@ -4141,9 +4144,9 @@ function sanitizeClientAppointment(row = {}) {
     totalCents: Number(row.total_cents || 0),
     paymentStatus: row.payment_status || 'pending',
     customerPackageId: row.customer_package_id || null,
-    packageSessionNumber: row.package_session_number ? Number(row.package_session_number) : null,
-    packageTotalSessions: row.package_total_sessions ? Number(row.package_total_sessions) : null,
-    packageSessionLabel: row.package_session_label || null,
+    packageSessionNumber,
+    packageTotalSessions,
+    packageSessionLabel,
     commandUrl: links.commandUrl,
     receiptUrl: links.receiptUrl
   };
@@ -8479,6 +8482,9 @@ async function findApprovedMercadoPagoPaymentByReference(reference) {
 }
 
 function sanitizeAppointment(row = {}) {
+  const packageSessionNumber = row.package_session_number ? Number(row.package_session_number) : null;
+  const packageTotalSessions = row.package_total_sessions ? Number(row.package_total_sessions) : null;
+  const packageSessionLabel = row.package_session_label || (packageSessionNumber && packageTotalSessions ? `${packageSessionNumber} de ${packageTotalSessions}` : null);
   return {
     id: row.id,
     tutorId: row.tutor_id,
@@ -8501,9 +8507,9 @@ function sanitizeAppointment(row = {}) {
     discountCents: Number(row.discount_cents || 0),
     totalCents: Number(row.total_cents || 0),
     customerPackageId: row.customer_package_id || null,
-    packageSessionNumber: row.package_session_number ? Number(row.package_session_number) : null,
-    packageTotalSessions: row.package_total_sessions ? Number(row.package_total_sessions) : null,
-    packageSessionLabel: row.package_session_label,
+    packageSessionNumber,
+    packageTotalSessions,
+    packageSessionLabel,
     notes: row.notes,
     paymentStatus: row.payment_status || 'pending',
     paymentMethodId: row.payment_method_id || null,
@@ -8619,6 +8625,9 @@ async function getAppointmentById(id) {
   const result = await query(`
     SELECT a.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name, p.photo_url AS pet_photo_url, p.size AS pet_size,
            c.name AS collaborator_name, s.name AS status_name, s.color AS status_color, pm.name AS payment_method_name,
+           COALESCE(NULLIF(a.package_session_label, ''), CASE WHEN a.customer_package_id IS NOT NULL THEN CONCAT(COALESCE(a.package_session_number, pkg_seq.session_number), ' de ', COALESCE(a.package_total_sessions, pkg_seq.total_sessions, cp.total_sessions)) ELSE NULL END) AS package_session_label,
+           COALESCE(a.package_session_number, pkg_seq.session_number) AS package_session_number,
+           COALESCE(a.package_total_sessions, pkg_seq.total_sessions, cp.total_sessions) AS package_total_sessions,
            COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services,
            COALESCE(json_agg(json_build_object('id', ai.id, 'serviceId', ai.service_id, 'petId', ai.pet_id, 'description', ai.description, 'quantity', ai.quantity, 'unitPriceCents', ai.unit_price_cents, 'discountPercent', ai.discount_percent, 'totalCents', ai.total_cents) ORDER BY ai.created_at) FILTER (WHERE ai.id IS NOT NULL), '[]'::json) AS items
     FROM appointments a
@@ -8627,9 +8636,23 @@ async function getAppointmentById(id) {
     LEFT JOIN collaborators c ON c.id = a.collaborator_id
     LEFT JOIN appointment_statuses s ON s.code = a.status
     LEFT JOIN payment_methods pm ON pm.id = a.payment_method_id
+    LEFT JOIN customer_packages cp ON cp.id = a.customer_package_id
+    LEFT JOIN LATERAL (
+      SELECT ranked.session_number, ranked.total_sessions
+      FROM (
+        SELECT ax.id,
+               ROW_NUMBER() OVER (ORDER BY ax.starts_at ASC, ax.created_at ASC, ax.id ASC)::int AS session_number,
+               COUNT(*) OVER ()::int AS total_sessions
+        FROM appointments ax
+        WHERE ax.customer_package_id = a.customer_package_id
+          AND ax.deleted_at IS NULL
+      ) ranked
+      WHERE ranked.id = a.id
+      LIMIT 1
+    ) pkg_seq ON TRUE
     LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
     WHERE a.id = $1::uuid AND a.deleted_at IS NULL
-    GROUP BY a.id, t.name, t.whatsapp, p.name, p.photo_url, p.size, c.name, s.name, s.color, pm.name
+    GROUP BY a.id, t.name, t.whatsapp, p.name, p.photo_url, p.size, c.name, s.name, s.color, pm.name, cp.total_sessions, pkg_seq.session_number, pkg_seq.total_sessions
     LIMIT 1
   `, [id]);
   return result.rows[0] || null;
@@ -8943,16 +8966,33 @@ app.get('/api/agenda', requireAuth, async (req, res, next) => {
     const result = await query(`
       SELECT a.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name, p.photo_url AS pet_photo_url, p.size AS pet_size,
              c.name AS collaborator_name, s.name AS status_name, s.color AS status_color, pm.name AS payment_method_name,
+             COALESCE(NULLIF(a.package_session_label, ''), CASE WHEN a.customer_package_id IS NOT NULL THEN CONCAT(COALESCE(a.package_session_number, pkg_seq.session_number), ' de ', COALESCE(a.package_total_sessions, pkg_seq.total_sessions, cp.total_sessions)) ELSE NULL END) AS package_session_label,
+             COALESCE(a.package_session_number, pkg_seq.session_number) AS package_session_number,
+             COALESCE(a.package_total_sessions, pkg_seq.total_sessions, cp.total_sessions) AS package_total_sessions,
              COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services
       FROM appointments a
       LEFT JOIN tutors t ON t.id = a.tutor_id
       LEFT JOIN pets p ON p.id = a.pet_id
       LEFT JOIN collaborators c ON c.id = a.collaborator_id
       LEFT JOIN appointment_statuses s ON s.code = a.status
-    LEFT JOIN payment_methods pm ON pm.id = a.payment_method_id
+      LEFT JOIN payment_methods pm ON pm.id = a.payment_method_id
+      LEFT JOIN customer_packages cp ON cp.id = a.customer_package_id
+      LEFT JOIN LATERAL (
+        SELECT ranked.session_number, ranked.total_sessions
+        FROM (
+          SELECT ax.id,
+                 ROW_NUMBER() OVER (ORDER BY ax.starts_at ASC, ax.created_at ASC, ax.id ASC)::int AS session_number,
+                 COUNT(*) OVER ()::int AS total_sessions
+          FROM appointments ax
+          WHERE ax.customer_package_id = a.customer_package_id
+            AND ax.deleted_at IS NULL
+        ) ranked
+        WHERE ranked.id = a.id
+        LIMIT 1
+      ) pkg_seq ON TRUE
       LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
       WHERE ${where.join(' AND ')}
-      GROUP BY a.id, t.name, t.whatsapp, p.name, p.photo_url, p.size, c.name, s.name, s.color, pm.name
+      GROUP BY a.id, t.name, t.whatsapp, p.name, p.photo_url, p.size, c.name, s.name, s.color, pm.name, cp.total_sessions, pkg_seq.session_number, pkg_seq.total_sessions
       ORDER BY a.starts_at ASC
     `, params);
     res.json({ items: result.rows.map(sanitizeAppointment), view, date: baseDate, total: result.rowCount });
@@ -9673,9 +9713,18 @@ async function generateAppointmentsForCustomerPackage(customerPackageId, { start
     const discount = Math.max(0, subtotal - allocatedTotal);
     const appt = await query(`
       INSERT INTO appointments (tutor_id, pet_id, customer_package_id, package_session_number, package_total_sessions, starts_at, ends_at, status, source, subtotal_cents, discount_percent, discount_cents, total_cents, package_session_label, notes, payment_status, payment_method_id)
-      VALUES ($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::integer, $6::timestamptz, $7::timestamptz, $16::text, $17::text, $8::integer, $9::numeric, $10::integer, $11::integer, $12::text, $13::text, $14::text, NULLIF($15::text,'')::uuid)
+      SELECT $1::uuid, $2::uuid, $3::uuid, $4::integer, $5::integer, $6::timestamptz, $7::timestamptz, $16::text, $17::text, $8::integer, $9::numeric, $10::integer, $11::integer, $12::text, $13::text, $14::text, NULLIF($15::text,'')::uuid
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM appointments existing
+        WHERE existing.customer_package_id = $3::uuid
+          AND existing.deleted_at IS NULL
+          AND existing.starts_at = $6::timestamptz
+          AND COALESCE(existing.package_session_number, 0) = $4::integer
+      )
       RETURNING id
     `, [contract.tutor_id, contract.pet_id, contract.id, i + 1, totalSessions, startsAt, endsAt, subtotal, subtotal > 0 ? Number(((discount / subtotal) * 100).toFixed(2)) : 0, discount, allocatedTotal, `${i + 1} de ${totalSessions}`, `${historicalImport ? 'Sessão histórica' : 'Sessão'} ${i + 1} de ${totalSessions} gerada automaticamente pelo pacote ${contract.package_name}. Valor total do pacote: ${(packageTotal / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`, contract.payment_status || 'pending', contract.payment_method_id || '', sessionStatus, appointmentSource]);
+    if (!appt.rowCount) continue;
     for (const service of services.rows) {
       await query(`
         INSERT INTO appointment_items (appointment_id, pet_id, service_id, description, quantity, unit_price_cents, discount_percent, total_cents)
@@ -9685,6 +9734,73 @@ async function generateAppointmentsForCustomerPackage(customerPackageId, { start
     created += 1;
   }
   return { created, intervalDays, totalSessions, startsOn: cycleStart };
+}
+
+async function ensureHistoricalRecurringCyclesForCustomerPackage(customerPackageId, { startsOn, firstTime = '09:00', maxCycles = 60 } = {}) {
+  const result = await query(`
+    SELECT cp.*, pk.appointments_per_month, pk.sessions_count
+    FROM customer_packages cp
+    INNER JOIN packages pk ON pk.id = cp.package_id
+    WHERE cp.id = $1::uuid AND cp.deleted_at IS NULL
+    LIMIT 1
+  `, [customerPackageId]);
+  const cp = result.rows[0];
+  if (!cp || !cp.pet_id) return { renewedCycles: 0, created: 0 };
+  const recurringEnabled = Boolean(cp.recurring || cp.recurrence_rule?.enabled);
+  if (!recurringEnabled || ['cancelled', 'canceled'].includes(String(cp.status || '').toLowerCase())) {
+    return { renewedCycles: 0, created: 0 };
+  }
+  const perMonth = Number(cp.appointments_per_month || cp.recurrence_rule?.appointmentsPerMonth || 4);
+  const intervalDays = Number(cp.recurrence_rule?.intervalDays || (perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30));
+  const totalSessions = Math.max(1, Number(cp.total_sessions || cp.sessions_count || 1));
+  let cycleStart = cleanText(cp.current_cycle_started_on) || cleanText(startsOn) || cleanText(cp.starts_on) || new Date().toISOString().slice(0, 10);
+  let cycleNumber = Math.max(1, Number(cp.cycle_number || 1));
+  let renewedCycles = 0;
+  let created = 0;
+
+  for (let guard = 0; guard < maxCycles; guard += 1) {
+    const lastSessionDate = addDaysToDateString(cycleStart, (totalSessions - 1) * intervalDays);
+    const lastSessionIso = saoPauloLocalToIso(lastSessionDate, firstTime || '09:00') || new Date(`${lastSessionDate}T${firstTime || '09:00'}:00`).toISOString();
+    if (new Date(lastSessionIso).getTime() >= Date.now()) break;
+
+    const nextStart = addDaysToDateString(lastSessionDate, intervalDays);
+    cycleNumber += 1;
+    await query(`
+      UPDATE customer_packages
+      SET status = 'active',
+          used_sessions = 0,
+          current_cycle_started_on = $2::date,
+          cycle_number = $3::integer,
+          ends_on = ($2::date + (($4::integer - 1) * $5::integer || ' days')::interval)::date,
+          recurrence_rule = COALESCE(recurrence_rule, '{}'::jsonb) || jsonb_build_object('enabled', true, 'firstTime', $6::text, 'intervalDays', $5::integer, 'historicalAutoRenew', true, 'lastRenewedOn', $2::text),
+          updated_at = NOW()
+      WHERE id = $1::uuid AND deleted_at IS NULL
+    `, [customerPackageId, nextStart, cycleNumber, totalSessions, intervalDays, firstTime || '09:00']);
+    const generated = await generateAppointmentsForCustomerPackage(customerPackageId, { startsOn: nextStart, firstTime, historicalImport: true });
+    created += Number(generated.created || 0);
+    renewedCycles += 1;
+    cycleStart = nextStart;
+  }
+
+  const done = await query(`
+    SELECT COUNT(*)::int AS finished_count
+    FROM appointments
+    WHERE customer_package_id = $1::uuid
+      AND deleted_at IS NULL
+      AND starts_at::date >= $2::date
+      AND status = 'finalizado'
+  `, [customerPackageId, cycleStart]);
+  const usedSessions = Math.min(Number(done.rows[0]?.finished_count || 0), totalSessions);
+  await query(`
+    UPDATE customer_packages
+    SET status = 'active',
+        used_sessions = $2::integer,
+        recurring = TRUE,
+        current_cycle_started_on = $3::date,
+        updated_at = NOW()
+    WHERE id = $1::uuid AND deleted_at IS NULL
+  `, [customerPackageId, usedSessions, cycleStart]);
+  return { renewedCycles, created, currentCycleStartedOn: cycleStart, usedSessions };
 }
 
 async function refreshCustomerPackageProgress(customerPackageId, { allowRenew = true } = {}) {
@@ -10009,6 +10125,7 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     const paymentStatus = cleanText(req.body?.paymentStatus) || 'paid';
     const paymentMethodId = cleanText(req.body?.paymentMethodId);
     const notes = cleanText(req.body?.notes);
+    const recurring = parseBool(req.body?.recurring, false);
     if (!tutorId || !petId || !packageId) return res.status(400).json({ error: 'Selecione tutor, pet e pacote.' });
     if (amountCents <= 0) return res.status(400).json({ error: 'Informe manualmente o valor final pago do pacote antigo.' });
     const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [packageId]);
@@ -10029,20 +10146,34 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       return d.getTime() < Date.now();
     }).length;
     const usedSessions = Math.min(computedUsedSessions, sessions);
-    const status = usedSessions >= sessions ? 'finished' : 'active';
+    const status = recurring ? 'active' : (usedSessions >= sessions ? 'finished' : 'active');
     await query('BEGIN');
     const sold = await query(`
       INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule, created_at, updated_at)
-      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, FALSE, $5::date, jsonb_build_object('historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'intervalDays', $13::integer, 'reconstructedHistory', true), $5::date, NOW())
+      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, $15::boolean, $5::date, jsonb_build_object('enabled', $15::boolean, 'historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'appointmentsPerMonth', $16::integer, 'intervalDays', $13::integer, 'reconstructedHistory', true, 'autoRenewUntilCancelled', $15::boolean), $5::date, NOW())
       RETURNING *
-    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes, sessions, intervalDays, firstTime]);
-    let generated = { created: 0, totalSessions: sessions, finishedSessions: usedSessions, firstTime, intervalDays };
+    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes, sessions, intervalDays, firstTime, recurring, perMonth]);
+    let generated = { created: 0, totalSessions: sessions, finishedSessions: usedSessions, firstTime, intervalDays, recurring };
     if (petId) {
       generated = await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime, historicalImport: true });
-      const progress = await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: false });
-      if (progress) {
-        sold.rows[0].used_sessions = progress.usedSessions ?? progress.used_sessions ?? sold.rows[0].used_sessions;
-        generated.finishedSessions = Number(sold.rows[0].used_sessions || usedSessions);
+      generated.recurring = recurring;
+      generated.finishedSessions = usedSessions;
+      if (recurring) {
+        const recurringGeneration = await ensureHistoricalRecurringCyclesForCustomerPackage(sold.rows[0].id, { startsOn, firstTime });
+        generated.created = Number(generated.created || 0) + Number(recurringGeneration.created || 0);
+        generated.renewedCycles = Number(recurringGeneration.renewedCycles || 0);
+        generated.currentCycleStartedOn = recurringGeneration.currentCycleStartedOn || startsOn;
+        generated.finishedSessions = Number(recurringGeneration.usedSessions ?? usedSessions);
+        sold.rows[0].status = 'active';
+        sold.rows[0].recurring = true;
+        sold.rows[0].current_cycle_started_on = generated.currentCycleStartedOn;
+        sold.rows[0].used_sessions = generated.finishedSessions;
+      } else {
+        const progress = await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: false });
+        if (progress) {
+          sold.rows[0].used_sessions = progress.usedSessions ?? progress.used_sessions ?? sold.rows[0].used_sessions;
+          generated.finishedSessions = Number(sold.rows[0].used_sessions || usedSessions);
+        }
       }
     }
     await query(`
@@ -10055,7 +10186,7 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       if (tx.rows[0]) await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, $4::date, 'Pagamento histórico de pacote') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || finalAmount), startsOn]);
     }
     await query('COMMIT');
-    res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), generatedAppointments: generated, message: 'Pacote antigo importado com histórico reconstruído.' });
+    res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), generatedAppointments: generated, message: recurring ? 'Pacote antigo importado com recorrência automática e histórico reconstruído.' : 'Pacote antigo importado com histórico reconstruído.' });
   } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
 });
 

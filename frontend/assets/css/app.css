@@ -4111,6 +4111,16 @@ dialog.tutor-premium-document-modal::backdrop {
 .package-info-line {
   color: #126f9a !important;
 }
+
+.appointment-package-badge {
+  margin-left: 7px;
+  transform: translateY(-1px);
+}
+.agenda-compact-card .appointment-package-badge {
+  background: linear-gradient(135deg, rgba(255, 157, 152, .22), rgba(0, 169, 183, .13));
+  border-color: rgba(255, 157, 152, .38);
+  color: #7a3418;
+}
 .doc-section-block {
   margin-top: 18px;
 }
@@ -14166,3 +14176,115 @@ body.client-radar-page .client-radar-actions .btn {
 .service-reviews-page .compact-filter-row .input{min-width:min(260px,100%)}
 .service-reviews-page .row-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 @media (max-width: 780px){.service-reviews-page .section-toolbar{align-items:stretch}.service-reviews-page .compact-filter-row{justify-content:stretch}.service-reviews-page .compact-filter-row .input,.service-reviews-page .compact-filter-row .select,.service-reviews-page .compact-filter-row .btn{width:100%}}
+
+/* v1.6.92 — garante que o progresso do pacote apareça no card da agenda antes do menu de ações */
+.agenda-compact-card .appointment-card-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-right: 46px;
+}
+.agenda-compact-card .appointment-card-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+.agenda-compact-card .appointment-title-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agenda-compact-card .appointment-card-title .appointment-package-badge {
+  flex: 0 0 auto;
+  margin-left: 0;
+  transform: none;
+}
+@media (max-width: 760px) {
+  .agenda-compact-card .appointment-card-main { padding-right: 42px; }
+  .agenda-compact-card .appointment-card-title { gap: 6px; }
+}
+
+/* v1.6.93 — Agenda: progresso de pacote visível no calendário e na visão por status */
+.agenda-compact-card .appointment-package-line {
+  display: flex;
+  align-items: center;
+  margin: 2px 48px 8px 0;
+  min-width: 0;
+}
+.agenda-compact-card .appointment-package-line .status-package-badge {
+  margin-left: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.agenda-compact-card .appointment-card-main {
+  padding-right: 46px;
+}
+.agenda-compact-card .appointment-card-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  min-width: 0;
+}
+.agenda-compact-card .appointment-title-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-appointment-card .cal-event-text {
+  min-width: 0;
+  width: 100%;
+}
+.calendar-appointment-card .calendar-package-line {
+  display: flex;
+  align-items: center;
+  margin: 0 0 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.calendar-appointment-card .calendar-package-line .calendar-session-badge {
+  margin-left: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.calendar-appointment-card .calendar-event-title {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.calendar-appointment-card .calendar-event-time,
+.calendar-appointment-card .calendar-event-separator {
+  flex: 0 0 auto;
+}
+.calendar-appointment-card .calendar-event-pet {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-day .calendar-appointment-card,
+.calendar-week-view .calendar-appointment-card,
+.calendar-day-view .calendar-appointment-card {
+  min-height: 66px;
+}
+@media (max-width: 760px) {
+  .agenda-compact-card .appointment-package-line { margin-right: 42px; }
+  .calendar-appointment-card .calendar-package-line .calendar-session-badge,
+  .agenda-compact-card .appointment-package-line .status-package-badge { font-size: .66rem; padding-inline: 6px; }
+}

@@ -1,1 +1,1 @@
-FunnyOS v1.6.89 — Correção Agenda totals.items iterable
+FunnyOS v1.6.93 — Agenda calendário e visão por status com progresso de pacote visível
