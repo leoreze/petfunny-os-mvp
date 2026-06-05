@@ -3613,6 +3613,10 @@ app.get('/api/app-access/tutors', requireAuth, async (req, res, next) => {
   try {
     const status = cleanText(req.query.status || 'all');
     const search = cleanText(req.query.search || '');
+    const allowedSorts = new Set(['name', 'whatsapp', 'firstAccessAt', 'lastAccessAt', 'totalAccesses', 'petsCount', 'lastEventType', 'status']);
+    const sortByRaw = cleanText(req.query.sortBy || 'lastAccessAt');
+    const sortBy = allowedSorts.has(sortByRaw) ? sortByRaw : 'lastAccessAt';
+    const sortDir = String(req.query.sortDir || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
     const limit = parseLimit(req.query.limit, 100);
     const offset = parseOffset(req.query.page, limit);
     const params = [];
@@ -3651,7 +3655,27 @@ app.get('/api/app-access/tutors', requireAuth, async (req, res, next) => {
       const st = appAccessStatus(row.last_access_at).code;
       return status === 'all' || st === status;
     });
-    const pageItems = filtered.slice(offset, offset + limit).map((row) => ({
+    const normalizeSortValue = (row) => {
+      if (sortBy === 'name') return String(row.name || '').toLowerCase();
+      if (sortBy === 'whatsapp') return String(row.whatsapp || '').replace(/\D/g, '');
+      if (sortBy === 'firstAccessAt') return row.first_access_at ? new Date(row.first_access_at).getTime() : null;
+      if (sortBy === 'lastAccessAt') return row.last_access_at ? new Date(row.last_access_at).getTime() : null;
+      if (sortBy === 'totalAccesses') return Number(row.total_accesses || 0);
+      if (sortBy === 'petsCount') return Number(row.pets_count || 0);
+      if (sortBy === 'lastEventType') return String(row.last_event_type || '').toLowerCase();
+      if (sortBy === 'status') return String(appAccessStatus(row.last_access_at).label || '').toLowerCase();
+      return row.last_access_at ? new Date(row.last_access_at).getTime() : null;
+    };
+    const sorted = [...filtered].sort((a, b) => {
+      const av = normalizeSortValue(a);
+      const bv = normalizeSortValue(b);
+      if (av === bv) return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+      if (av === null || av === undefined || av === '') return sortDir === 'asc' ? -1 : 1;
+      if (bv === null || bv === undefined || bv === '') return sortDir === 'asc' ? 1 : -1;
+      if (typeof av === 'number' || typeof bv === 'number') return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av);
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv), 'pt-BR') : String(bv).localeCompare(String(av), 'pt-BR');
+    });
+    const pageItems = sorted.slice(offset, offset + limit).map((row) => ({
       id: row.id,
       tutorId: row.id,
       name: row.name,

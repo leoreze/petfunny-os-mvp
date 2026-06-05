@@ -12,15 +12,22 @@
 <body>
 <script type="module">
   import { api } from '/assets/js/api.js';
-  import { buildShell, bigNumberGrid } from '/assets/js/shell.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
   import { showLoading, hideLoading, finishPageLoading } from '/assets/js/loading.js';
   import { toast } from '/assets/js/toast.js';
 
-  const esc = (value = '') => String(value ?? '').replace(/[&<>\"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]));
+  document.body.classList.add('app-access-page');
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const dateTime = (value) => {
     if (!value) return '—';
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' });
+  };
+  const shortDateTime = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
   };
   const phone = (value = '') => {
     const d = String(value || '').replace(/\D/g, '').replace(/^55/, '');
@@ -36,7 +43,19 @@
     return `<span class="status-pill ${tone}">${esc(status.label || 'Nunca acessou')}</span>`;
   };
 
-  const state = { page: 1, limit: 100, total: 0, items: [], status: 'all', search: '' };
+  const state = {
+    page: 1,
+    limit: 35,
+    total: 0,
+    items: [],
+    status: 'all',
+    search: '',
+    loading: false,
+    done: false,
+    viewMode: localStorage.getItem('admin_app_access_view') || 'list',
+    sortBy: localStorage.getItem('admin_app_access_sort_by') || 'lastAccessAt',
+    sortDir: localStorage.getItem('admin_app_access_sort_dir') || 'desc'
+  };
 
   buildShell({
     active: 'Acessos do App',
@@ -44,41 +63,280 @@
     title: 'Acessos do App',
     subtitle: 'Veja quais tutores acessaram o App, quando acessaram e quais ações realizaram.',
     content: `
-      <section class="hero-panel stack-lg">
+      <section class="hero-panel stack-lg app-access-hero">
         <div class="page-heading-row between"><div><p class="eyebrow">Engajamento real</p><h1>Acessos do App</h1><p>Monitore adoção, reativação e comportamento dos tutores no App PetFunny.</p></div><a class="btn btn-secondary" href="/admin/tutores">👥 Ver tutores</a></div>
         <div id="access-metrics">${bigNumberGrid([['Tutores monitorados','--','base atual'],['Já acessaram','--','com evento registrado'],['Acessaram hoje','--','ativos hoje'],['Nunca acessaram','--','precisam ativação']])}</div>
       </section>
-      <section class="module-card stack-md">
-        <div class="section-toolbar"><div><h3>Lista de acessos</h3><p>Use os filtros para encontrar tutores que precisam receber WhatsApp de ativação.</p></div></div>
-        <div class="filter-row"><input class="input" id="search" placeholder="Buscar por nome ou WhatsApp"><select class="select" id="status"><option value="all">Todos</option><option value="never">Nunca acessou</option><option value="today">Acessou hoje</option><option value="active">Ativo</option><option value="inactive_7">Inativo 7 dias</option><option value="inactive_30">Inativo 30 dias</option></select><button class="btn btn-secondary" id="reload">Atualizar</button></div>
-        <div class="table-scroll custom-scroll"><table class="premium-table"><thead><tr><th>Tutor</th><th>WhatsApp</th><th>Primeiro acesso</th><th>Último acesso</th><th>Total</th><th>Pets</th><th>Última ação</th><th>Status</th><th>Ações</th></tr></thead><tbody id="rows"><tr><td colspan="9">Carregando...</td></tr></tbody></table></div>
+      <section class="module-card stack-md app-access-list-card">
+        <div class="section-toolbar app-access-toolbar">
+          <div><h3>Lista de acessos</h3><p>Use os filtros para encontrar tutores que precisam receber WhatsApp de ativação. A lista carrega mais registros conforme você rola a página.</p></div>
+          <div class="admin-view-toggle" aria-label="Alternar visualização de acessos">
+            <button class="btn btn-secondary app-access-view-btn" data-view="list" type="button">Lista</button>
+            <button class="btn btn-secondary app-access-view-btn" data-view="cards" type="button">Cards</button>
+          </div>
+        </div>
+        <div class="filter-row"><input class="input" id="search" placeholder="Buscar por nome ou WhatsApp"><select class="select" id="status"><option value="all">Todos</option><option value="never">Nunca acessou</option><option value="today">Acessou hoje</option><option value="active">Ativo</option><option value="inactive_7">Inativo 7 dias</option><option value="inactive_30">Inativo 30 dias</option></select><button class="btn btn-secondary" id="reload" type="button">Atualizar</button></div>
+        <div class="table-scroll no-inner-scroll app-access-table-wrap" id="access-list-view"><table class="premium-table sortable-table app-access-sortable-table"><thead><tr><th><button class="th-sort app-access-sort" type="button" data-sort="name">Tutor <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="whatsapp">WhatsApp <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="firstAccessAt">Primeiro acesso <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="lastAccessAt">Último acesso <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="totalAccesses">Total <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="petsCount">Pets <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="lastEventType">Última ação <span class="sort-arrow">↕</span></button></th><th><button class="th-sort app-access-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th><th>Ações</th></tr></thead><tbody id="rows"><tr><td colspan="9">Carregando...</td></tr></tbody></table></div>
+        <div class="admin-list-cards app-access-cards" id="access-cards" hidden></div>
+        <div class="infinite-loader" id="access-loader" hidden>Carregando mais acessos...</div>
+        <div class="list-load-status" id="access-load-status">0/0 tutores carregados</div>
       </section>`
   });
 
   const rows = document.getElementById('rows');
+  const cards = document.getElementById('access-cards');
+  const tableWrap = document.getElementById('access-list-view');
   const metrics = document.getElementById('access-metrics');
-  async function load() {
+  const loader = document.getElementById('access-loader');
+  const loadStatus = document.getElementById('access-load-status');
+
+  const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
+  function isNeverAccess(item = {}) {
+    return (item.status?.code || '') === 'never' || !item.lastAccessAt || Number(item.totalAccesses || 0) <= 0;
+  }
+  function tutorById(id) {
+    return state.items.find((item) => String(item.tutorId || item.id) === String(id)) || null;
+  }
+  function appFirstAccessMessage(tutor = {}) {
+    const name = tutor?.name || 'tudo bem';
+    const appUrl = 'https://agendapetfunny.com.br/app';
+    return `Oi, ${name}! Tudo bem? Aqui é do PetFunny 🐶✨\n\nLiberamos seu primeiro acesso ao Clube PetFunny, o app do tutor para acompanhar tudo do seu pet em um só lugar.\n\nNo Clube você pode:\n• agendar banho, tosa e cuidados;\n• acompanhar pacotes e próximos horários;\n• ver Momentos do Atendimento com fotos e vídeos;\n• consultar histórico e notificações;\n• pedir Táxi Pet quando precisar;\n• acompanhar bem-estar e Saúde 360.\n\nAcesse pelo link e entre com seu WhatsApp cadastrado:\n${appUrl}\n\nQualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
+  }
+  function openWhatsappToTutor(tutor, message) {
+    const digits = onlyDigits(tutor?.whatsapp || '');
+    if (!digits) return toast('Este tutor não possui WhatsApp cadastrado.', 'warning');
+    window.open(`https://wa.me/55${digits.replace(/^55/, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+  }
+  function actionMenuTemplate(item) {
+    const id = esc(item.tutorId || item.id);
+    const activation = isNeverAccess(item) ? `<button type="button" class="send-first-access-btn" data-id="${id}">💬 Enviar primeiro acesso</button>` : '';
+    return `<div class="row-actions tutor-actions-menu-wrap app-access-actions-menu-wrap">
+      <button class="icon-btn app-access-menu-btn" data-id="${id}" type="button" title="Ações do tutor" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="tutor-row-menu app-access-row-menu" data-menu-for="${id}">
+        <button type="button" class="open-access-modal" data-id="${id}">📊 Log App</button>
+        ${activation}
+      </div>
+    </div>`;
+  }
+
+  function rowTemplate(item) {
+    return `<tr data-id="${esc(item.tutorId || item.id)}"><td><strong>${esc(item.name)}</strong><br><small>${esc(item.status?.label || 'Status não informado')}</small></td><td>${esc(phone(item.whatsapp))}</td><td>${esc(dateTime(item.firstAccessAt))}</td><td>${esc(dateTime(item.lastAccessAt))}</td><td><strong>${Number(item.totalAccesses || 0)}</strong></td><td>${Number(item.petsCount || 0)}</td><td>${esc(eventLabel(item.lastEventType))}<br><small>${esc(item.lastPage || '—')}</small></td><td>${statusBadge(item.status)}</td><td>${actionMenuTemplate(item)}</td></tr>`;
+  }
+
+  function cardTemplate(item) {
+    return `<article class="admin-entity-card app-access-card" data-id="${esc(item.tutorId || item.id)}">
+      <div class="admin-entity-card-header">
+        <div class="admin-entity-card-title"><span class="photo-avatar avatar-initials">${esc(String(item.name || '?').trim().split(/\s+/).slice(0,2).map(p => p[0] || '').join('').toUpperCase() || '?')}</span><div><strong>${esc(item.name)}</strong><small>${esc(phone(item.whatsapp))}</small></div></div>
+        ${statusBadge(item.status)}
+      </div>
+      <div class="admin-entity-grid">
+        <span><b>Primeiro acesso</b>${esc(shortDateTime(item.firstAccessAt))}</span>
+        <span><b>Último acesso</b>${esc(dateTime(item.lastAccessAt))}</span>
+        <span><b>Total</b>${Number(item.totalAccesses || 0)} evento(s)</span>
+        <span><b>Pets</b>${Number(item.petsCount || 0)} pet(s)</span>
+      </div>
+      <div class="admin-entity-full"><b>Última ação</b>${esc(eventLabel(item.lastEventType))}<small>${esc(item.lastPage || '—')}</small></div>
+      <div class="actions end">${actionMenuTemplate(item)}</div>
+    </article>`;
+  }
+
+  function updateLoadStatus() {
+    const total = Number(state.total || 0);
+    loadStatus.textContent = total ? `${state.items.length}/${total} tutores carregados` : '0/0 tutores carregados';
+  }
+
+  function closeAccessActionMenus() {
+    document.querySelectorAll('.app-access-row-menu.open').forEach((menu) => menu.classList.remove('open'));
+    document.querySelectorAll('.app-access-actions-menu-wrap.is-menu-open').forEach((wrap) => wrap.classList.remove('is-menu-open'));
+    document.querySelectorAll('.app-access-menu-btn[aria-expanded="true"]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+  }
+
+  function openAccessActionMenu(button) {
+    const wrap = button?.closest?.('.app-access-actions-menu-wrap');
+    const menu = wrap?.querySelector?.('.app-access-row-menu');
+    if (!menu) return;
+    const isOpen = menu.classList.contains('open');
+    closeAccessActionMenus();
+    if (!isOpen) {
+      wrap?.classList.add('is-menu-open');
+      menu.classList.add('open');
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+
+  function updateSortArrows() {
+    document.querySelectorAll('.app-access-sort').forEach((button) => {
+      const active = button.dataset.sort === state.sortBy;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-sort', active ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+      const arrow = button.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = active ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function applyViewMode() {
+    const isCards = state.viewMode === 'cards';
+    tableWrap.hidden = isCards;
+    cards.hidden = !isCards;
+    document.querySelectorAll('.app-access-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
+    updateSortArrows();
+  }
+
+  function renderItems() {
+    rows.innerHTML = state.items.length ? state.items.map(rowTemplate).join('') : '<tr><td colspan="9">Nenhum tutor encontrado.</td></tr>';
+    cards.innerHTML = state.items.length ? state.items.map(cardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum tutor encontrado.</strong><p>Altere os filtros ou envie uma mensagem de ativação para novos tutores.</p></article>';
+    applyViewMode();
+    updateLoadStatus();
+  }
+
+  function renderMetrics(summary = {}) {
+    metrics.innerHTML = bigNumberGrid([
+      ['Tutores monitorados', summary.total || 0, 'base atual'],
+      ['Já acessaram', summary.withAccess || 0, 'com evento registrado'],
+      ['Acessaram hoje', summary.today || 0, 'ativos hoje'],
+      ['Nunca acessaram', summary.never || 0, 'precisam ativação']
+    ]);
+  }
+
+  async function load(reset = false) {
+    if (state.loading || (state.done && !reset)) return;
+    state.loading = true;
+    loader.hidden = false;
+    if (reset) {
+      state.page = 1;
+      state.done = false;
+      state.items = [];
+      rows.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>';
+      cards.innerHTML = '';
+    }
     try {
-      showLoading('Carregando acessos...', 'Consultando eventos reais do App do Tutor.');
-      const params = new URLSearchParams({ page: '1', limit: String(state.limit), status: state.status });
+      if (reset) showLoading('Carregando acessos...', 'Consultando eventos reais do App do Tutor.');
+      const params = new URLSearchParams({
+        page: String(state.page),
+        limit: String(state.limit),
+        status: state.status,
+        sortBy: state.sortBy,
+        sortDir: state.sortDir
+      });
       if (state.search) params.set('search', state.search);
       const data = await api.get(`/app-access/tutors?${params}`);
-      state.items = data.items || [];
-      const s = data.summary || {};
-      metrics.innerHTML = bigNumberGrid([
-        ['Tutores monitorados', s.total || 0, 'base atual'],
-        ['Já acessaram', s.withAccess || 0, 'com evento registrado'],
-        ['Acessaram hoje', s.today || 0, 'ativos hoje'],
-        ['Nunca acessaram', s.never || 0, 'precisam ativação']
-      ]);
-      rows.innerHTML = state.items.length ? state.items.map(item => `<tr><td><strong>${esc(item.name)}</strong></td><td>${esc(phone(item.whatsapp))}</td><td>${esc(dateTime(item.firstAccessAt))}</td><td>${esc(dateTime(item.lastAccessAt))}</td><td><strong>${Number(item.totalAccesses || 0)}</strong></td><td>${Number(item.petsCount || 0)}</td><td>${esc(eventLabel(item.lastEventType))}<br><small>${esc(item.lastPage || '—')}</small></td><td>${statusBadge(item.status)}</td><td><a class="btn btn-small btn-secondary" href="/admin/tutores">Abrir tutor</a></td></tr>`).join('') : '<tr><td colspan="9">Nenhum tutor encontrado.</td></tr>';
-    } catch (error) { rows.innerHTML = `<tr><td colspan="9">${esc(error.message)}</td></tr>`; toast(error.message, 'error'); }
-    finally { hideLoading(); finishPageLoading(); }
+      if (reset) state.items = [];
+      state.items.push(...(data.items || []));
+      state.total = Number(data.total || state.items.length || 0);
+      state.done = state.items.length >= state.total || (data.items || []).length === 0;
+      state.page += 1;
+      renderMetrics(data.summary || {});
+      renderItems();
+    } catch (error) {
+      rows.innerHTML = `<tr><td colspan="9">${esc(error.message)}</td></tr>`;
+      cards.innerHTML = `<article class="module-card empty-state"><strong>Erro ao carregar acessos.</strong><p>${esc(error.message)}</p></article>`;
+      toast(error.message, 'error');
+    }
+    finally {
+      loader.hidden = true;
+      state.loading = false;
+      hideLoading();
+      finishPageLoading();
+    }
   }
-  document.getElementById('reload').addEventListener('click', load);
-  document.getElementById('status').addEventListener('change', (e) => { state.status = e.target.value; load(); });
-  document.getElementById('search').addEventListener('input', (e) => { state.search = e.target.value.trim(); clearTimeout(window.__accessSearch); window.__accessSearch = setTimeout(load, 350); });
-  await load();
+
+  function ensureAccessModal() {
+    let modal = document.getElementById('app-access-modal');
+    if (modal) return modal;
+    modal = document.createElement('dialog');
+    modal.className = 'premium-modal app-access-modal';
+    modal.id = 'app-access-modal';
+    modal.innerHTML = `<div class="modal-card tutor-history-modal-card app-access-modal-card">
+      <header class="modal-header"><div><p class="eyebrow">Acessos do App</p><h3 id="app-access-title">Uso do App do Tutor</h3><p class="modal-subtitle">Resumo inicial em big numbers e linha do tempo real de ações do tutor no app.</p></div><button class="icon-btn" type="button" id="close-app-access-modal">×</button></header>
+      <div class="modal-body custom-scroll"><div id="app-access-content"><p>Carregando acessos...</p></div></div>
+      <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-app-access-modal">Fechar</button><a class="btn" id="open-tutor-register" href="/admin/tutores">Abrir cadastro em Tutores</a></footer>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#close-app-access-modal').addEventListener('click', () => modal.close());
+    modal.querySelector('#cancel-app-access-modal').addEventListener('click', () => modal.close());
+    return modal;
+  }
+
+  async function openAppAccessModal(tutorId) {
+    const modal = ensureAccessModal();
+    const content = modal.querySelector('#app-access-content');
+    const title = modal.querySelector('#app-access-title');
+    try {
+      content.innerHTML = '<article class="module-card empty-state"><strong>Carregando acessos...</strong><p>Consultando eventos reais registrados pelo App do Tutor.</p></article>';
+      if (!modal.open) modal.showModal();
+      const data = await api.get(`/app-access/tutors/${tutorId}`);
+      title.textContent = `Acessos de ${data.tutor?.name || 'tutor'}`;
+      const items = data.items || [];
+      content.innerHTML = `
+        <section class="app-access-modal-summary">
+          ${bigNumberGrid([
+            ['Primeiro acesso', esc(dateTime(data.firstAccessAt)), 'quando começou a usar'],
+            ['Último acesso', esc(dateTime(data.lastAccessAt)), 'atividade mais recente'],
+            ['Total de acessos', Number(data.totalAccesses || 0), 'eventos registrados'],
+            ['Status', statusBadge(data.status), 'uso do App do Tutor']
+          ])}
+        </section>
+        ${items.length ? `<section class="app-access-timeline stack-sm">${items.map(item => `<article class="app-access-event-card"><div><strong>${esc(eventLabel(item.eventType))}</strong><small>${esc(dateTime(item.createdAt))}</small></div><p>${esc(item.page || '—')}</p><small>${esc(String(item.userAgent || '').slice(0, 110) || 'Dispositivo não informado')}</small></article>`).join('')}</section>` : '<article class="module-card empty-state"><strong>Nunca acessou o app.</strong><p>Envie a mensagem de ativação pelo WhatsApp para convidar este tutor.</p></article>'}
+      `;
+      setupPremiumInteractions(modal);
+    } catch (error) {
+      content.innerHTML = `<article class="module-card empty-state"><strong>Não foi possível carregar os acessos.</strong><p>${esc(error.message)}</p></article>`;
+      toast(error.message, 'error');
+    }
+  }
+
+  document.getElementById('reload').addEventListener('click', () => load(true));
+  document.getElementById('status').addEventListener('change', (e) => { state.status = e.target.value; load(true); });
+  document.getElementById('search').addEventListener('input', (e) => { state.search = e.target.value.trim(); clearTimeout(window.__accessSearch); window.__accessSearch = setTimeout(() => load(true), 350); });
+  document.querySelectorAll('.app-access-view-btn').forEach(button => button.addEventListener('click', () => {
+    state.viewMode = button.dataset.view || 'list';
+    localStorage.setItem('admin_app_access_view', state.viewMode);
+    applyViewMode();
+  }));
+  document.querySelectorAll('.app-access-sort').forEach(button => button.addEventListener('click', () => {
+    const key = button.dataset.sort || 'lastAccessAt';
+    if (state.sortBy === key) {
+      state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.sortBy = key;
+      state.sortDir = ['name', 'whatsapp', 'status', 'lastEventType'].includes(key) ? 'asc' : 'desc';
+    }
+    localStorage.setItem('admin_app_access_sort_by', state.sortBy);
+    localStorage.setItem('admin_app_access_sort_dir', state.sortDir);
+    updateSortArrows();
+    load(true);
+  }));
+  document.body.addEventListener('click', async (event) => {
+    const menuButton = event.target.closest('.app-access-menu-btn');
+    const open = event.target.closest('.open-access-modal');
+    const sendFirstAccess = event.target.closest('.send-first-access-btn');
+    if (menuButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      openAccessActionMenu(menuButton);
+      return;
+    }
+    if (open) {
+      closeAccessActionMenus();
+      await openAppAccessModal(open.dataset.id);
+      return;
+    }
+    if (sendFirstAccess) {
+      closeAccessActionMenus();
+      const tutor = tutorById(sendFirstAccess.dataset.id);
+      openWhatsappToTutor(tutor, appFirstAccessMessage(tutor));
+      return;
+    }
+    if (!event.target.closest('.app-access-actions-menu-wrap')) closeAccessActionMenus();
+  });
+  window.addEventListener('scroll', () => {
+    closeAccessActionMenus();
+    const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 700;
+    if (nearBottom) load(false);
+  }, { passive: true });
+
+  applyViewMode();
+  await load(true);
 </script>
 </body>
 </html>

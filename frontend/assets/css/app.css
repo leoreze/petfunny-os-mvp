@@ -13893,3 +13893,168 @@ body.app-client .client-transport-estimate-actions .btn{
   body.app-client .client-transport-estimate-actions{justify-content:stretch;}
   body.app-client .client-transport-estimate-actions .btn{flex:1 1 auto;}
 }
+
+/* v1.6.83 — Acessos do App: lista/cards, scroll infinito e modal premium */
+body.app-access-page .app-access-list-card .table-scroll.no-inner-scroll,
+body.app-access-page .app-access-table-wrap {
+  max-height: none !important;
+  overflow: visible !important;
+}
+body.app-access-page .app-access-toolbar {
+  align-items: flex-start;
+  gap: 16px;
+}
+body.app-access-page .app-access-toolbar .admin-view-toggle {
+  margin-left: auto;
+}
+body.app-access-page .app-access-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+body.app-access-page .app-access-cards[hidden] {
+  display: none !important;
+}
+body.app-access-page .app-access-card .actions {
+  margin-top: 12px;
+}
+body.app-access-page .list-load-status,
+body.app-access-page .infinite-loader {
+  margin-top: 14px;
+  text-align: center;
+  color: var(--pf-muted);
+  font-weight: 900;
+}
+.app-access-modal .app-access-modal-card {
+  width: min(1080px, calc(100vw - 28px));
+  max-height: min(88vh, 820px);
+}
+.app-access-modal-summary .big-number-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+.app-access-modal-summary .big-number-card {
+  min-height: 126px;
+}
+.app-access-modal-summary .big-number-card strong {
+  font-size: clamp(1.2rem, 2.2vw, 2rem);
+  line-height: 1.08;
+  word-break: break-word;
+}
+.app-access-modal-summary .big-number-card .status-pill {
+  font-size: .85rem;
+  white-space: normal;
+}
+.app-access-timeline {
+  display: grid;
+  gap: 10px;
+}
+.app-access-event-card {
+  border: 1px solid rgba(13,57,94,.10);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(248,252,253,.92));
+  box-shadow: 0 10px 26px rgba(7,27,44,.06);
+}
+.app-access-event-card > div {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+}
+.app-access-event-card strong {
+  color: var(--pf-blue-900);
+}
+.app-access-event-card p {
+  margin: 8px 0 4px;
+  color: var(--pf-blue-650);
+  font-weight: 850;
+}
+.app-access-event-card small {
+  color: var(--pf-muted);
+  font-weight: 750;
+}
+@media (max-width: 860px) {
+  body.app-access-page .app-access-toolbar {
+    flex-direction: column;
+  }
+  body.app-access-page .app-access-toolbar .admin-view-toggle {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .app-access-modal-summary .big-number-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .app-access-modal-summary .big-number-grid {
+    grid-template-columns: 1fr;
+  }
+  .app-access-event-card > div {
+    align-items:flex-start;
+    flex-direction: column;
+  }
+}
+
+/* v1.6.84 — App Acessos: ordenação funcional no cabeçalho */
+.app-access-page .app-access-sortable-table th::after {
+  content: none !important;
+  display: none !important;
+}
+.app-access-page .app-access-sortable-table .th-sort {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: nowrap;
+}
+.app-access-page .app-access-sortable-table .th-sort .sort-arrow {
+  color: #111827 !important;
+  background: transparent !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 12px !important;
+  font-size: .85rem !important;
+  font-weight: 950 !important;
+}
+.app-access-page .app-access-sortable-table .th-sort:hover,
+.app-access-page .app-access-sortable-table .th-sort.active {
+  color: var(--pf-blue-800) !important;
+}
+
+
+/* v1.6.85 — App Acessos: ações em menu 3 pontinhos + convite primeiro acesso */
+body.app-access-page .app-access-sortable-table td:last-child,
+body.app-access-page .app-access-sortable-table th:last-child {
+  text-align: right;
+  overflow: visible !important;
+}
+body.app-access-page .app-access-actions-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  width: auto;
+  overflow: visible !important;
+}
+body.app-access-page .app-access-actions-menu-wrap.is-menu-open {
+  z-index: 2147483647 !important;
+}
+body.app-access-page .app-access-row-menu {
+  min-width: 252px;
+  text-align: left;
+  z-index: 2147483647 !important;
+}
+body.app-access-page .app-access-card {
+  overflow: visible !important;
+}
+body.app-access-page .app-access-card .actions.end {
+  display: flex;
+  justify-content: flex-end;
+  overflow: visible !important;
+}
+body.app-access-page .app-access-menu-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+}

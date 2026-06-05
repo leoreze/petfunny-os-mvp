@@ -575,7 +575,22 @@
   }
   function appAccessMessage(tutor) {
     const appUrl = 'https://agendapetfunny.com.br/app';
-    return `Oi, ${tutor?.name || 'tudo bem'}! Tudo bem? Aqui é do PetFunny - Banho e Tosa.\n\nAgora você pode acompanhar informações do seu pet pelo nosso aplicativo do cliente. Para fazer o primeiro acesso, entre pelo link abaixo usando seu WhatsApp:\n\n${appUrl}\n\nSe precisar, é só me chamar por aqui que eu ajudo no acesso.`;
+    return `Oi, ${tutor?.name || 'tudo bem'}! Tudo bem? Aqui é do PetFunny 🐶✨
+
+Liberamos seu primeiro acesso ao Clube PetFunny, o app do tutor para acompanhar tudo do seu pet em um só lugar.
+
+No Clube você pode:
+• agendar banho, tosa e cuidados;
+• acompanhar pacotes e próximos horários;
+• ver Momentos do Atendimento com fotos e vídeos;
+• consultar histórico e notificações;
+• pedir Táxi Pet quando precisar;
+• acompanhar bem-estar e Saúde 360.
+
+Acesse pelo link e entre com seu WhatsApp cadastrado:
+${appUrl}
+
+Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
   }
   function crmMessageForTutor(tutor, kind = 'auto') {
     const name = tutor?.name || 'tudo bem';
@@ -634,10 +649,10 @@
     let modal = document.getElementById('app-access-modal');
     if (modal) return modal;
     modal = document.createElement('dialog');
-    modal.className = 'premium-modal';
+    modal.className = 'premium-modal app-access-modal';
     modal.id = 'app-access-modal';
-    modal.innerHTML = `<div class="modal-card tutor-history-modal-card">
-      <header class="modal-header"><div><p class="eyebrow">Acessos do App</p><h3 id="app-access-title">Uso do App do Tutor</h3><p class="modal-subtitle">Veja primeiro acesso, último acesso, total de acessos e últimas ações do tutor no app.</p></div><button class="icon-btn" type="button" id="close-app-access-modal">×</button></header>
+    modal.innerHTML = `<div class="modal-card tutor-history-modal-card app-access-modal-card">
+      <header class="modal-header"><div><p class="eyebrow">Acessos do App</p><h3 id="app-access-title">Uso do App do Tutor</h3><p class="modal-subtitle">Resumo inicial em big numbers e linha do tempo real de ações do tutor no app.</p></div><button class="icon-btn" type="button" id="close-app-access-modal">×</button></header>
       <div class="modal-body custom-scroll"><div id="app-access-content"><p>Carregando acessos...</p></div></div>
       <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-app-access-modal">Fechar</button></footer>
     </div>`;
@@ -657,13 +672,15 @@
       title.textContent = `Acessos de ${data.tutor?.name || 'tutor'}`;
       const items = data.items || [];
       content.innerHTML = `
-        <section class="grid metrics-grid app-access-summary-grid">
-          <article class="metric-card"><span>Primeiro acesso</span><strong>${esc(formatDateTimeBR(data.firstAccessAt))}</strong><small>quando começou a usar</small></article>
-          <article class="metric-card"><span>Último acesso</span><strong>${esc(formatDateTimeBR(data.lastAccessAt))}</strong><small>atividade mais recente</small></article>
-          <article class="metric-card"><span>Total de acessos</span><strong>${Number(data.totalAccesses || 0)}</strong><small>eventos registrados</small></article>
-          <article class="metric-card"><span>Status</span><strong>${accessStatusBadge(data.status)}</strong><small>uso do App do Tutor</small></article>
+        <section class="app-access-modal-summary">
+          ${bigNumberGrid([
+            ['Primeiro acesso', esc(formatDateTimeBR(data.firstAccessAt)), 'quando começou a usar'],
+            ['Último acesso', esc(formatDateTimeBR(data.lastAccessAt)), 'atividade mais recente'],
+            ['Total de acessos', Number(data.totalAccesses || 0), 'eventos registrados'],
+            ['Status', accessStatusBadge(data.status), 'uso do App do Tutor']
+          ])}
         </section>
-        ${items.length ? `<div class="table-scroll custom-scroll"><table class="premium-table"><thead><tr><th>Data</th><th>Ação</th><th>Página</th><th>Dispositivo</th></tr></thead><tbody>${items.map(item => `<tr><td>${esc(formatDateTimeBR(item.createdAt))}</td><td><strong>${esc(accessEventLabel(item.eventType))}</strong></td><td>${esc(item.page || '—')}</td><td><small>${esc(String(item.userAgent || '').slice(0, 90) || '—')}</small></td></tr>`).join('')}</tbody></table></div>` : '<article class="module-card empty-state"><strong>Nunca acessou o app.</strong><p>Envie a mensagem de ativação pelo WhatsApp para convidar este tutor.</p></article>'}
+        ${items.length ? `<section class="app-access-timeline stack-sm">${items.map(item => `<article class="app-access-event-card"><div><strong>${esc(accessEventLabel(item.eventType))}</strong><small>${esc(formatDateTimeBR(item.createdAt))}</small></div><p>${esc(item.page || '—')}</p><small>${esc(String(item.userAgent || '').slice(0, 110) || 'Dispositivo não informado')}</small></article>`).join('')}</section>` : '<article class="module-card empty-state"><strong>Nunca acessou o app.</strong><p>Envie a mensagem de ativação pelo WhatsApp para convidar este tutor.</p></article>'}
       `;
       setupPremiumInteractions(modal);
     } catch (error) {

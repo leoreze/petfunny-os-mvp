@@ -1,1 +1,1 @@
-FunnyOS v1.6.82 — Agente WhatsApp Cloud API + Webhook
+FunnyOS v1.6.85 — App Acessos menu 3 pontos e convite primeiro acesso
