@@ -349,6 +349,27 @@ CREATE INDEX IF NOT EXISTS idx_appointment_media_tutor ON appointment_media(tuto
 CREATE INDEX IF NOT EXISTS idx_appointment_media_pet ON appointment_media(pet_id);
 CREATE INDEX IF NOT EXISTS idx_appointment_media_created ON appointment_media(created_at DESC);
 
+
+CREATE TABLE IF NOT EXISTS service_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  appointment_id UUID NOT NULL UNIQUE REFERENCES appointments(id) ON DELETE CASCADE,
+  tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+  pet_id UUID REFERENCES pets(id) ON DELETE SET NULL,
+  token TEXT NOT NULL UNIQUE,
+  rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
+  status TEXT NOT NULL DEFAULT 'pending',
+  comment TEXT,
+  user_agent TEXT,
+  ip_address TEXT,
+  submitted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_service_reviews_status ON service_reviews(status, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_service_reviews_rating ON service_reviews(rating, submitted_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_service_reviews_appointment ON service_reviews(appointment_id) WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS appointment_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   appointment_id UUID NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
@@ -406,7 +407,7 @@ async function logClientAppAccess(req, { tutorId, phone, eventType = 'page_view'
       tutorId || null,
       phone || null,
       cleanText(eventType) || 'page_view',
-      cleanText(page).slice(0, 180) || null,
+      (cleanText(page) || '').slice(0, 180) || null,
       String(req.headers['user-agent'] || '').slice(0, 500),
       String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim().slice(0, 80),
       JSON.stringify(metadata || {})
@@ -902,8 +903,8 @@ const AI_GROWTH_ALLOWED_ROUTES = new Set([
   '/admin/dashboard', '/admin/agenda', '/admin/tutores', '/admin/pets', '/admin/servicos',
   '/admin/pacotes', '/admin/assinaturas', '/admin/financeiro', '/admin/comandas-recibos',
   '/admin/crm', '/admin/promocoes', '/admin/bem-estar', '/admin/saude-360',
-  '/admin/roleta-de-mimos', '/admin/relatorios', '/admin/notificacoes', '/admin/app-acessos',
-  '/admin/whatsapp', '/admin/assistente-ia', '/admin/configuracoes'
+  '/admin/roleta-de-mimos', '/admin/relatorios', '/admin/notificacoes', '/admin/app-acessos', '/admin/radar-clientes',
+  '/admin/whatsapp', '/admin/assistente-ia', '/admin/avaliacoes', '/admin/configuracoes'
 ]);
 
 const AI_GROWTH_ROUTE_KEYWORDS = [
@@ -923,8 +924,10 @@ const AI_GROWTH_ROUTE_KEYWORDS = [
   { route: '/admin/relatorios', terms: ['relatorio', 'relatório', 'relatorios', 'relatórios', 'indicador', 'indicadores', 'kpi'] },
   { route: '/admin/notificacoes', terms: ['notificacao', 'notificação', 'notificacoes', 'notificações', 'alerta', 'alertas', 'push'] },
   { route: '/admin/app-acessos', terms: ['app do tutor', 'acessos do app', 'app', 'engajamento', 'momentos', 'foto', 'fotos', 'video', 'vídeo', 'timeline'] },
+  { route: '/admin/radar-clientes', terms: ['radar', 'cliente', 'clientes', 'relacionamento', 'retenção', 'retencao', 'reativação', 'reativacao', 'cadência', 'cadencia', 'whatsapp seguro'] },
   { route: '/admin/whatsapp', terms: ['whatsapp', 'mensagem', 'mensagens', 'lista de transmissao', 'lista de transmissão'] },
   { route: '/admin/assistente-ia', terms: ['ia', 'assistente', 'gerente ia', 'copiloto'] },
+  { route: '/admin/avaliacoes', terms: ['avaliacao', 'avaliação', 'avaliacoes', 'avaliações', 'nota', 'notas', 'nps', 'satisfacao', 'satisfação', 'feedback'] },
   { route: '/admin/configuracoes', terms: ['configuracao', 'configuração', 'configuracoes', 'configurações', 'horario de funcionamento', 'horário de funcionamento', 'capacidade'] }
 ];
 
@@ -1297,7 +1300,7 @@ async function askOpenAiForGrowthPlan({ summary, snapshot, fallbackPlan }) {
   if (!env.openaiApiKey) return null;
   if (typeof fetch !== 'function') return null;
 
-  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route e, quando houver cliente específico, clientName, petName, whatsappPhone, whatsappMessage e actionLabel. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/whatsapp, /admin/assistente-ia, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
+  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route e, quando houver cliente específico, clientName, petName, whatsappPhone, whatsappMessage e actionLabel. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/radar-clientes, /admin/whatsapp, /admin/assistente-ia, /admin/avaliacoes, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8500);
   let response;
@@ -3726,6 +3729,344 @@ app.get('/api/app-access/tutors/:id', requireAuth, async (req, res, next) => {
     });
   } catch (error) { next(error); }
 });
+
+function daysBetweenNow(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+}
+
+function clientRadarStatusTone(priority = 'média') {
+  const value = String(priority || '').toLowerCase();
+  if (value === 'crítica' || value === 'critica' || value === 'alta') return 'danger';
+  if (value === 'média' || value === 'media') return 'warning';
+  return 'ok';
+}
+
+function buildClientRadarMessage({ name, petName, segment, daysWithoutAppointment, sessionsRemaining, pendingCents }) {
+  const tutorName = name || 'tudo bem';
+  const pet = petName || 'seu pet';
+  if (segment === 'pendencia_financeira') {
+    return `Oi, ${tutorName}! Tudo bem? Aqui é do PetFunny 🐾\n\nPassando para te avisar com carinho que ficou uma pendência em aberto no atendimento do ${pet}. Quer que eu te envie o link/forma de pagamento para regularizar?`;
+  }
+  if (segment === 'renovacao_pacote') {
+    return `Oi, ${tutorName}! O ${pet} está quase terminando o pacote no PetFunny 🐶✨\n\nPosso já deixar a renovação organizada para você manter os banhos em dia e não perder os melhores horários?`;
+  }
+  if (segment === 'primeiro_acesso_app') {
+    return `Oi, ${tutorName}! Tudo bem? Aqui é do PetFunny 🐶✨\n\nLiberamos seu acesso ao Clube PetFunny, o app do tutor para acompanhar tudo do seu pet em um só lugar.\n\nNo Clube você pode agendar banho e tosa, ver pacotes, receber fotos e vídeos dos Momentos do Atendimento, acompanhar notificações, pedir Táxi Pet e consultar Saúde 360.\n\nAcesse: https://agendapetfunny.com.br/app\n\nQualquer dúvida, eu te ajudo por aqui.`;
+  }
+  if (segment === 'cliente_perdido') {
+    return `Oi, ${tutorName}! Que saudade do ${pet} aqui no PetFunny 🐾\n\nEstamos organizando a agenda da semana e posso ver um horário especial para ele voltar cheiroso, cuidado e feliz. Quer que eu veja as opções?`;
+  }
+  if (segment === 'cliente_em_risco') {
+    return `Oi, ${tutorName}! Tudo bem? Notei que o ${pet} já está há um tempinho sem passar pelo PetFunny 🐶\n\nQuer que eu veja um horário confortável para banho, cuidado e manutenção? Posso te mandar as opções disponíveis.`;
+  }
+  if (segment === 'novo_tutor') {
+    return `Oi, ${tutorName}! Seja muito bem-vindo ao PetFunny 🐶✨\n\nPosso te ajudar a escolher o melhor serviço para o ${pet} e já encontrar um horário na agenda?`;
+  }
+  if (segment === 'recorrente_vip') {
+    return `Oi, ${tutorName}! Passando para cuidar da rotina do ${pet} 🐾\n\nQuer que eu já veja o próximo melhor horário para manter o banho/tosa dele em dia no PetFunny?`;
+  }
+  return `Oi, ${tutorName}! Tudo bem? Aqui é do PetFunny 🐶✨\n\nEstou passando para saber se você quer que eu veja um horário para o ${pet} ou algum cuidado especial na próxima visita.`;
+}
+
+function buildClientRadarItem(row = {}) {
+  const daysWithoutAppointment = row.last_appointment_at ? daysBetweenNow(row.last_appointment_at) : null;
+  const daysSinceLastMessage = row.last_outbound_at ? daysBetweenNow(row.last_outbound_at) : null;
+  const appointmentsCount = asNumber(row.appointments_count);
+  const totalAccesses = asNumber(row.total_accesses);
+  const sessionsRemaining = row.min_sessions_remaining === null || row.min_sessions_remaining === undefined ? null : asNumber(row.min_sessions_remaining);
+  const pendingCount = asNumber(row.pending_count);
+  const pendingCents = asNumber(row.pending_cents);
+  const petName = row.last_pet_name || 'seu pet';
+
+  let segment = 'relacionamento_ativo';
+  let situation = 'Relacionamento ativo';
+  let status = 'Acompanhar sem pressionar';
+  let priority = 'baixa';
+  let cadenceDays = 21;
+  let reason = 'Tutor com relacionamento ativo e sem sinal crítico de abandono.';
+  let benefit = 'Mantém presença da marca sem excesso de mensagens e ajuda a puxar o próximo atendimento no momento certo.';
+
+  if (pendingCount > 0) {
+    segment = 'pendencia_financeira';
+    situation = 'Pendência financeira';
+    status = 'Prioridade de cobrança gentil';
+    priority = 'alta';
+    cadenceDays = 2;
+    reason = `Existe ${pendingCount} pendência(s) financeira(s) em aberto, somando ${brlFromCentsText(pendingCents)}.`;
+    benefit = 'Reduz inadimplência, melhora o caixa e evita que o próximo atendimento aconteça sem regularização.';
+  } else if (sessionsRemaining !== null && sessionsRemaining <= 1 && asNumber(row.active_packages) > 0) {
+    segment = 'renovacao_pacote';
+    situation = 'Pacote perto do fim';
+    status = 'Alta chance de renovação';
+    priority = 'alta';
+    cadenceDays = 3;
+    reason = `${petName} tem ${sessionsRemaining} sessão(ões) restante(s) em pacote ativo.`;
+    benefit = 'Aumenta recorrência, protege agenda futura e evita o cliente voltar para banho avulso ou sumir.';
+  } else if (totalAccesses <= 0) {
+    segment = 'primeiro_acesso_app';
+    situation = 'Nunca acessou o app';
+    status = 'Ativação do Clube PetFunny';
+    priority = 'alta';
+    cadenceDays = 3;
+    reason = 'Tutor ainda não registrou nenhum acesso ao App do Tutor.';
+    benefit = 'Ativa o Clube PetFunny, reduz atendimento manual e aumenta uso de agenda, pacotes, momentos e notificações.';
+  } else if (appointmentsCount <= 0) {
+    segment = 'novo_tutor';
+    situation = 'Novo tutor sem serviço';
+    status = 'Converter primeiro agendamento';
+    priority = 'média';
+    cadenceDays = 3;
+    reason = 'Tutor cadastrado, mas ainda não possui histórico de atendimento.';
+    benefit = 'Transforma cadastro parado em primeiro serviço e cria vínculo com o PetFunny.';
+  } else if (daysWithoutAppointment !== null && daysWithoutAppointment > 90) {
+    segment = 'cliente_perdido';
+    situation = 'Cliente dormindo';
+    status = 'Reativar com cuidado';
+    priority = 'alta';
+    cadenceDays = 15;
+    reason = `Último atendimento há ${daysWithoutAppointment} dias.`;
+    benefit = 'Pode recuperar receita sem mídia paga, mas precisa de abordagem espaçada para não parecer spam.';
+  } else if (daysWithoutAppointment !== null && daysWithoutAppointment >= 60) {
+    segment = 'cliente_em_risco';
+    situation = 'Em risco de abandono';
+    status = 'Reativação recomendada';
+    priority = 'alta';
+    cadenceDays = 7;
+    reason = `Tutor está há ${daysWithoutAppointment} dias sem novo atendimento.`;
+    benefit = 'Ajuda a recuperar o tutor antes que ele vire cliente perdido ou migre para outro banho e tosa.';
+  } else if (daysWithoutAppointment !== null && daysWithoutAppointment >= 35) {
+    segment = 'cliente_em_atencao';
+    situation = 'Em atenção';
+    status = 'Lembrete comercial leve';
+    priority = 'média';
+    cadenceDays = 7;
+    reason = `Já passaram ${daysWithoutAppointment} dias desde o último atendimento.`;
+    benefit = 'Antecipa a reativação antes do cliente esfriar e ajuda a preencher horários da semana.';
+  } else if (appointmentsCount >= 3 && (daysWithoutAppointment === null || daysWithoutAppointment <= 30)) {
+    segment = 'recorrente_vip';
+    situation = 'Recorrente / VIP';
+    status = 'Relacionamento saudável';
+    priority = 'baixa';
+    cadenceDays = 15;
+    reason = `Tutor possui ${appointmentsCount} atendimento(s) e relacionamento recente.`;
+    benefit = 'Mantém vínculo, abre espaço para pacote, recorrência, Táxi Pet e experiências do Clube.';
+  }
+
+  const waitDays = daysSinceLastMessage === null ? 0 : Math.max(0, cadenceDays - daysSinceLastMessage);
+  const canSendToday = waitDays <= 0;
+  const cadenceLabel = `Enviar no máximo a cada ${cadenceDays} dia(s)`;
+  const safeStatus = canSendToday ? 'Pode enviar hoje' : `Aguardar ${waitDays} dia(s) para respeitar cadência`;
+  const scoreBase = { alta: 86, média: 64, media: 64, baixa: 38 }[priority] || 50;
+  const score = Math.max(1, Math.min(100, scoreBase + (canSendToday ? 6 : -12) + (pendingCount > 0 ? 8 : 0)));
+  const message = buildClientRadarMessage({ name: row.name, petName, segment, daysWithoutAppointment, sessionsRemaining, pendingCents });
+
+  return {
+    tutorId: row.id,
+    name: row.name || 'Tutor não informado',
+    whatsapp: row.whatsapp || '',
+    petName,
+    petsCount: asNumber(row.pets_count),
+    appointmentsCount,
+    lastAppointmentAt: row.last_appointment_at || null,
+    nextAppointmentAt: row.next_appointment_at || null,
+    lastAccessAt: row.last_access_at || null,
+    totalAccesses,
+    lastOutboundAt: row.last_outbound_at || null,
+    daysWithoutAppointment,
+    daysSinceLastMessage,
+    segment,
+    situation,
+    status,
+    safeStatus,
+    priority,
+    tone: clientRadarStatusTone(priority),
+    cadenceDays,
+    cadenceLabel,
+    canSendToday,
+    waitDays,
+    reason,
+    benefit,
+    message,
+    actionLabel: canSendToday ? 'Enviar mensagem' : 'Aguardar cadência',
+    score
+  };
+}
+
+async function askOpenAiForClientRadar(items = []) {
+  if (!env.openaiApiKey || typeof fetch !== 'function' || !items.length) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8500);
+  try {
+    const system = `${getPetFunnyAiSystemPrompt()}\n\nVocê é a IA de relacionamento do PetFunny OS. Reescreva apenas motivo, benefício e mensagem de WhatsApp para uma lista diária de tutores. Mantenha tom humano, curto, respeitoso e comercial. Não prometa descontos, brindes, horários ou diagnósticos que não estejam nos dados. Preserve cadência segura para evitar excesso de mensagens. Retorne APENAS JSON válido no formato {"items":[{"tutorId":"...","reason":"...","benefit":"...","message":"..."}]}.`;
+    const payload = items.slice(0, 25).map((item) => ({
+      tutorId: item.tutorId,
+      name: item.name,
+      petName: item.petName,
+      situation: item.situation,
+      status: item.status,
+      priority: item.priority,
+      cadenceLabel: item.cadenceLabel,
+      canSendToday: item.canSendToday,
+      reason: item.reason,
+      benefit: item.benefit,
+      message: item.message
+    }));
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${env.openaiApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: env.openaiModel,
+        temperature: 0.32,
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify({ date: todayPtBrLabel(), items: payload }).slice(0, 18000) }]
+      })
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const parsed = JSON.parse(data?.choices?.[0]?.message?.content || '{}');
+    return Array.isArray(parsed.items) ? parsed.items : null;
+  } catch (error) {
+    console.warn(`[client-radar-ai] OpenAI indisponível: ${error.message}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getClientRadarDaily({ useAi = true, segment = 'all', priority = 'all', onlyReady = false } = {}) {
+  await ensureWhatsAppAgentTables().catch((error) => console.warn(`[client-radar] whatsapp tables fallback: ${error.message}`));
+  const result = await query(`
+    WITH ap AS (
+      SELECT tutor_id,
+             COUNT(*)::int AS appointments_count,
+             MAX(starts_at) FILTER (WHERE starts_at <= NOW()) AS last_appointment_at,
+             MIN(starts_at) FILTER (WHERE starts_at >= NOW() AND status NOT IN ('cancelado','nao_compareceu')) AS next_appointment_at
+      FROM appointments
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    ), pet_info AS (
+      SELECT tutor_id,
+             COUNT(*)::int AS pets_count,
+             (ARRAY_AGG(name ORDER BY created_at DESC, updated_at DESC))[1] AS last_pet_name
+      FROM pets
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    ), app_access AS (
+      SELECT tutor_id,
+             MAX(created_at) AS last_access_at,
+             COUNT(*)::int AS total_accesses
+      FROM app_access_logs
+      WHERE tutor_id IS NOT NULL
+      GROUP BY tutor_id
+    ), pkg AS (
+      SELECT tutor_id,
+             COUNT(*) FILTER (WHERE status = 'active')::int AS active_packages,
+             MIN(GREATEST(0, total_sessions - used_sessions)) FILTER (WHERE status = 'active')::int AS min_sessions_remaining
+      FROM customer_packages
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    ), fin AS (
+      SELECT tutor_id,
+             COUNT(*) FILTER (WHERE type='income' AND status <> 'paid')::int AS pending_count,
+             COALESCE(SUM(amount_cents) FILTER (WHERE type='income' AND status <> 'paid'),0)::int AS pending_cents
+      FROM financial_transactions
+      WHERE deleted_at IS NULL
+      GROUP BY tutor_id
+    ), wa AS (
+      SELECT regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g') AS phone_digits,
+             MAX(created_at) FILTER (WHERE direction='outbound') AS last_outbound_at
+      FROM whatsapp_messages
+      GROUP BY regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g')
+    )
+    SELECT t.id, t.name, t.whatsapp,
+           COALESCE(pi.pets_count,0)::int AS pets_count,
+           pi.last_pet_name,
+           COALESCE(ap.appointments_count,0)::int AS appointments_count,
+           ap.last_appointment_at, ap.next_appointment_at,
+           COALESCE(aa.total_accesses,0)::int AS total_accesses,
+           aa.last_access_at,
+           COALESCE(pkg.active_packages,0)::int AS active_packages,
+           pkg.min_sessions_remaining,
+           COALESCE(fin.pending_count,0)::int AS pending_count,
+           COALESCE(fin.pending_cents,0)::int AS pending_cents,
+           wa.last_outbound_at
+    FROM tutors t
+    LEFT JOIN ap ON ap.tutor_id = t.id
+    LEFT JOIN pet_info pi ON pi.tutor_id = t.id
+    LEFT JOIN app_access aa ON aa.tutor_id = t.id
+    LEFT JOIN pkg ON pkg.tutor_id = t.id
+    LEFT JOIN fin ON fin.tutor_id = t.id
+    LEFT JOIN wa ON wa.phone_digits = regexp_replace(COALESCE(t.whatsapp,''), '[^0-9]', '', 'g')
+    WHERE t.deleted_at IS NULL AND COALESCE(t.status,'active') <> 'deleted'
+  `);
+
+  let items = result.rows.map(buildClientRadarItem);
+  if (segment && segment !== 'all') items = items.filter((item) => item.segment === segment);
+  if (priority && priority !== 'all') items = items.filter((item) => item.priority === priority || (priority === 'media' && item.priority === 'média'));
+  if (onlyReady) items = items.filter((item) => item.canSendToday);
+  items.sort((a, b) => {
+    if (b.canSendToday !== a.canSendToday) return Number(b.canSendToday) - Number(a.canSendToday);
+    if (b.score !== a.score) return b.score - a.score;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR');
+  });
+
+  let openaiUsed = false;
+  if (useAi) {
+    const aiItems = await askOpenAiForClientRadar(items);
+    if (aiItems?.length) {
+      const byId = new Map(aiItems.map((item) => [String(item.tutorId), item]));
+      items = items.map((item) => {
+        const ai = byId.get(String(item.tutorId));
+        if (!ai) return item;
+        openaiUsed = true;
+        return {
+          ...item,
+          reason: cleanText(ai.reason) || item.reason,
+          benefit: cleanText(ai.benefit) || item.benefit,
+          message: cleanText(ai.message) || item.message
+        };
+      });
+    }
+  }
+
+  const metrics = items.reduce((acc, item) => {
+    acc.total += 1;
+    if (item.canSendToday) acc.ready += 1;
+    if (!item.canSendToday) acc.waiting += 1;
+    if (item.priority === 'alta') acc.high += 1;
+    if (item.segment === 'primeiro_acesso_app') acc.neverAccess += 1;
+    if (['cliente_em_risco','cliente_perdido','cliente_em_atencao'].includes(item.segment)) acc.risk += 1;
+    return acc;
+  }, { total: 0, ready: 0, waiting: 0, high: 0, neverAccess: 0, risk: 0 });
+
+  return {
+    status: 'ok',
+    title: 'Radar IA de Clientes',
+    dateLabel: todayPtBrLabel(),
+    openaiConfigured: Boolean(env.openaiApiKey),
+    openaiUsed,
+    generatedAt: new Date().toISOString(),
+    metrics,
+    items
+  };
+}
+
+app.get('/api/client-radar/daily', requireAuth, async (req, res, next) => {
+  try {
+    const data = await getClientRadarDaily({
+      useAi: String(req.query.ai || 'true') !== 'false',
+      segment: cleanText(req.query.segment || 'all') || 'all',
+      priority: cleanText(req.query.priority || 'all') || 'all',
+      onlyReady: String(req.query.ready || 'false') === 'true'
+    });
+    res.json(data);
+  } catch (error) { next(error); }
+});
+
 
 
 
@@ -6394,7 +6735,7 @@ async function askOpenAiForMediaCaption(context = {}) {
     });
     if (!response.ok) return null;
     const data = await response.json();
-    return cleanText(data?.choices?.[0]?.message?.content || '').replace(/^['"]|['"]$/g, '').slice(0, 180) || null;
+    return (cleanText(data?.choices?.[0]?.message?.content || '') || '').replace(/^['"]|['"]$/g, '').slice(0, 180) || null;
   } catch (_) {
     return null;
   } finally {
@@ -8158,6 +8499,106 @@ function sanitizeAppointment(row = {}) {
   };
 }
 
+
+async function ensureServiceReviewTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS service_reviews (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      appointment_id UUID NOT NULL UNIQUE REFERENCES appointments(id) ON DELETE CASCADE,
+      tutor_id UUID REFERENCES tutors(id) ON DELETE SET NULL,
+      pet_id UUID REFERENCES pets(id) ON DELETE SET NULL,
+      token TEXT NOT NULL UNIQUE,
+      rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
+      status TEXT NOT NULL DEFAULT 'pending',
+      comment TEXT,
+      user_agent TEXT,
+      ip_address TEXT,
+      submitted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_service_reviews_status ON service_reviews(status, created_at DESC) WHERE deleted_at IS NULL`).catch(() => null);
+  await query(`CREATE INDEX IF NOT EXISTS idx_service_reviews_rating ON service_reviews(rating, submitted_at DESC) WHERE deleted_at IS NULL`).catch(() => null);
+  await query(`CREATE INDEX IF NOT EXISTS idx_service_reviews_appointment ON service_reviews(appointment_id) WHERE deleted_at IS NULL`).catch(() => null);
+}
+
+function serviceReviewRatingLabel(rating) {
+  const n = Number(rating || 0);
+  return ({ 1: 'Muito insatisfeito', 2: 'Insatisfeito', 3: 'Regular', 4: 'Satisfeito', 5: 'Muito satisfeito' })[n] || 'Aguardando nota';
+}
+
+function buildServiceReviewPublicUrl(token = '') {
+  const base = String(env.appUrl || process.env.APP_URL || `http://localhost:${env.port || 3000}`).trim().replace(/\/$/, '');
+  return `${base}/avaliacao/${encodeURIComponent(String(token || ''))}`;
+}
+
+function generateServiceReviewToken() {
+  return crypto.randomBytes(18).toString('base64url');
+}
+
+async function ensureServiceReviewForAppointment(appointmentId) {
+  await ensureServiceReviewTables();
+  const current = await query(`SELECT * FROM service_reviews WHERE appointment_id=$1::uuid AND deleted_at IS NULL LIMIT 1`, [appointmentId]);
+  if (current.rowCount) return current.rows[0];
+  const appointment = await query(`SELECT id, tutor_id, pet_id FROM appointments WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1`, [appointmentId]);
+  if (!appointment.rowCount) return null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const created = await query(`
+        INSERT INTO service_reviews (appointment_id, tutor_id, pet_id, token)
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::text)
+        ON CONFLICT (appointment_id) DO UPDATE SET updated_at=NOW()
+        RETURNING *
+      `, [appointment.rows[0].id, appointment.rows[0].tutor_id, appointment.rows[0].pet_id, generateServiceReviewToken()]);
+      return created.rows[0] || null;
+    } catch (error) {
+      if (String(error.code || '') !== '23505' || attempt >= 2) throw error;
+    }
+  }
+  return null;
+}
+
+async function ensureReviewsForFinalizedAppointments(limit = 500) {
+  await ensureServiceReviewTables();
+  await query(`
+    INSERT INTO service_reviews (appointment_id, tutor_id, pet_id, token)
+    SELECT a.id, a.tutor_id, a.pet_id, encode(gen_random_bytes(18), 'hex')
+    FROM appointments a
+    WHERE a.deleted_at IS NULL
+      AND a.status = 'finalizado'
+      AND NOT EXISTS (SELECT 1 FROM service_reviews sr WHERE sr.appointment_id = a.id AND sr.deleted_at IS NULL)
+    ORDER BY COALESCE(a.checked_out_at, a.ends_at, a.starts_at, a.created_at) DESC
+    LIMIT $1::integer
+    ON CONFLICT DO NOTHING
+  `, [Math.max(1, Math.min(Number(limit || 500), 2000))]);
+}
+
+function sanitizeServiceReview(row = {}) {
+  const rating = row.rating === null || row.rating === undefined ? null : Number(row.rating || 0);
+  const token = row.token || '';
+  return {
+    id: row.id,
+    appointmentId: row.appointment_id,
+    tutorId: row.tutor_id,
+    tutorName: row.tutor_name || '',
+    tutorWhatsapp: row.tutor_whatsapp || '',
+    petId: row.pet_id,
+    petName: row.pet_name || '',
+    services: row.services || '',
+    startsAt: row.starts_at || null,
+    rating,
+    ratingLabel: serviceReviewRatingLabel(rating),
+    status: row.status || (rating ? 'submitted' : 'pending'),
+    comment: row.comment || '',
+    reviewUrl: token ? buildServiceReviewPublicUrl(token) : '',
+    submittedAt: row.submitted_at || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
 async function getAppointmentById(id) {
   const result = await query(`
     SELECT a.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name, p.photo_url AS pet_photo_url, p.size AS pet_size,
@@ -8742,7 +9183,7 @@ function firstNameFrom(name = '') {
   return String(name || '').trim().split(/\s+/)[0] || 'tudo bem';
 }
 
-function makeAppointmentStatusAiMessage(appointment = {}, status = {}) {
+function makeAppointmentStatusAiMessage(appointment = {}, status = {}, options = {}) {
   const tutor = firstNameFrom(appointment.tutorName || appointment.tutor_name || '');
   const pet = appointment.petName || appointment.pet_name || 'seu pet';
   const when = appointment.startsAt || appointment.starts_at ? formatDateTimePt(appointment.startsAt || appointment.starts_at) : '';
@@ -8751,12 +9192,14 @@ function makeAppointmentStatusAiMessage(appointment = {}, status = {}) {
   const statusName = status.name || appointment.statusName || appointment.status || 'atualizado';
   const businessName = 'PetFunny - Banho e Tosa';
   const payment = appointment.paymentStatusName || (appointment.paymentStatus === 'paid' ? 'Pago' : appointment.paymentStatus === 'pending' ? 'Pendente' : '');
+  const reviewUrl = String(options.reviewUrl || appointment.reviewUrl || '').trim();
+  const reviewInvite = reviewUrl ? `\n\nSua opinião ajuda muito o PetFunny a melhorar cada atendimento. Avalie o serviço em 10 segundos por aqui: ${reviewUrl}` : '';
 
   const variants = {
     agendado: `Oi, ${tutor}! Tudo bem? O horário do ${pet} ficou agendado aqui no ${businessName}${when ? ` para ${when}` : ''}. O serviço previsto é ${service}. Se precisar ajustar alguma coisa, é só me chamar por aqui.`,
     confirmado: `Oi, ${tutor}! Tudo bem? Passando para confirmar que o horário do ${pet} está tudo certo aqui no ${businessName}${when ? ` para ${when}` : ''}. Estamos esperando vocês com carinho.`,
     em_atendimento: `Oi, ${tutor}! Tudo bem? O ${pet} já está em atendimento aqui no ${businessName}. Assim que finalizar, avisamos por aqui.`,
-    finalizado: `Oi, ${tutor}! Tudo bem? O atendimento do ${pet} foi finalizado aqui no ${businessName}. Obrigado pela confiança. Se quiser, posso te enviar a comanda ou o recibo por aqui.`,
+    finalizado: `Oi, ${tutor}! Tudo bem? O atendimento do ${pet} foi finalizado aqui no ${businessName}. Obrigado pela confiança. Se quiser, posso te enviar a comanda ou o recibo por aqui.${reviewInvite}`,
     cancelado: `Oi, ${tutor}! Tudo bem? O horário do ${pet} no ${businessName}${when ? ` de ${when}` : ''} foi cancelado. Quando quiser reagendar, me chama por aqui que vejo as melhores opções disponíveis.`,
     nao_compareceu: `Oi, ${tutor}! Tudo bem? Notamos que o ${pet} não conseguiu comparecer ao horário combinado no ${businessName}${when ? ` em ${when}` : ''}. Quer que eu veja uma nova opção de agenda para vocês?`
   };
@@ -8764,6 +9207,114 @@ function makeAppointmentStatusAiMessage(appointment = {}, status = {}) {
   if (variants[statusCode]) return variants[statusCode];
   return `Oi, ${tutor}! Tudo bem? O atendimento do ${pet} aqui no ${businessName} foi atualizado para "${statusName}"${when ? ` (${when})` : ''}. ${payment ? `Status de pagamento: ${payment}. ` : ''}Qualquer dúvida, é só me chamar por aqui.`;
 }
+
+
+app.get('/api/public/service-reviews/:token', async (req, res, next) => {
+  try {
+    await ensureServiceReviewTables();
+    const token = cleanText(req.params.token);
+    if (!token) return res.status(404).json({ error: 'Avaliação não encontrada.' });
+    const result = await query(`
+      SELECT sr.*, a.starts_at, t.name AS tutor_name, p.name AS pet_name,
+             COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services
+      FROM service_reviews sr
+      LEFT JOIN appointments a ON a.id = sr.appointment_id
+      LEFT JOIN tutors t ON t.id = sr.tutor_id
+      LEFT JOIN pets p ON p.id = sr.pet_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = sr.appointment_id
+      WHERE sr.token=$1::text AND sr.deleted_at IS NULL
+      GROUP BY sr.id, a.starts_at, t.name, p.name
+      LIMIT 1
+    `, [token]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Link de avaliação inválido ou expirado.' });
+    const row = result.rows[0];
+    res.json({
+      review: {
+        token: row.token,
+        status: row.status || 'pending',
+        rating: row.rating ? Number(row.rating) : null,
+        ratingLabel: serviceReviewRatingLabel(row.rating),
+        submittedAt: row.submitted_at || null,
+        tutorName: row.tutor_name || '',
+        petName: row.pet_name || 'seu pet',
+        services: row.services || '',
+        startsAt: row.starts_at || null
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/public/service-reviews/:token', async (req, res, next) => {
+  try {
+    await ensureServiceReviewTables();
+    const token = cleanText(req.params.token);
+    const rating = Number(req.body?.rating || 0);
+    const comment = (cleanText(req.body?.comment || '') || '').slice(0, 700);
+    if (!token) return res.status(404).json({ error: 'Avaliação não encontrada.' });
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: 'Selecione uma nota de 1 a 5.' });
+    const exists = await query(`SELECT id, status FROM service_reviews WHERE token=$1::text AND deleted_at IS NULL LIMIT 1`, [token]);
+    if (!exists.rowCount) return res.status(404).json({ error: 'Link de avaliação inválido ou expirado.' });
+    await query(`
+      UPDATE service_reviews
+      SET rating=$2::smallint, comment=$3::text, status='submitted', submitted_at=COALESCE(submitted_at, NOW()), user_agent=$4::text, ip_address=$5::text, updated_at=NOW()
+      WHERE token=$1::text AND deleted_at IS NULL
+      RETURNING *
+    `, [token, rating, comment, String(req.headers['user-agent'] || '').slice(0, 500), String(req.ip || req.socket?.remoteAddress || '').slice(0, 80)]);
+    const updated = await query(`
+      SELECT sr.*, a.starts_at, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name,
+             COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services
+      FROM service_reviews sr
+      LEFT JOIN appointments a ON a.id = sr.appointment_id
+      LEFT JOIN tutors t ON t.id = sr.tutor_id
+      LEFT JOIN pets p ON p.id = sr.pet_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = sr.appointment_id
+      WHERE sr.token=$1::text AND sr.deleted_at IS NULL
+      GROUP BY sr.id, a.starts_at, t.name, t.whatsapp, p.name
+      LIMIT 1
+    `, [token]);
+    res.json({ ok: true, review: sanitizeServiceReview(updated.rows[0]), message: 'Avaliação enviada com sucesso. Obrigado pela confiança!' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/service-reviews', requireAuth, async (req, res, next) => {
+  try {
+    await ensureReviewsForFinalizedAppointments(800).catch((error) => console.warn('[service-review] backfill indisponível:', error.message));
+    const status = cleanText(req.query.status || 'all');
+    const search = cleanText(req.query.search || '');
+    const params = [];
+    const where = [`sr.deleted_at IS NULL`];
+    if (status === 'pending') where.push(`(sr.status='pending' OR sr.rating IS NULL)`);
+    if (status === 'submitted') where.push(`(sr.status='submitted' OR sr.rating IS NOT NULL)`);
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      where.push(`(lower(t.name) LIKE $${params.length} OR lower(p.name) LIKE $${params.length} OR regexp_replace(COALESCE(t.whatsapp,''), '\\D', '', 'g') LIKE regexp_replace($${params.length}, '\\D', '', 'g'))`);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const result = await query(`
+      SELECT sr.*, a.starts_at, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name,
+             COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services
+      FROM service_reviews sr
+      LEFT JOIN appointments a ON a.id = sr.appointment_id
+      LEFT JOIN tutors t ON t.id = sr.tutor_id
+      LEFT JOIN pets p ON p.id = sr.pet_id
+      LEFT JOIN appointment_items ai ON ai.appointment_id = sr.appointment_id
+      ${whereSql}
+      GROUP BY sr.id, a.starts_at, t.name, t.whatsapp, p.name
+      ORDER BY COALESCE(sr.submitted_at, sr.created_at) DESC
+      LIMIT 300
+    `, params);
+    const metrics = await query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE rating IS NOT NULL)::int AS submitted,
+             COUNT(*) FILTER (WHERE rating IS NULL)::int AS pending,
+             COUNT(*) FILTER (WHERE submitted_at::date = CURRENT_DATE)::int AS today,
+             ROUND(AVG(rating)::numeric, 2) AS average_rating
+      FROM service_reviews
+      WHERE deleted_at IS NULL
+    `);
+    res.json({ metrics: metrics.rows[0] || {}, items: result.rows.map(sanitizeServiceReview) });
+  } catch (error) { next(error); }
+});
 
 app.get('/api/agenda/:id/status-message', requireAuth, async (req, res, next) => {
   try {
@@ -8773,13 +9324,22 @@ app.get('/api/agenda/:id/status-message', requireAuth, async (req, res, next) =>
     const statusRow = await query('SELECT code, name, color, description FROM appointment_statuses WHERE code=$1::text AND deleted_at IS NULL LIMIT 1', [requestedStatus]);
     const status = statusRow.rows[0] || { code: requestedStatus, name: requestedStatus };
     const clean = sanitizeAppointment(appointment);
-    const message = makeAppointmentStatusAiMessage(clean, status);
+    let reviewUrl = '';
+    if (String(status.code || requestedStatus || '').toLowerCase() === 'finalizado') {
+      const review = await ensureServiceReviewForAppointment(appointment.id).catch((error) => {
+        console.warn('[service-review] não foi possível preparar link:', error.message);
+        return null;
+      });
+      if (review?.token) reviewUrl = buildServiceReviewPublicUrl(review.token);
+    }
+    const message = makeAppointmentStatusAiMessage(clean, status, { reviewUrl });
     const phone = clean.tutorWhatsapp || appointment.tutor_whatsapp || '';
     res.json({
       mode: 'hybrid_manual_send',
       generatedBy: 'Assistente Inteligente PetFunny',
       appointment: clean,
       status,
+      reviewUrl,
       phone,
       message,
       url: buildWhatsAppUrl(phone, message)
@@ -8804,7 +9364,10 @@ app.patch('/api/agenda/:id/status', requireAuth, async (req, res, next) => {
     `, [req.params.id, status]);
     if (!result.rowCount) return res.status(404).json({ error: 'Agendamento não encontrado.' });
     const appointment = await getAppointmentById(req.params.id);
-    if (status === 'finalizado') await ensureFinancialTransactionForAppointment(req.params.id);
+    if (status === 'finalizado') {
+      await ensureFinancialTransactionForAppointment(req.params.id);
+      await ensureServiceReviewForAppointment(req.params.id).catch((error) => console.warn('[service-review] token não gerado:', error.message));
+    }
     if (appointment?.customer_package_id) await refreshCustomerPackageProgress(appointment.customer_package_id, { allowRenew: true });
     try {
       const statusRow = await query('SELECT code, name, color, description FROM appointment_statuses WHERE code=$1::text AND deleted_at IS NULL LIMIT 1', [status]);
@@ -13661,11 +14224,14 @@ app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'p
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
 app.get(['/app', '/app/home', '/app/agenda', '/app/agendamentos', '/app/saude-360', '/app/teleconsultas', '/app/notificacoes', '/app/pets', '/app/pets/:petId', '/app/pets/:petId/:area', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/app/momentos', '/app/indique', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
+app.get(['/avaliacao/:token', '/avaliacoes/:token', '/public/avaliacao/:token'], (req, res) => sendFrontendFile(res, 'pages/public/avaliacao/index.html'));
 
 const modulePages = {
   agenda: 'agenda',
   tutores: 'tutores',
   'app-acessos': 'app-acessos',
+  'radar-clientes': 'radar-clientes',
+  avaliacoes: 'avaliacoes',
   pets: 'pets',
   servicos: 'servicos',
   pacotes: 'pacotes',

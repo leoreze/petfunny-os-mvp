@@ -19,6 +19,8 @@ const menuItems = [
   { label: 'Roleta de Mimos', icon: '🎡', href: '/admin/roleta-de-mimos', aliases: ['/roleta-de-mimos', '/admin/roleta-de-mimos'] },
   { label: 'Notificações', icon: '🔔', href: '/admin/notificacoes', aliases: ['/notificacoes', '/admin/notificacoes'] },
   { label: 'Acessos do App', icon: '📲', href: '/admin/app-acessos', aliases: ['/app-acessos', '/admin/app-acessos'] },
+  { label: 'Radar IA Clientes', icon: '🧭', href: '/admin/radar-clientes', aliases: ['/radar-clientes', '/admin/radar-clientes'] },
+  { label: 'Avaliações', icon: '⭐', href: '/admin/avaliacoes', aliases: ['/avaliacoes', '/admin/avaliacoes'] },
   { label: 'WhatsApp', icon: '💬', href: '/admin/whatsapp', aliases: ['/whatsapp', '/admin/whatsapp'] },
   { label: 'Assistente IA', icon: '✨', href: '/admin/assistente-ia', aliases: ['/assistente-ia', '/admin/assistente-ia'] },
   { label: 'Configurações', icon: '⚙️', href: '/admin/configuracoes', aliases: ['/configuracoes', '/admin/configuracoes'] }

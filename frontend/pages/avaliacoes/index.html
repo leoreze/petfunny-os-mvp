@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Avaliações · PetFunny OS</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="manifest" href="/admin-manifest.webmanifest">
+  <meta name="theme-color" content="#01ADB7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { finishPageLoading, showLoading, hideLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  document.body.classList.add('service-reviews-page');
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
+  const dateTime = (value) => { if (!value) return '—'; const d = new Date(value); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }); };
+  const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
+  const ratingEmoji = (rating) => ({1:'😞',2:'😕',3:'😐',4:'🙂',5:'😍'}[Number(rating)] || '⏳');
+  const ratingClass = (rating) => Number(rating) >= 5 ? 'ok' : Number(rating) >= 4 ? 'success' : Number(rating) >= 3 ? 'warning' : Number(rating) >= 1 ? 'danger' : 'muted-pill';
+
+  const state = { items: [], metrics: {}, status: 'all', search: '' };
+
+  buildShell({
+    active: 'Avaliações',
+    eyebrow: 'Pós-serviço',
+    title: 'Avaliações do Atendimento',
+    subtitle: 'Notas enviadas pelos tutores após atendimentos finalizados e links pendentes de avaliação.',
+    content: `
+      <section class="hero-panel stack-lg service-reviews-hero">
+        <div class="page-heading-row between">
+          <div><p class="eyebrow">Feedback real</p><h1>Avaliações do Atendimento</h1><p>Acompanhe satisfação, notas pendentes e histórico de avaliações dos serviços PetFunny.</p></div>
+          <a class="btn btn-secondary" href="/admin/agenda">📅 Ver agenda</a>
+        </div>
+        <div id="review-metrics">${bigNumberGrid([['Avaliações','--','links gerados'],['Respondidas','--','notas recebidas'],['Média','--','nota geral'],['Pendentes','--','aguardando tutor']])}</div>
+      </section>
+      <section class="module-card stack-md service-reviews-list-card">
+        <div class="section-toolbar">
+          <div><h3>Lista de avaliações</h3><p>Quando um atendimento é finalizado, o link de avaliação é gerado para envio no WhatsApp.</p></div>
+          <div class="filter-row compact-filter-row"><input class="input" id="search" placeholder="Buscar tutor, pet ou WhatsApp"><select class="select" id="status"><option value="all">Todas</option><option value="submitted">Respondidas</option><option value="pending">Pendentes</option></select><button class="btn btn-secondary" id="reload" type="button">Atualizar</button></div>
+        </div>
+        <div class="table-scroll no-inner-scroll">
+          <table class="premium-table service-reviews-table">
+            <thead><tr><th>Tutor / Pet</th><th>Serviço</th><th>Data</th><th>Nota</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody id="rows"><tr><td colspan="6">Carregando avaliações...</td></tr></tbody>
+          </table>
+        </div>
+      </section>`
+  });
+
+  const rows = document.getElementById('rows');
+  const metrics = document.getElementById('review-metrics');
+  const search = document.getElementById('search');
+  const status = document.getElementById('status');
+
+  function renderMetrics() {
+    const m = state.metrics || {};
+    const avg = Number(m.average_rating || m.averageRating || 0);
+    metrics.innerHTML = bigNumberGrid([
+      ['Avaliações', Number(m.total || 0), 'links gerados'],
+      ['Respondidas', Number(m.submitted || 0), 'notas recebidas'],
+      ['Média', avg ? avg.toFixed(1).replace('.', ',') : '—', 'nota geral'],
+      ['Pendentes', Number(m.pending || 0), 'aguardando tutor']
+    ]);
+  }
+
+  function whatsappReviewMessage(item = {}) {
+    return `Oi, ${item.tutorName || 'tudo bem'}! Tudo bem? Aqui é do PetFunny 🐶✨\n\nO atendimento do ${item.petName || 'seu pet'} foi finalizado e sua opinião ajuda muito a gente a melhorar cada banho, tosa e cuidado.\n\nPode avaliar em 10 segundos por aqui?\n${item.reviewUrl}\n\nObrigado pela confiança!`;
+  }
+
+  function rowTemplate(item = {}) {
+    const hasRating = Number(item.rating || 0) > 0;
+    const digits = onlyDigits(item.tutorWhatsapp || '').replace(/^55/, '');
+    const message = whatsappReviewMessage(item);
+    const wa = digits ? `https://wa.me/55${digits}?text=${encodeURIComponent(message)}` : '';
+    return `<tr>
+      <td><strong>${esc(item.tutorName || 'Tutor')}</strong><small>${esc(item.petName || 'Pet')}</small></td>
+      <td>${esc(item.services || 'Atendimento PetFunny')}</td>
+      <td>${esc(dateTime(item.startsAt))}</td>
+      <td><span class="status-pill ${ratingClass(item.rating)}">${ratingEmoji(item.rating)} ${hasRating ? `${Number(item.rating)}/5` : 'Aguardando'}</span><small>${esc(item.ratingLabel || '')}</small></td>
+      <td>${hasRating ? `<span class="status-pill ok">Respondida</span><small>${esc(dateTime(item.submittedAt))}</small>` : '<span class="status-pill warning">Pendente</span><small>Link pronto para envio</small>'}</td>
+      <td><div class="row-actions"><button class="btn btn-secondary copy-review-link" data-id="${esc(item.id)}" type="button">Copiar link</button>${wa ? `<a class="btn" href="${wa}" target="_blank" rel="noopener">Enviar WhatsApp</a>` : ''}</div></td>
+    </tr>`;
+  }
+
+  function renderRows() {
+    if (!state.items.length) {
+      rows.innerHTML = '<tr><td colspan="6">Nenhuma avaliação encontrada.</td></tr>';
+      return;
+    }
+    rows.innerHTML = state.items.map(rowTemplate).join('');
+  }
+
+  async function loadReviews() {
+    showLoading('Carregando avaliações...');
+    try {
+      const params = new URLSearchParams({ status: state.status, search: state.search });
+      const payload = await api.get(`/service-reviews?${params.toString()}`);
+      state.items = payload.items || [];
+      state.metrics = payload.metrics || {};
+      renderMetrics();
+      renderRows();
+      setupPremiumInteractions();
+    } catch (error) {
+      rows.innerHTML = `<tr><td colspan="6">${esc(error.message || 'Erro ao carregar avaliações.')}</td></tr>`;
+      toast(error.message || 'Erro ao carregar avaliações.', 'error');
+    } finally { hideLoading(); finishPageLoading(); }
+  }
+
+  rows.addEventListener('click', (event) => {
+    const btn = event.target.closest('.copy-review-link');
+    if (!btn) return;
+    const item = state.items.find((row) => String(row.id) === String(btn.dataset.id));
+    if (!item?.reviewUrl) return toast('Link não encontrado.', 'warning');
+    navigator.clipboard?.writeText(item.reviewUrl).then(() => toast('Link copiado.', 'success')).catch(() => toast('Não foi possível copiar automaticamente.', 'warning'));
+  });
+  search.addEventListener('input', () => { clearTimeout(search._timer); search._timer = setTimeout(() => { state.search = search.value.trim(); loadReviews(); }, 350); });
+  status.addEventListener('change', () => { state.status = status.value; loadReviews(); });
+  document.getElementById('reload')?.addEventListener('click', loadReviews);
+  loadReviews();
+</script>
+</body>
+</html>

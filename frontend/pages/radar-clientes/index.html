@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Radar IA de Clientes · PetFunny OS</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="manifest" href="/admin-manifest.webmanifest">
+  <meta name="theme-color" content="#01ADB7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { api } from '/assets/js/api.js';
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { finishPageLoading, showLoading, hideLoading } from '/assets/js/loading.js';
+  import { toast } from '/assets/js/toast.js';
+
+  document.body.classList.add('client-radar-page');
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
+  const brl = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const dateTime = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  };
+  const phone = (value = '') => {
+    const d = String(value || '').replace(/\D/g, '').replace(/^55/, '');
+    if (!d) return '—';
+    if (d.length <= 2) return d;
+    if (d.length <= 7) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+    return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7,11)}`;
+  };
+  const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
+
+  const segmentLabels = {
+    relacionamento_ativo: 'Relacionamento ativo',
+    pendencia_financeira: 'Pendência financeira',
+    renovacao_pacote: 'Renovação de pacote',
+    primeiro_acesso_app: 'Primeiro acesso ao app',
+    novo_tutor: 'Novo tutor',
+    cliente_em_atencao: 'Cliente em atenção',
+    cliente_em_risco: 'Cliente em risco',
+    cliente_perdido: 'Cliente dormindo',
+    recorrente_vip: 'Recorrente / VIP'
+  };
+
+  const state = {
+    items: [],
+    metrics: {},
+    segment: 'all',
+    priority: 'all',
+    ready: false,
+    ai: true,
+    generatedAt: null,
+    openaiConfigured: false,
+    openaiUsed: false
+  };
+
+  buildShell({
+    active: 'Radar IA Clientes',
+    eyebrow: 'IA de relacionamento',
+    title: 'Radar IA de Clientes',
+    subtitle: 'Lista diária de tutores para WhatsApp com motivo, benefício, cadência segura e mensagem pronta.',
+    content: `
+      <section class="hero-panel stack-lg client-radar-hero">
+        <div class="page-heading-row between">
+          <div>
+            <p class="eyebrow">Fila inteligente do dia</p>
+            <h1>Radar IA de Clientes</h1>
+            <p>A IA avalia histórico, pacotes, app, pendências e tempo sem atendimento para sugerir quem merece mensagem hoje sem exagerar na cadência.</p>
+          </div>
+          <div class="client-radar-hero-actions">
+            <button class="btn" id="refresh-ai" type="button">✨ Atualizar lista com IA</button>
+            <a class="btn btn-secondary" href="/admin/whatsapp">💬 WhatsApp</a>
+          </div>
+        </div>
+        <div id="radar-metrics">${bigNumberGrid([
+          ['Tutores na análise', '--', 'base monitorada'],
+          ['Pode enviar hoje', '--', 'cadência liberada'],
+          ['Prioridade alta', '--', 'ação recomendada'],
+          ['Aguardar cadência', '--', 'evita excesso']
+        ])}</div>
+        <div class="client-radar-ai-note" id="ai-note">Carregando análise...</div>
+      </section>
+
+      <section class="module-card stack-md client-radar-list-card">
+        <div class="section-toolbar client-radar-toolbar">
+          <div>
+            <h3>Lista diária de relacionamento</h3>
+            <p>Use a lista como fila de WhatsApp: priorize quem está liberado pela cadência e com maior risco/oportunidade.</p>
+          </div>
+          <div class="client-radar-filters">
+            <select class="select" id="segment-filter">
+              <option value="all">Todos os tipos</option>
+              <option value="pendencia_financeira">Pendência financeira</option>
+              <option value="renovacao_pacote">Renovação de pacote</option>
+              <option value="primeiro_acesso_app">Primeiro acesso App</option>
+              <option value="cliente_em_risco">Em risco</option>
+              <option value="cliente_perdido">Dormindo</option>
+              <option value="recorrente_vip">Recorrente / VIP</option>
+              <option value="novo_tutor">Novo tutor</option>
+            </select>
+            <select class="select" id="priority-filter">
+              <option value="all">Todas prioridades</option>
+              <option value="alta">Prioridade alta</option>
+              <option value="média">Prioridade média</option>
+              <option value="baixa">Prioridade baixa</option>
+            </select>
+            <label class="client-radar-ready-only"><input type="checkbox" id="ready-filter"> Só liberados hoje</label>
+          </div>
+        </div>
+        <div class="table-scroll no-inner-scroll client-radar-table-wrap">
+          <table class="premium-table client-radar-table">
+            <thead>
+              <tr>
+                <th>Tutor</th>
+                <th>Situação / status</th>
+                <th>Cadência segura</th>
+                <th>Motivo</th>
+                <th>Benefício ao enviar</th>
+                <th>Mensagem sugerida</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="radar-rows"><tr><td colspan="7">Carregando análise...</td></tr></tbody>
+          </table>
+        </div>
+      </section>`
+  });
+
+  const rows = document.getElementById('radar-rows');
+  const metrics = document.getElementById('radar-metrics');
+  const aiNote = document.getElementById('ai-note');
+  const segmentFilter = document.getElementById('segment-filter');
+  const priorityFilter = document.getElementById('priority-filter');
+  const readyFilter = document.getElementById('ready-filter');
+
+  function priorityBadge(priority = 'baixa') {
+    const normalized = String(priority || '').toLowerCase();
+    const cls = normalized === 'alta' ? 'danger' : normalized === 'média' || normalized === 'media' ? 'warning' : 'ok';
+    return `<span class="status-pill ${cls}">${esc(priority || 'baixa')}</span>`;
+  }
+
+  function safeBadge(item = {}) {
+    return item.canSendToday
+      ? `<span class="status-pill ok">Pode enviar hoje</span>`
+      : `<span class="status-pill warning">Aguardar ${Number(item.waitDays || 0)} dia(s)</span>`;
+  }
+
+  function whatsappUrl(item = {}) {
+    const digits = onlyDigits(item.whatsapp || '').replace(/^55/, '');
+    if (!digits) return '';
+    return `https://wa.me/55${digits}?text=${encodeURIComponent(item.message || '')}`;
+  }
+
+  function copyMessage(message = '') {
+    navigator.clipboard?.writeText(message).then(() => toast('Mensagem copiada.', 'success')).catch(() => toast('Não foi possível copiar automaticamente.', 'warning'));
+  }
+
+  function rowTemplate(item) {
+    const wa = whatsappUrl(item);
+    const sendDisabled = !wa || !item.canSendToday;
+    return `<tr>
+      <td>
+        <strong>${esc(item.name)}</strong>
+        <small>${esc(phone(item.whatsapp))}</small>
+        <small>${esc(item.petName || 'Pet não informado')} · ${Number(item.appointmentsCount || 0)} atendimento(s)</small>
+      </td>
+      <td>
+        <strong>${esc(item.situation)}</strong>
+        <small>${esc(item.status)}</small>
+        <div class="client-radar-badges">${priorityBadge(item.priority)}${safeBadge(item)}</div>
+      </td>
+      <td>
+        <strong>${esc(item.cadenceLabel)}</strong>
+        <small>Última mensagem: ${esc(dateTime(item.lastOutboundAt))}</small>
+        <small>Último atendimento: ${esc(dateTime(item.lastAppointmentAt))}</small>
+      </td>
+      <td>${esc(item.reason)}</td>
+      <td>${esc(item.benefit)}</td>
+      <td><div class="client-radar-message">${esc(item.message).replace(/\n/g, '<br>')}</div></td>
+      <td>
+        <div class="client-radar-actions">
+          <button class="btn btn-secondary copy-message" type="button" data-id="${esc(item.tutorId)}">Copiar</button>
+          <button class="btn send-message" type="button" data-id="${esc(item.tutorId)}" ${sendDisabled ? 'disabled' : ''}>${esc(item.actionLabel || 'Enviar mensagem')}</button>
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  function renderMetrics(payload = {}) {
+    const m = payload.metrics || {};
+    metrics.innerHTML = bigNumberGrid([
+      ['Tutores na análise', Number(m.total || 0), 'base filtrada'],
+      ['Pode enviar hoje', Number(m.ready || 0), 'cadência liberada'],
+      ['Prioridade alta', Number(m.high || 0), 'risco/oportunidade'],
+      ['Aguardar cadência', Number(m.waiting || 0), 'evita bloqueio/spam']
+    ]);
+    const aiStatus = payload.openaiUsed
+      ? 'IA OpenAI usada para refinar mensagens, motivos e benefícios.'
+      : payload.openaiConfigured
+        ? 'OpenAI configurada, mas a lista usou fallback local seguro nesta atualização.'
+        : 'OpenAI ainda não configurada. Usando IA operacional local com regras de CRM e cadência segura.';
+    aiNote.textContent = `${payload.dateLabel || 'Hoje'} · ${aiStatus}`;
+  }
+
+  function renderRows() {
+    if (!state.items.length) {
+      rows.innerHTML = '<tr><td colspan="7">Nenhum tutor encontrado para os filtros atuais.</td></tr>';
+      return;
+    }
+    rows.innerHTML = state.items.map(rowTemplate).join('');
+  }
+
+  async function loadRadar() {
+    showLoading('Gerando Radar IA de Clientes...');
+    rows.innerHTML = '<tr><td colspan="7">Gerando análise diária...</td></tr>';
+    try {
+      const params = new URLSearchParams({
+        ai: state.ai ? 'true' : 'false',
+        segment: state.segment,
+        priority: state.priority,
+        ready: state.ready ? 'true' : 'false'
+      });
+      const payload = await api.get(`/client-radar/daily?${params.toString()}`);
+      state.items = payload.items || [];
+      state.metrics = payload.metrics || {};
+      state.generatedAt = payload.generatedAt;
+      state.openaiConfigured = Boolean(payload.openaiConfigured);
+      state.openaiUsed = Boolean(payload.openaiUsed);
+      renderMetrics(payload);
+      renderRows();
+      setupPremiumInteractions();
+    } catch (error) {
+      rows.innerHTML = `<tr><td colspan="7">Erro ao carregar Radar IA: ${esc(error.message || 'erro desconhecido')}</td></tr>`;
+      toast(error.message || 'Erro ao carregar Radar IA.', 'error');
+    } finally {
+      hideLoading();
+      finishPageLoading();
+    }
+  }
+
+  document.getElementById('refresh-ai')?.addEventListener('click', () => {
+    state.ai = true;
+    loadRadar();
+  });
+
+  segmentFilter?.addEventListener('change', () => {
+    state.segment = segmentFilter.value;
+    loadRadar();
+  });
+  priorityFilter?.addEventListener('change', () => {
+    state.priority = priorityFilter.value;
+    loadRadar();
+  });
+  readyFilter?.addEventListener('change', () => {
+    state.ready = readyFilter.checked;
+    loadRadar();
+  });
+
+  document.body.addEventListener('click', (event) => {
+    const copy = event.target.closest('.copy-message');
+    if (copy) {
+      const item = state.items.find((row) => String(row.tutorId) === String(copy.dataset.id));
+      if (item) copyMessage(item.message || '');
+      return;
+    }
+    const send = event.target.closest('.send-message');
+    if (send) {
+      const item = state.items.find((row) => String(row.tutorId) === String(send.dataset.id));
+      if (!item) return;
+      if (!item.canSendToday) return toast('A IA recomenda aguardar a cadência para evitar excesso de mensagens.', 'warning');
+      const url = whatsappUrl(item);
+      if (!url) return toast('Tutor sem WhatsApp cadastrado.', 'warning');
+      window.open(url, '_blank', 'noopener');
+    }
+  });
+
+  loadRadar();
+</script>
+</body>
+</html>
