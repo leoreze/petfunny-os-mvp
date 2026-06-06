@@ -23,7 +23,7 @@
   const ratingEmoji = (rating) => ({1:'😞',2:'😕',3:'😐',4:'🙂',5:'😍'}[Number(rating)] || '⏳');
   const ratingClass = (rating) => Number(rating) >= 5 ? 'ok' : Number(rating) >= 4 ? 'success' : Number(rating) >= 3 ? 'warning' : Number(rating) >= 1 ? 'danger' : 'muted-pill';
 
-  const state = { items: [], metrics: {}, status: 'all', search: '' };
+  const state = { items: [], metrics: {}, status: 'all', search: '', sortBy: 'startsAt', sortDir: 'desc' };
 
   buildShell({
     active: 'Avaliações',
@@ -44,8 +44,15 @@
           <div class="filter-row compact-filter-row"><input class="input" id="search" placeholder="Buscar tutor, pet ou WhatsApp"><select class="select" id="status"><option value="all">Todas</option><option value="submitted">Respondidas</option><option value="pending">Pendentes</option></select><button class="btn btn-secondary" id="reload" type="button">Atualizar</button></div>
         </div>
         <div class="table-scroll no-inner-scroll">
-          <table class="premium-table service-reviews-table">
-            <thead><tr><th>Tutor / Pet</th><th>Serviço</th><th>Data</th><th>Nota</th><th>Status</th><th>Ações</th></tr></thead>
+          <table class="premium-table service-reviews-table sortable-table">
+            <thead><tr>
+              <th><button class="th-sort review-sort" type="button" data-sort="tutorPet">Tutor / Pet</button></th>
+              <th><button class="th-sort review-sort" type="button" data-sort="services">Serviço</button></th>
+              <th><button class="th-sort review-sort" type="button" data-sort="startsAt">Data</button></th>
+              <th><button class="th-sort review-sort" type="button" data-sort="rating">Nota</button></th>
+              <th><button class="th-sort review-sort" type="button" data-sort="appointmentStatusName">Status</button></th>
+              <th>Ações</th>
+            </tr></thead>
             <tbody id="rows"><tr><td colspan="6">Carregando avaliações...</td></tr></tbody>
           </table>
         </div>
@@ -72,27 +79,78 @@
     return `Oi, ${item.tutorName || 'tudo bem'}! Tudo bem? Aqui é do PetFunny 🐶✨\n\nO atendimento do ${item.petName || 'seu pet'} foi finalizado e sua opinião ajuda muito a gente a melhorar cada banho, tosa e cuidado.\n\nPode avaliar em 10 segundos por aqui?\n${item.reviewUrl}\n\nObrigado pela confiança!`;
   }
 
-  function rowTemplate(item = {}) {
-    const hasRating = Number(item.rating || 0) > 0;
+  function normalizeStatusLabel(value = '') {
+    const text = String(value || '').trim();
+    if (!text) return 'Finalizado';
+    return text.charAt(0).toUpperCase() + text.slice(1).replace(/_/g, ' ');
+  }
+
+  function sortValue(item = {}, key = '') {
+    if (key === 'tutorPet') return `${item.tutorName || ''} ${item.petName || ''}`.toLowerCase();
+    if (key === 'services') return String(item.services || '').toLowerCase();
+    if (key === 'startsAt') return item.startsAt ? new Date(item.startsAt).getTime() || 0 : 0;
+    if (key === 'rating') return Number(item.rating || 0);
+    if (key === 'appointmentStatusName') return `${item.appointmentStatusName || item.appointmentStatus || ''} ${item.status || ''}`.toLowerCase();
+    return String(item[key] ?? '').toLowerCase();
+  }
+
+  function getSortedItems() {
+    const dir = state.sortDir === 'asc' ? 1 : -1;
+    return [...state.items].sort((a, b) => {
+      const av = sortValue(a, state.sortBy);
+      const bv = sortValue(b, state.sortBy);
+      if (typeof av === 'number' || typeof bv === 'number') return ((Number(av) || 0) - (Number(bv) || 0)) * dir;
+      return String(av).localeCompare(String(bv), 'pt-BR', { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }
+
+  function updateSortIndicators() {
+    document.querySelectorAll('.review-sort').forEach((button) => {
+      const active = button.dataset.sort === state.sortBy;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-sort', active ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+      button.title = active
+        ? `Ordenado ${state.sortDir === 'asc' ? 'crescente' : 'decrescente'}. Clique para inverter.`
+        : 'Clique para ordenar.';
+    });
+  }
+
+  function whatsappReviewUrl(item = {}) {
     const digits = onlyDigits(item.tutorWhatsapp || '').replace(/^55/, '');
     const message = whatsappReviewMessage(item);
-    const wa = digits ? `https://wa.me/55${digits}?text=${encodeURIComponent(message)}` : '';
+    return digits ? `https://wa.me/55${digits}?text=${encodeURIComponent(message)}` : '';
+  }
+
+  function rowTemplate(item = {}) {
+    const hasRating = Number(item.rating || 0) > 0;
+    const wa = whatsappReviewUrl(item);
+    const appointmentStatusName = normalizeStatusLabel(item.appointmentStatusName || item.appointmentStatus || 'Finalizado');
+    const appointmentStatusClass = String(item.appointmentStatus || '').toLowerCase() === 'finalizado' ? 'ok' : 'muted-pill';
     return `<tr>
       <td><strong>${esc(item.tutorName || 'Tutor')}</strong><small>${esc(item.petName || 'Pet')}</small></td>
-      <td>${esc(item.services || 'Atendimento PetFunny')}</td>
+      <td><strong>${esc(item.services || 'Atendimento PetFunny')}</strong><small>Serviço do atendimento finalizado</small></td>
       <td>${esc(dateTime(item.startsAt))}</td>
       <td><span class="status-pill ${ratingClass(item.rating)}">${ratingEmoji(item.rating)} ${hasRating ? `${Number(item.rating)}/5` : 'Aguardando'}</span><small>${esc(item.ratingLabel || '')}</small></td>
-      <td>${hasRating ? `<span class="status-pill ok">Respondida</span><small>${esc(dateTime(item.submittedAt))}</small>` : '<span class="status-pill warning">Pendente</span><small>Link pronto para envio</small>'}</td>
-      <td><div class="row-actions"><button class="btn btn-secondary copy-review-link" data-id="${esc(item.id)}" type="button">Copiar link</button>${wa ? `<a class="btn" href="${wa}" target="_blank" rel="noopener">Enviar WhatsApp</a>` : ''}</div></td>
+      <td><span class="status-pill ${appointmentStatusClass}">${esc(appointmentStatusName)}</span>${hasRating ? `<small>Avaliação respondida · ${esc(dateTime(item.submittedAt))}</small>` : '<small>Avaliação pendente · link pronto para envio</small>'}</td>
+      <td>
+        <div class="row-actions review-actions-menu-wrap">
+          <button class="dots-btn review-actions-toggle" data-id="${esc(item.id)}" type="button" aria-label="Ações da avaliação" aria-expanded="false">⋯</button>
+          <div class="review-action-menu" data-menu-id="${esc(item.id)}" hidden>
+            <button class="copy-review-link" data-id="${esc(item.id)}" type="button">Copiar link</button>
+            ${wa ? `<a href="${wa}" target="_blank" rel="noopener">Enviar WhatsApp</a>` : `<button class="send-review-whatsapp" data-id="${esc(item.id)}" type="button">Enviar WhatsApp</button>`}
+          </div>
+        </div>
+      </td>
     </tr>`;
   }
 
   function renderRows() {
+    updateSortIndicators();
     if (!state.items.length) {
       rows.innerHTML = '<tr><td colspan="6">Nenhuma avaliação encontrada.</td></tr>';
       return;
     }
-    rows.innerHTML = state.items.map(rowTemplate).join('');
+    rows.innerHTML = getSortedItems().map(rowTemplate).join('');
   }
 
   async function loadReviews() {
@@ -111,15 +169,61 @@
     } finally { hideLoading(); finishPageLoading(); }
   }
 
+  function closeReviewMenus() {
+    document.querySelectorAll('.review-action-menu').forEach((menu) => { menu.hidden = true; });
+    document.querySelectorAll('.review-actions-toggle').forEach((btn) => btn.setAttribute('aria-expanded', 'false'));
+  }
+
   rows.addEventListener('click', (event) => {
-    const btn = event.target.closest('.copy-review-link');
-    if (!btn) return;
-    const item = state.items.find((row) => String(row.id) === String(btn.dataset.id));
-    if (!item?.reviewUrl) return toast('Link não encontrado.', 'warning');
-    navigator.clipboard?.writeText(item.reviewUrl).then(() => toast('Link copiado.', 'success')).catch(() => toast('Não foi possível copiar automaticamente.', 'warning'));
+    const toggle = event.target.closest('.review-actions-toggle');
+    if (toggle) {
+      event.preventDefault();
+      event.stopPropagation();
+      const menu = rows.querySelector(`.review-action-menu[data-menu-id="${CSS.escape(String(toggle.dataset.id || ''))}"]`);
+      const shouldOpen = !menu || menu.hidden;
+      closeReviewMenus();
+      if (menu && shouldOpen) {
+        menu.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+      return;
+    }
+
+    const copyBtn = event.target.closest('.copy-review-link');
+    if (copyBtn) {
+      const item = state.items.find((row) => String(row.id) === String(copyBtn.dataset.id));
+      if (!item?.reviewUrl) return toast('Link não encontrado.', 'warning');
+      navigator.clipboard?.writeText(item.reviewUrl)
+        .then(() => toast('Link copiado.', 'success'))
+        .catch(() => toast('Não foi possível copiar automaticamente.', 'warning'));
+      closeReviewMenus();
+      return;
+    }
+
+    const waBtn = event.target.closest('.send-review-whatsapp');
+    if (waBtn) {
+      const item = state.items.find((row) => String(row.id) === String(waBtn.dataset.id));
+      const wa = whatsappReviewUrl(item || {});
+      if (!wa) return toast('WhatsApp do tutor não encontrado.', 'warning');
+      window.open(wa, '_blank', 'noopener');
+      closeReviewMenus();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.review-actions-menu-wrap')) closeReviewMenus();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeReviewMenus();
   });
   search.addEventListener('input', () => { clearTimeout(search._timer); search._timer = setTimeout(() => { state.search = search.value.trim(); loadReviews(); }, 350); });
   status.addEventListener('change', () => { state.status = status.value; loadReviews(); });
+  document.querySelectorAll('.review-sort').forEach((button) => button.addEventListener('click', () => {
+    const key = button.dataset.sort;
+    if (!key) return;
+    state.sortDir = state.sortBy === key && state.sortDir === 'asc' ? 'desc' : 'asc';
+    state.sortBy = key;
+    renderRows();
+  }));
   document.getElementById('reload')?.addEventListener('click', loadReviews);
   loadReviews();
 </script>

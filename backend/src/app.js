@@ -8608,8 +8608,10 @@ function sanitizeServiceReview(row = {}) {
     tutorWhatsapp: row.tutor_whatsapp || '',
     petId: row.pet_id,
     petName: row.pet_name || '',
-    services: row.services || '',
+    services: row.services || 'Atendimento PetFunny',
     startsAt: row.starts_at || null,
+    appointmentStatus: row.appointment_status || 'finalizado',
+    appointmentStatusName: row.appointment_status_name || (row.appointment_status === 'finalizado' ? 'Finalizado' : ''),
     rating,
     ratingLabel: serviceReviewRatingLabel(rating),
     status: row.status || (rating ? 'submitted' : 'pending'),
@@ -9338,7 +9340,7 @@ app.get('/api/service-reviews', requireAuth, async (req, res, next) => {
     const status = cleanText(req.query.status || 'all');
     const search = cleanText(req.query.search || '');
     const params = [];
-    const where = [`sr.deleted_at IS NULL`];
+    const where = [`sr.deleted_at IS NULL`, `a.deleted_at IS NULL`, `a.status = 'finalizado'`];
     if (status === 'pending') where.push(`(sr.status='pending' OR sr.rating IS NULL)`);
     if (status === 'submitted') where.push(`(sr.status='submitted' OR sr.rating IS NOT NULL)`);
     if (search) {
@@ -9347,26 +9349,36 @@ app.get('/api/service-reviews', requireAuth, async (req, res, next) => {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const result = await query(`
-      SELECT sr.*, a.starts_at, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name,
-             COALESCE(string_agg(ai.description, ', ' ORDER BY ai.created_at), '') AS services
+      SELECT sr.*, a.starts_at, a.status AS appointment_status,
+             COALESCE(ast.name, CASE WHEN a.status = 'finalizado' THEN 'Finalizado' ELSE INITCAP(REPLACE(COALESCE(a.status, 'finalizado'), '_', ' ')) END) AS appointment_status_name,
+             t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, p.name AS pet_name,
+             COALESCE(
+               NULLIF(string_agg(DISTINCT COALESCE(NULLIF(ai.description, ''), sv.name), ', '), ''),
+               'Atendimento PetFunny'
+             ) AS services
       FROM service_reviews sr
       LEFT JOIN appointments a ON a.id = sr.appointment_id
+      LEFT JOIN appointment_statuses ast ON ast.code = a.status AND ast.deleted_at IS NULL
       LEFT JOIN tutors t ON t.id = sr.tutor_id
       LEFT JOIN pets p ON p.id = sr.pet_id
       LEFT JOIN appointment_items ai ON ai.appointment_id = sr.appointment_id
+      LEFT JOIN services sv ON sv.id = ai.service_id
       ${whereSql}
-      GROUP BY sr.id, a.starts_at, t.name, t.whatsapp, p.name
+      GROUP BY sr.id, a.starts_at, a.status, ast.name, t.name, t.whatsapp, p.name
       ORDER BY COALESCE(sr.submitted_at, sr.created_at) DESC
       LIMIT 300
     `, params);
     const metrics = await query(`
       SELECT COUNT(*)::int AS total,
-             COUNT(*) FILTER (WHERE rating IS NOT NULL)::int AS submitted,
-             COUNT(*) FILTER (WHERE rating IS NULL)::int AS pending,
-             COUNT(*) FILTER (WHERE submitted_at::date = CURRENT_DATE)::int AS today,
-             ROUND(AVG(rating)::numeric, 2) AS average_rating
-      FROM service_reviews
-      WHERE deleted_at IS NULL
+             COUNT(*) FILTER (WHERE sr.rating IS NOT NULL)::int AS submitted,
+             COUNT(*) FILTER (WHERE sr.rating IS NULL)::int AS pending,
+             COUNT(*) FILTER (WHERE sr.submitted_at::date = CURRENT_DATE)::int AS today,
+             ROUND(AVG(sr.rating)::numeric, 2) AS average_rating
+      FROM service_reviews sr
+      LEFT JOIN appointments a ON a.id = sr.appointment_id
+      WHERE sr.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND a.status = 'finalizado'
     `);
     res.json({ metrics: metrics.rows[0] || {}, items: result.rows.map(sanitizeServiceReview) });
   } catch (error) { next(error); }

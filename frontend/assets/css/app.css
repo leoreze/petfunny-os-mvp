@@ -14359,3 +14359,90 @@ body.client-radar-page .client-radar-actions .btn {
     font-size: .66rem;
   }
 }
+
+/* v1.6.97 — Avaliações: remove seta azul do header e troca ações por menu de 3 pontinhos */
+.service-reviews-page .service-reviews-table .sort-arrow {
+  display: none !important;
+}
+.service-reviews-page .service-reviews-table .th-sort,
+.service-reviews-page .service-reviews-table .th-sort:hover,
+.service-reviews-page .service-reviews-table .th-sort.active {
+  color: inherit;
+  gap: 0;
+}
+.service-reviews-page .service-reviews-table .th-sort.active {
+  text-decoration: none;
+}
+.service-reviews-page .service-reviews-list-card .table-scroll.no-inner-scroll {
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+.service-reviews-page .review-actions-menu-wrap {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  overflow: visible;
+}
+.service-reviews-page .review-actions-toggle,
+.service-reviews-page .dots-btn.review-actions-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: rgba(255,255,255,.92);
+  color: #233347;
+  font-size: 1.25rem;
+  font-weight: 950;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .08);
+}
+.service-reviews-page .review-actions-toggle:hover,
+.service-reviews-page .review-actions-toggle[aria-expanded="true"] {
+  background: linear-gradient(135deg, rgba(1,173,183,.12), rgba(249,161,151,.12));
+  border-color: rgba(1,173,183,.22);
+}
+.service-reviews-page .review-action-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  min-width: 190px;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.98);
+  border: 1px solid rgba(15,23,42,.10);
+  box-shadow: 0 24px 70px rgba(15,23,42,.18);
+  display: grid;
+  gap: 5px;
+}
+.service-reviews-page .review-action-menu[hidden] {
+  display: none !important;
+}
+.service-reviews-page .review-action-menu button,
+.service-reviews-page .review-action-menu a {
+  border: 0;
+  background: transparent;
+  color: #233347;
+  text-align: left;
+  text-decoration: none;
+  padding: 10px 12px;
+  border-radius: 13px;
+  font-size: .9rem;
+  font-weight: 900;
+  cursor: pointer;
+  width: 100%;
+  display: block;
+}
+.service-reviews-page .review-action-menu button:hover,
+.service-reviews-page .review-action-menu a:hover {
+  background: linear-gradient(135deg, rgba(1,173,183,.10), rgba(249,161,151,.12));
+}
+@media (max-width: 780px) {
+  .service-reviews-page .review-action-menu {
+    right: 0;
+    min-width: 178px;
+  }
+}
