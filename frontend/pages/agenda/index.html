@@ -77,7 +77,8 @@
   const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
   const dt = (value) => value ? new Date(value) : new Date();
-  const hm = (value) => dt(value).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  const docDateTime = (value) => value ? dt(value).toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo', dateStyle:'short', timeStyle:'short' }) : '—';
+  const hm = (value) => dt(value).toLocaleTimeString('pt-BR', { timeZone:'America/Sao_Paulo', hour:'2-digit', minute:'2-digit' });
   const brDate = (value) => new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long' });
   const serviceById = (id) => state.services.find(s => s.id === id);
   const petById = (id) => state.pets.find(p => p.id === id);
@@ -915,7 +916,7 @@
       <div><span>Tutor</span><strong>${esc(a.tutorName || '—')}</strong></div>
       <div><span>Pet</span><strong>${esc(a.petName || '—')}</strong></div>
       <div><span>Novo status</span><strong>${esc(status.name || a.statusName || a.status || '—')}</strong></div>
-      <div><span>Horário</span><strong>${esc(a.startsAt ? dt(a.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : '—')}</strong></div>
+      <div><span>Horário</span><strong>${esc(a.startsAt ? docDateTime(a.startsAt) : '—')}</strong></div>
       <div><span>Serviço</span><strong>${esc(a.services || '—')}</strong></div>
       <div><span>Pagamento</span><strong>${esc(payment || 'A definir')}</strong></div>
     </div>`;
@@ -1077,7 +1078,7 @@
     if (mediaModal.type) mediaModal.type.value = 'photo';
     if (mediaModal.featured) mediaModal.featured.value = 'false';
     if (mediaModal.title) mediaModal.title.textContent = `Momento de ${appointment.petName || 'pet'}`;
-    if (mediaModal.subtitle) mediaModal.subtitle.textContent = `${appointment.tutorName || 'Tutor'} · ${appointment.startsAt ? dt(appointment.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : 'Atendimento PetFunny'}`;
+    if (mediaModal.subtitle) mediaModal.subtitle.textContent = `${appointment.tutorName || 'Tutor'} · ${appointment.startsAt ? docDateTime(appointment.startsAt) : 'Atendimento PetFunny'}`;
     if (!mediaModal.modal.open) mediaModal.modal.showModal();
     generateAppointmentMediaCaption(id, { force: true });
   }
@@ -1160,7 +1161,7 @@
     return `<article class="print-document agenda-inline-document">
       <div class="doc-brand"><img src="/assets/img/logo-petfunny-full.png" alt="PetFunny"><div><strong>${esc(business.name || 'PetFunny - Banho e Tosa')}</strong><small>${esc(business.address || 'Ribeirão Preto / SP')} · WhatsApp ${esc(business.whatsapp || '')}</small></div></div>
       <div class="doc-head"><div><p class="eyebrow">${isReceipt ? 'Recibo oficial' : 'Comanda de atendimento'}</p><h2>${isReceipt ? 'Recibo' : 'Comanda'}</h2><p>${isReceipt ? 'Pagamento recebido e atendimento documentado.' : 'Conferência dos serviços antes do pagamento.'}</p></div><div class="doc-number"><span>Nº</span><strong>${esc(data.receipt?.documentNumber || data.documentNumber || appointment.id?.slice(0,8) || '—')}</strong></div></div>
-      <div class="doc-grid"><div><span>Tutor</span><strong>${esc(appointment.tutorName || '—')}</strong><small>${esc(appointment.tutorWhatsapp || '')}</small></div><div><span>Pet</span><strong>${esc(appointment.petName || '—')}</strong><small>${esc(appointment.petSize || '')}</small></div><div><span>Data</span><strong>${esc(appointment.startsAt ? dt(appointment.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : '—')}</strong></div><div><span>Status</span><strong>${esc(appointment.statusName || appointment.status || '—')}</strong></div><div><span>Pagamento</span><strong>${esc(paymentStatusText)}</strong></div><div><span>Forma de pagamento</span><strong>${esc(paymentMethodText)}</strong></div></div>
+      <div class="doc-grid"><div><span>Tutor</span><strong>${esc(appointment.tutorName || '—')}</strong><small>${esc(appointment.tutorWhatsapp || '')}</small></div><div><span>Pet</span><strong>${esc(appointment.petName || '—')}</strong><small>${esc(appointment.petSize || '')}</small></div><div><span>Data</span><strong>${esc(appointment.startsAt ? docDateTime(appointment.startsAt) : '—')}</strong></div><div><span>Status</span><strong>${esc(appointment.statusName || appointment.status || '—')}</strong></div><div><span>Pagamento</span><strong>${esc(paymentStatusText)}</strong></div><div><span>Forma de pagamento</span><strong>${esc(paymentMethodText)}</strong></div></div>
       <table class="doc-table"><thead><tr><th>Serviço</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${items.map(item=>`<tr><td>${esc(item.description || item.name || 'Serviço')}</td><td>${esc(item.quantity || 1)}</td><td>${money(item.unitPriceCents)}</td><td>${money(item.totalCents)}</td></tr>`).join('') || `<tr><td colspan="4">${esc(appointment.services || 'Sem itens detalhados.')}</td></tr>`}</tbody></table>
       <div class="doc-totals"><div><span>Total original</span><strong>${money(totals.subtotalCents ?? appointment.subtotalCents)}</strong></div><div><span>Desconto</span><strong>${money(totals.discountCents ?? appointment.discountCents)} · ${discountPercent}%</strong></div><div class="doc-total-final"><span>Total final</span><strong>${money(totals.totalCents ?? appointment.totalCents)}</strong></div></div>
       <footer class="doc-footer">${isReceipt ? 'Obrigado pela confiança no PetFunny. Recibo gerado eletronicamente.' : 'Esta comanda é uma conferência interna do atendimento. O recibo é liberado após a baixa do pagamento.'}</footer>
@@ -1178,7 +1179,7 @@
       ? items.map(item => `<tr><td>${esc(item.description || item.serviceName || 'Serviço')}</td><td>${esc(item.quantity || 1)}</td><td>${money(item.unitPriceCents ?? item.priceCents)}</td><td>${money(item.totalCents ?? (Number(item.unitPriceCents || item.priceCents || 0) * Number(item.quantity || 1)))}</td></tr>`).join('')
       : '<tr><td colspan="4">Nenhum serviço vinculado ao pacote.</td></tr>';
     const appointmentRows = appointments.length
-      ? appointments.map(item => `<tr><td>${esc(item.packageSessionLabel || `${item.packageSessionNumber || ''} de ${item.packageTotalSessions || ''}`)}</td><td>${esc(item.startsAt ? dt(item.startsAt).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' }) : 'Data a confirmar')}</td><td>${esc(item.status || 'agendado')}</td><td>${money(item.totalCents || 0)}</td></tr>`).join('')
+      ? appointments.map(item => `<tr><td>${esc(item.packageSessionLabel || `${item.packageSessionNumber || ''} de ${item.packageTotalSessions || ''}`)}</td><td>${esc(item.startsAt ? docDateTime(item.startsAt) : 'Data a confirmar')}</td><td>${esc(item.status || 'agendado')}</td><td>${money(item.totalCents || 0)}</td></tr>`).join('')
       : '<tr><td colspan="4">Nenhum agendamento gerado para este pacote.</td></tr>';
     return `<article class="print-document agenda-inline-document">
       <div class="doc-brand"><img src="/assets/img/logo-petfunny-full.png" alt="PetFunny"><div><strong>${esc(business.name || 'PetFunny - Banho e Tosa')}</strong><small>${esc(business.address || 'Ribeirão Preto / SP')} · WhatsApp ${esc(business.whatsapp || '')}</small></div></div>

@@ -10729,7 +10729,7 @@ function publicPackageDocumentHtml(data, type = 'command') {
     : '<tr><td colspan="4">Nenhum serviço vinculado ao pacote.</td></tr>';
   const appointmentRows = (data.appointments || []).length
     ? (data.appointments || []).map((item) => {
-        const dateText = item.startsAt ? new Date(item.startsAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Data a confirmar';
+        const dateText = formatDocumentDateTimePt(item.startsAt, 'Data a confirmar');
         return `<tr><td>${publicDocEsc(item.packageSessionLabel || `${item.packageSessionNumber || ''} de ${item.packageTotalSessions || ''}`)}</td><td>${publicDocEsc(dateText)}</td><td>${publicDocEsc(item.status || 'agendado')}</td><td>${moneyPublic(item.totalCents)}</td></tr>`;
       }).join('')
     : '<tr><td colspan="4">Nenhum agendamento gerado para este pacote.</td></tr>';
@@ -10768,7 +10768,7 @@ function publicCommandHtml(data) {
   const totals = data.totals || {};
   const items = appointment.items || [];
   const moneyPublic = (cents = 0) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cents || 0) / 100);
-  const dateText = appointment.startsAt ? new Date(appointment.startsAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  const dateText = formatDocumentDateTimePt(appointment.startsAt, '—');
   const rows = items.length
     ? items.map(item => `<tr><td>${publicDocEsc(item.description || item.name || 'Serviço')}</td><td>${publicDocEsc(item.quantity || 1)}</td><td>${moneyPublic(item.unitPriceCents)}</td><td>${moneyPublic(item.totalCents)}</td></tr>`).join('')
     : `<tr><td colspan="4">${publicDocEsc(appointment.services || 'Atendimento PetFunny')}</td></tr>`;
@@ -13400,6 +13400,17 @@ function formatDateTimePt(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDocumentDateTimePt(value, fallback = '—') {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return date.toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    dateStyle: 'short',
+    timeStyle: 'short'
+  });
 }
 
 function buildWhatsAppUrl(phone, message) {

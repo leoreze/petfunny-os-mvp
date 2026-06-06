@@ -1,1 +1,1 @@
-FunnyOS v1.6.94 — Agenda tags de pagamento vermelho/verde nos cards
+FunnyOS v1.6.95 — Comanda com horário local PetFunny sem deslocamento UTC

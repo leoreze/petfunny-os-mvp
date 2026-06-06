@@ -16,7 +16,7 @@
   import { showToast } from '/assets/js/toast.js';
 
   const money = (cents=0)=>(Number(cents||0)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-  const dt = (v)=>v ? new Date(v).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : '—';
+  const dt = (v)=>v ? new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'short',timeStyle:'short'}) : '—';
   let state = { items: [], activeDocument: null };
 
   const content = `
