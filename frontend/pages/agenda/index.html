@@ -85,7 +85,15 @@
   const statusColor = (code) => statusByCode(code).color || '#00A9B7';
   const statusName = (code) => statusByCode(code).name || code;
   const paymentStatusName = (code) => (state.paymentStatuses || []).find(p => p.code === code)?.name || (code === 'paid' ? 'Pago' : 'Pendente');
-  const isPaymentPaid = (appointment = {}) => String(appointment.paymentStatus || '').toLowerCase() === 'paid' || String(paymentStatusName(appointment.paymentStatus)).toLowerCase() === 'pago';
+  const isPaymentPaid = (appointment = {}) => String(appointment.paymentStatus || '').toLowerCase() === 'paid' || String(appointment.paymentStatusName || paymentStatusName(appointment.paymentStatus)).toLowerCase() === 'pago';
+  const paymentStatusTag = (appointment = {}, extraClass = '') => {
+    const paid = isPaymentPaid(appointment);
+    const label = paid ? 'Pago' : 'Pendente';
+    const method = String(appointment.paymentMethodName || '').trim();
+    const extra = String(extraClass || '').trim();
+    const title = method ? `Pagamento ${label} · ${method}` : `Pagamento ${label}`;
+    return `<span class="agenda-payment-tag ${paid ? 'is-paid' : 'is-pending'}${extra ? ` ${esc(extra)}` : ''}" title="${esc(title)}"><span class="agenda-payment-dot" aria-hidden="true"></span>${esc(label)}</span>`;
+  };
   const sourceBadge = (appointment = {}) => String(appointment.source || '').toLowerCase() === 'app_tutor' ? '<span class="admin-source-badge-app">📱 Veio pelo app do tutor</span>' : '';
   const packageSessionText = (appointment = {}) => {
     const label = String(appointment.packageSessionLabel || '').trim();
@@ -1135,7 +1143,7 @@
         <div class="appointment-card-main"><h3 class="appointment-card-title"><span class="appointment-title-main">${esc(a.petName || 'Pet')}</span></h3><small>${hm(a.startsAt)} · ${esc(a.tutorName || 'Tutor')}</small>${sourceBadge(a)}</div>
       </div>
       <p><strong>${esc(a.services || 'Serviço não informado')}</strong></p>
-      <div class="appointment-meta-row"><small>${esc(a.collaboratorName || 'Equipe PetFunny')}<span class="payment-info-line">${esc(paymentStatusName(a.paymentStatus))}${a.paymentMethodName ? ` · ${esc(a.paymentMethodName)}` : ''}</span></small><b>${money(a.totalCents)}</b></div>
+      <div class="appointment-meta-row"><small>${esc(a.collaboratorName || 'Equipe PetFunny')}<span class="payment-info-line payment-tag-line">${paymentStatusTag(a, 'small')}${a.paymentMethodName ? `<span class="agenda-payment-method">${esc(a.paymentMethodName)}</span>` : ''}</span></small><b>${money(a.totalCents)}</b></div>
     </article>`;
   }
 
@@ -1288,7 +1296,6 @@
   }
 
   function calendarEvent(a, compact = false) {
-    const paymentLine = `${paymentStatusName(a.paymentStatus)}${a.paymentMethodName ? ` · ${a.paymentMethodName}` : ''}`;
     const st = statusByCode(a.status);
     const color = st.color || statusColor(a.status);
     const packageBadge = packageSessionBadge(a, 'calendar-session-badge');
@@ -1299,7 +1306,7 @@
         <div class="cal-event-text">
           ${packageBadge ? `<div class="calendar-package-line">${packageBadge}</div>` : ''}
           <strong class="calendar-event-title"><span class="calendar-event-time">${hm(a.startsAt)}</span><span class="calendar-event-separator">·</span><span class="calendar-event-pet">${esc(a.petName || 'Pet')}</span></strong>
-          <small>${esc(a.tutorName || 'Tutor')}${compact ? '' : ` · ${money(a.totalCents)}`}<span class="payment-info-line">${esc(paymentLine)}</span><span class="mini-status-name">${esc(st.name || a.status)}</span></small>
+          <small>${esc(a.tutorName || 'Tutor')}${compact ? '' : ` · ${money(a.totalCents)}`}<span class="payment-info-line payment-tag-line calendar-payment-tag-line">${paymentStatusTag(a, 'mini')}${a.paymentMethodName && !compact ? `<span class="agenda-payment-method">${esc(a.paymentMethodName)}</span>` : ''}</span><span class="mini-status-name">${esc(st.name || a.status)}</span></small>
         </div>
       </div>
     </article>`;

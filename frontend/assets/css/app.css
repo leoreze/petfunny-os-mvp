@@ -14288,3 +14288,74 @@ body.client-radar-page .client-radar-actions .btn {
   .calendar-appointment-card .calendar-package-line .calendar-session-badge,
   .agenda-compact-card .appointment-package-line .status-package-badge { font-size: .66rem; padding-inline: 6px; }
 }
+
+/* v1.6.94 — Agenda: tags visuais de pagamento em todos os cards */
+.agenda-page .agenda-payment-tag {
+  --agenda-payment-color: #dc2626;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, .11);
+  border: 1px solid rgba(220, 38, 38, .28);
+  color: #991b1b;
+  font-size: .74rem;
+  line-height: 1;
+  font-weight: 950;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px rgba(220, 38, 38, .08);
+}
+.agenda-page .agenda-payment-tag.is-paid {
+  --agenda-payment-color: #16a34a;
+  background: rgba(22, 163, 74, .12);
+  border-color: rgba(22, 163, 74, .30);
+  color: #166534;
+  box-shadow: 0 8px 18px rgba(22, 163, 74, .08);
+}
+.agenda-page .agenda-payment-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--agenda-payment-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--agenda-payment-color) 16%, transparent);
+  flex: 0 0 auto;
+}
+.agenda-page .agenda-payment-tag.small {
+  padding: 6px 9px;
+  font-size: .72rem;
+}
+.agenda-page .agenda-payment-tag.mini {
+  padding: 5px 8px;
+  font-size: .68rem;
+}
+.agenda-page .payment-tag-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+.agenda-page .agenda-payment-method {
+  color: rgba(38,48,95,.66);
+  font-weight: 850;
+  font-size: .72rem;
+}
+.agenda-page .calendar-payment-tag-line {
+  margin-top: 5px;
+  gap: 6px;
+}
+.agenda-page .calendar-appointment-card .agenda-payment-tag {
+  max-width: 100%;
+}
+@media (max-width: 760px) {
+  .agenda-page .agenda-payment-tag.small,
+  .agenda-page .agenda-payment-tag.mini {
+    padding: 5px 7px;
+    font-size: .66rem;
+  }
+}
