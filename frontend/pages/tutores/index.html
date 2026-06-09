@@ -122,6 +122,7 @@
             <thead><tr>
               <th><button class="th-sort" type="button" data-sort="name">Tutor <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="whatsapp">Contato <span class="sort-arrow">↕</span></button></th>
+              <th><button class="th-sort" type="button" data-sort="sentMessagesCount">Mensagens <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="petsCount">Pets <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="appointmentsCount">Agendamentos <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="lastAppointmentAt">Último agendamento <span class="sort-arrow">↕</span></button></th>
@@ -282,6 +283,7 @@
     return `<tr data-id="${item.id}">
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(item.city || 'Ribeirão Preto')} / ${esc(item.state || 'SP')}</small></div></div></td>
       <td><strong>${formatWhatsapp(item.whatsapp)}</strong><br><small>${esc(lastPetLabel(item))}</small></td>
+      <td><span class="status-pill info">${Number(item.sentMessagesCount || 0)}</span><br><small>${item.lastMessageAt ? `última: ${formatDateBR(item.lastMessageAt)}` : 'sem envio registrado'}</small></td>
       <td><strong>${item.petsCount || 0}</strong><small>pet(s) vinculados</small></td>
       <td><strong>${item.appointmentsCount || 0}</strong><small>agendamento(s)</small></td>
       <td><strong>${esc(lastAppointment)}</strong><small>${item.lastAppointmentAt ? 'último registro' : 'sem histórico'}</small></td>
@@ -335,7 +337,7 @@
   }
 
   function sortValue(item, key) {
-    if (key === 'petsCount' || key === 'appointmentsCount') return Number(item[key] || 0);
+    if (key === 'petsCount' || key === 'appointmentsCount' || key === 'sentMessagesCount') return Number(item[key] || 0);
     if (key === 'daysWithoutAppointment') return item.daysWithoutAppointment === null || item.daysWithoutAppointment === undefined ? -1 : Number(item.daysWithoutAppointment || 0);
     if (key === 'updatedAt' || key === 'lastAppointmentAt') return item[key] ? new Date(item[key]).getTime() : 0;
     return String(item[key] || '').toLowerCase();
@@ -375,6 +377,7 @@
       <div class="admin-entity-grid">
         <span><b>Pets</b>${Number(item.petsCount || 0)} vinculado(s)</span>
         <span><b>Agendamentos</b>${Number(item.appointmentsCount || 0)} registro(s)</span>
+        <span><b>Mensagens</b>${Number(item.sentMessagesCount || 0)} enviada(s)</span>
         <span><b>Último</b>${esc(lastAppointment)}</span>
         <span><b>Sem agendar</b>${esc(days)}</span>
       </div>
@@ -610,10 +613,25 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
     return messages[resolved] || messages.active;
   }
 
-  function openWhatsappToTutor(tutor, message) {
+  async function openWhatsappToTutor(tutor, message, subject = 'Mensagem WhatsApp PetFunny') {
     const phone = onlyDigits(tutor?.whatsapp || '');
     if (!phone) return toast('Este tutor não possui WhatsApp cadastrado.', 'warning');
-    window.open(`https://wa.me/55${phone.replace(/^55/, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+    const text = String(message || '').trim();
+    if (!text) return toast('Mensagem vazia. Não foi possível enviar.', 'warning');
+    try {
+      if (tutor?.id) {
+        const result = await api.post(`/api/crm/tutors/${encodeURIComponent(tutor.id)}/interactions`, { channel: 'whatsapp', subject, message: text });
+        const item = state.items.find((row) => row.id === tutor.id);
+        if (item) {
+          item.sentMessagesCount = Number(result.sentMessagesCount ?? item.sentMessagesCount ?? 0);
+          item.lastMessageAt = result.lastMessageAt || new Date().toISOString();
+          renderTutores();
+        }
+      }
+    } catch (error) {
+      toast(error.message || 'Não consegui registrar a mensagem no CRM, mas vou abrir o WhatsApp.', 'warning');
+    }
+    window.open(`https://wa.me/55${phone.replace(/^55/, '')}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
   }
 
   function formatDateTimeBR(value) {
@@ -914,7 +932,7 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
     if (appMessage) {
       closeTutorMenus();
       const tutor = tutorById(appMessage.dataset.id);
-      openWhatsappToTutor(tutor, appAccessMessage(tutor));
+      await openWhatsappToTutor(tutor, appAccessMessage(tutor), 'Ativação do App PetFunny');
       return;
     }
     if (accessLog) {
@@ -925,7 +943,7 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
     if (crmMessage) {
       closeTutorMenus();
       const tutor = tutorById(crmMessage.dataset.id);
-      openWhatsappToTutor(tutor, crmMessageForTutor(tutor, crmMessage.dataset.kind || 'auto'));
+      await openWhatsappToTutor(tutor, crmMessageForTutor(tutor, crmMessage.dataset.kind || 'auto'), 'Mensagem CRM sugerida');
       return;
     }
     if (edit) {

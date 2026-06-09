@@ -14446,3 +14446,125 @@ body.client-radar-page .client-radar-actions .btn {
     min-width: 178px;
   }
 }
+
+/* v1.6.98 · CRM e tutores: mensagens enviadas e ações no menu */
+.status-pill.info {
+  background: rgba(38,185,199,.13);
+  color: #087d88;
+  border-color: rgba(38,185,199,.22);
+}
+.crm-marketing-page .crm-kebab-wrap,
+.crm-marketing-page .kebab-wrap {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  overflow: visible;
+}
+.crm-marketing-page .kebab-menu,
+.crm-marketing-page .app-kebab-menu,
+.crm-marketing-page .crm-action-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 99990;
+  min-width: 238px;
+  max-width: min(320px, calc(100vw - 34px));
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(13,57,94,.12);
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 24px 80px rgba(7,27,44,.18);
+  display: none;
+  text-align: left;
+}
+.crm-marketing-page .kebab-wrap.open .kebab-menu,
+.crm-marketing-page .kebab-wrap.open .app-kebab-menu,
+.crm-marketing-page .kebab-wrap.open .crm-action-menu {
+  display: grid;
+  gap: 4px;
+  animation: pf-fade-up .16s var(--pf-ease) both;
+}
+.crm-marketing-page .kebab-menu button,
+.crm-marketing-page .kebab-menu a,
+.crm-marketing-page .app-kebab-menu button,
+.crm-marketing-page .app-kebab-menu a,
+.crm-marketing-page .crm-action-menu button,
+.crm-marketing-page .crm-action-menu a {
+  border: 0;
+  width: 100%;
+  background: transparent;
+  text-align: left;
+  padding: 10px 11px;
+  border-radius: 12px;
+  color: var(--pf-blue-900);
+  font-weight: 850;
+  font-size: .9rem;
+  line-height: 1.25;
+  text-decoration: none;
+  cursor: pointer;
+}
+.crm-marketing-page .kebab-menu button:hover,
+.crm-marketing-page .kebab-menu a:hover,
+.crm-marketing-page .app-kebab-menu button:hover,
+.crm-marketing-page .app-kebab-menu a:hover,
+.crm-marketing-page .crm-action-menu button:hover,
+.crm-marketing-page .crm-action-menu a:hover {
+  background: var(--pf-menu-hover, rgba(38,185,199,.10));
+}
+.crm-message-preview {
+  margin: 7px 0 4px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: rgba(38,185,199,.08);
+  border: 1px solid rgba(38,185,199,.14);
+  color: rgba(13,57,94,.86);
+  font-size: .82rem;
+  line-height: 1.42;
+  max-width: 420px;
+  white-space: normal;
+}
+.crm-action-card {
+  position: relative;
+  padding-right: 58px;
+}
+.crm-action-card .crm-kebab-wrap {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+}
+.crm-action-card .crm-action-menu {
+  right: 0;
+}
+.crm-card-copy { display: grid; gap: 5px; min-width: 0; }
+@media (max-width: 760px) {
+  .crm-action-card { padding-right: 16px; padding-top: 58px; }
+  .crm-action-card .crm-kebab-wrap { top: 14px; right: 14px; }
+  .crm-message-preview { max-width: 100%; }
+}
+
+
+/* v1.6.99 · CRM: botão direto de envio nas prioridades de hoje */
+.crm-priority-card .crm-message-preview {
+  margin-bottom: 8px;
+}
+.crm-priority-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.crm-send-direct {
+  width: fit-content;
+  box-shadow: 0 10px 24px rgba(1,173,183,.18);
+}
+.crm-send-direct[disabled] {
+  opacity: .65;
+  cursor: not-allowed;
+}
+@media (max-width: 760px) {
+  .crm-priority-actions .crm-send-direct {
+    width: 100%;
+    justify-content: center;
+  }
+}

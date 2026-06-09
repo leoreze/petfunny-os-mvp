@@ -2375,6 +2375,20 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
              t.tags, t.notes, t.status, t.created_at, t.updated_at,
              COUNT(DISTINCT p.id) FILTER (WHERE p.deleted_at IS NULL)::int AS pets_count,
              COUNT(DISTINCT a.id) FILTER (WHERE a.deleted_at IS NULL)::int AS appointments_count,
+             (
+               SELECT COUNT(*)::int
+               FROM crm_interactions ci
+               LEFT JOIN crm_leads cl ON cl.id = ci.lead_id
+               WHERE COALESCE(ci.tutor_id, cl.tutor_id) = t.id
+                 AND COALESCE(lower(ci.direction), 'outbound') IN ('outbound','sent','enviada','enviado')
+             ) AS sent_messages_count,
+             (
+               SELECT MAX(ci.occurred_at)
+               FROM crm_interactions ci
+               LEFT JOIN crm_leads cl ON cl.id = ci.lead_id
+               WHERE COALESCE(ci.tutor_id, cl.tutor_id) = t.id
+                 AND COALESCE(lower(ci.direction), 'outbound') IN ('outbound','sent','enviada','enviado')
+             ) AS last_message_at,
              COALESCE(MAX(a.starts_at), NULL) AS last_appointment_at,
              (
                SELECT p_last.name
@@ -2439,6 +2453,8 @@ app.get('/api/tutores', requireAuth, async (req, res, next) => {
         notes: row.notes,
         petsCount: Number(row.pets_count || 0),
         appointmentsCount: Number(row.appointments_count || 0),
+        sentMessagesCount: Number(row.sent_messages_count || 0),
+        lastMessageAt: row.last_message_at || null,
         lastAppointmentAt: row.last_appointment_at,
         lastPetName: row.last_pet_name || null,
         daysWithoutAppointment: row.days_without_appointment === null || row.days_without_appointment === undefined ? null : Number(row.days_without_appointment),
@@ -11040,6 +11056,33 @@ async function syncAppCrmLead({ whatsapp, tutorId = null, name = '', email = '',
   }
 }
 
+
+app.post('/api/crm/tutors/:id/interactions', requireAuth, async (req, res, next) => {
+  try {
+    const tutorId = cleanText(req.params.id);
+    const message = cleanText(req.body?.message);
+    if (!message) return res.status(400).json({ error: 'Informe a mensagem enviada.' });
+    const tutor = await query('SELECT id, name, whatsapp FROM tutors WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [tutorId]);
+    if (!tutor.rowCount) return res.status(404).json({ error: 'Tutor não encontrado.' });
+    const result = await query(`
+      INSERT INTO crm_interactions (lead_id, tutor_id, channel, direction, subject, message, occurred_at)
+      VALUES (NULL, $1::uuid, $2::text, 'outbound', $3::text, $4::text, NOW())
+      RETURNING *
+    `, [tutorId, cleanText(req.body?.channel) || 'whatsapp', cleanText(req.body?.subject) || 'Mensagem WhatsApp PetFunny', message]);
+    const count = await query(`
+      SELECT COUNT(*)::int AS sent_messages_count, MAX(occurred_at) AS last_message_at
+      FROM crm_interactions
+      WHERE tutor_id=$1::uuid AND COALESCE(lower(direction), 'outbound') IN ('outbound','sent','enviada','enviado')
+    `, [tutorId]);
+    res.status(201).json({
+      interaction: sanitizeCrmInteraction(result.rows[0]),
+      sentMessagesCount: Number(count.rows[0]?.sent_messages_count || 0),
+      lastMessageAt: count.rows[0]?.last_message_at || null,
+      message: 'Mensagem registrada no CRM.'
+    });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/crm/options', requireAuth, async (req, res, next) => {
   try {
     const tutors = await query(`
@@ -11136,11 +11179,46 @@ app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
     return { code: 'inativo_30', label: 'Inativo 30+ dias', days, tone: 'danger' };
   };
   const actionFor = (row) => {
-    if (!row.totalAccesses) return { code: 'ativar_app', label: 'Ativar app', message: `Oi, ${row.name}! Agora você pode acompanhar os cuidados do seu pet pelo App PetFunny: https://agendapetfunny.com.br/app` };
-    if (row.crmStatus.code === 'novo_lead') return { code: 'primeiro_agendamento', label: 'Convidar para agendar', message: `Oi, ${row.name}! Vi que seu cadastro já está no PetFunny. Que tal agendar o primeiro cuidado do seu pet pelo app? https://agendapetfunny.com.br/app` };
-    if (['em_atencao','em_risco','perdido'].includes(row.crmStatus.code)) return { code: 'reativar', label: 'Reativar cliente', message: `Oi, ${row.name}! Sentimos falta do seu pet por aqui 🐾 Já faz um tempinho desde o último cuidado. Você pode escolher um horário pelo App PetFunny: https://agendapetfunny.com.br/app` };
-    if (!row.activePackages) return { code: 'ofertar_pacote', label: 'Ofertar pacote', message: `Oi, ${row.name}! Pelo histórico do seu pet, um pacote PetFunny pode ajudar a manter a rotina com economia. Quer ver as opções no app? https://agendapetfunny.com.br/app` };
-    return { code: 'manter_recorrencia', label: 'Manter recorrência', message: `Oi, ${row.name}! Passando para lembrar que a rotina do seu pet está em boas mãos 💚 Veja próximos cuidados e mimos no App PetFunny: https://agendapetfunny.com.br/app` };
+    const name = row.name || 'tudo bem';
+    const petText = row.petNames ? ` do ${String(row.petNames).split(',')[0].trim()}` : ' do seu pet';
+    const daysText = row.daysWithoutAppointment === null || row.daysWithoutAppointment === undefined
+      ? 'Ainda não encontrei um atendimento recente registrado.'
+      : `Já faz ${row.daysWithoutAppointment} dia${Number(row.daysWithoutAppointment) === 1 ? '' : 's'} desde o último cuidado.`;
+    if (!row.totalAccesses) return {
+      code: 'ativar_app',
+      label: 'Ativar app do tutor',
+      subject: 'Ativação do App PetFunny',
+      reason: 'Tutor ainda não tem acesso registrado no App do Tutor.',
+      message: `Oi, ${name}! Aqui é da PetFunny 🐾 Liberamos seu acesso ao App do Tutor para acompanhar agenda, pacotes, mimos, fotos do atendimento e cuidados${petText}. Acesse pelo link: https://agendapetfunny.com.br/app`
+    };
+    if (row.crmStatus.code === 'novo_lead') return {
+      code: 'primeiro_agendamento',
+      label: 'Convidar para primeiro agendamento',
+      subject: 'Convite para primeiro agendamento',
+      reason: 'Tutor cadastrado sem agendamento no histórico.',
+      message: `Oi, ${name}! Tudo bem? Vi que seu cadastro já está no PetFunny, mas ainda não encontrei o primeiro agendamento${petText}. Quer escolher um horário para banho, tosa ou avaliação de bem-estar? Acesse: https://agendapetfunny.com.br/app`
+    };
+    if (['em_atencao','em_risco','perdido'].includes(row.crmStatus.code)) return {
+      code: 'reativar',
+      label: 'Reativar cliente',
+      subject: 'Reativação de cliente',
+      reason: daysText,
+      message: `Oi, ${name}! Sentimos falta de vocês por aqui 🐾 ${daysText} Pode ser um bom momento para renovar o cuidado${petText} com banho, tosa, hidratação ou Saúde 360. Veja os horários disponíveis: https://agendapetfunny.com.br/app`
+    };
+    if (!row.activePackages) return {
+      code: 'ofertar_pacote',
+      label: 'Ofertar pacote',
+      subject: 'Oferta de pacote PetFunny',
+      reason: `Cliente com ${row.appointmentsCount || 0} atendimento(s) e sem pacote ativo.`,
+      message: `Oi, ${name}! Pelo histórico${petText} aqui na PetFunny, um pacote mensal pode ajudar a manter a rotina com mais economia, agenda garantida e cuidado recorrente. Quer ver as opções? https://agendapetfunny.com.br/app`
+    };
+    return {
+      code: 'manter_recorrencia',
+      label: 'Manter recorrência',
+      subject: 'Manutenção da recorrência PetFunny',
+      reason: 'Cliente com pacote ou recorrência ativa.',
+      message: `Oi, ${name}! Passando para lembrar que a rotina${petText} está em boas mãos 💚 Você pode acompanhar próximos cuidados, pacotes, mimos e notificações pelo App PetFunny: https://agendapetfunny.com.br/app`
+    };
   };
   try {
     const tutors = await safeRows('tutores', `
@@ -11206,6 +11284,17 @@ app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
       WHERE deleted_at IS NULL
       GROUP BY tutor_id
     `);
+    const messages = await safeRows('mensagens_crm', `
+      SELECT target_tutor_id AS tutor_id, COUNT(*)::int AS sent_messages_count, MAX(occurred_at) AS last_message_at
+      FROM (
+        SELECT COALESCE(ci.tutor_id, cl.tutor_id) AS target_tutor_id, ci.occurred_at
+        FROM crm_interactions ci
+        LEFT JOIN crm_leads cl ON cl.id = ci.lead_id
+        WHERE COALESCE(lower(ci.direction), 'outbound') IN ('outbound','sent','enviada','enviado')
+      ) msg
+      WHERE target_tutor_id IS NOT NULL
+      GROUP BY target_tutor_id
+    `);
 
     const byTutor = (rows, key='tutor_id') => new Map(rows.filter(Boolean).map((r) => [String(r[key]), r]));
     const petMap = byTutor(pets);
@@ -11216,6 +11305,7 @@ app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
     const referralMap = byTutor(referrals);
     const accessMap = byTutor(accesses);
     const financeMap = byTutor(finance);
+    const messageMap = byTutor(messages);
 
     const items = tutors.map((tutor) => {
       const id = String(tutor.id);
@@ -11226,6 +11316,7 @@ app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
       const ref = referralMap.get(id) || {};
       const access = accessMap.get(id) || {};
       const fin = financeMap.get(id) || {};
+      const msg = messageMap.get(id) || {};
       const appointmentsCount = Number(appt.appointments_count || 0);
       const daysWithoutAppointment = daysBetween(appt.last_appointment_at);
       const totalAccesses = Number(access.total_accesses || 0);
@@ -11249,6 +11340,8 @@ app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
         referralsCount: Number(ref.referrals_count || 0),
         referralsConverted: convertedReferrals,
         paidCents: Number(fin.paid_cents || 0),
+        sentMessagesCount: Number(msg.sent_messages_count || 0),
+        lastMessageAt: msg.last_message_at || null,
         totalAccesses,
         firstAccessAt: access.first_access_at || null,
         lastAccessAt: access.last_access_at || null,
@@ -11276,7 +11369,8 @@ app.get('/api/crm/operational', requireAuth, async (req, res, next) => {
       pointsBalance: items.reduce((sum, item) => sum + item.pointsBalance, 0),
       referrals: items.reduce((sum, item) => sum + item.referralsCount, 0),
       convertedReferrals: items.reduce((sum, item) => sum + item.referralsConverted, 0),
-      activePackages: items.reduce((sum, item) => sum + item.activePackages, 0)
+      activePackages: items.reduce((sum, item) => sum + item.activePackages, 0),
+      sentMessages: items.reduce((sum, item) => sum + Number(item.sentMessagesCount || 0), 0)
     };
     const segments = [
       { code: 'novo_lead', label: 'Novos leads', count: metrics.newLeads, action: 'Convidar para primeiro agendamento' },

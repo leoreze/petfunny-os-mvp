@@ -122,7 +122,12 @@
     return 20;
   };
   const badgeClass = (tone='info') => tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : tone === 'success' ? 'success' : tone === 'gold' ? 'warning' : 'soft';
-  const whatsappUrl = (phone, message) => `https://wa.me/${wa(phone)}?text=${encodeURIComponent(message || '')}`;
+  const waNumber = (phone = '') => {
+    const digits = wa(phone);
+    if (!digits) return '';
+    return digits.startsWith('55') ? digits : `55${digits}`;
+  };
+  const whatsappUrl = (phone, message) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(message || '')}`;
 
   function filteredItems(){
     const q = state.search.trim().toLowerCase();
@@ -154,7 +159,8 @@
       ['Ossinhos ativos', String(m.pointsBalance || 0), 'saldo na base'],
       ['Indicações', String(m.referrals || 0), `${m.convertedReferrals || 0} convertidas`],
       ['Pacotes ativos', String(m.activePackages || 0), 'recorrência comercial'],
-      ['Acessos ao app', String(m.totalAccesses || 0), `${m.accessedToday || 0} hoje`]
+      ['Acessos ao app', String(m.totalAccesses || 0), `${m.accessedToday || 0} hoje`],
+      ['Mensagens enviadas', String(m.sentMessages || 0), 'registradas no CRM']
     ]);
   }
 
@@ -168,23 +174,97 @@
     `).join('');
   }
 
+  function messageCatalog(item){
+    const name = item.name || 'tudo bem';
+    const pet = item.petNames ? String(item.petNames).split(',')[0].trim() : 'seu pet';
+    return [
+      {
+        key: 'suggested',
+        label: item.suggestedAction?.label || 'Enviar mensagem sugerida',
+        subject: item.suggestedAction?.subject || 'Mensagem CRM sugerida',
+        message: item.suggestedAction?.message || `Oi, ${name}! Aqui é da PetFunny 🐾 Podemos te ajudar com o próximo cuidado do ${pet}? Acesse: https://agendapetfunny.com.br/app`
+      },
+      {
+        key: 'activate',
+        label: 'Ativar app',
+        subject: 'Ativação do App PetFunny',
+        message: `Oi, ${name}! Agora você pode acompanhar agenda, pacotes, mimos, fotos e cuidados do ${pet} pelo App PetFunny: https://agendapetfunny.com.br/app`
+      },
+      {
+        key: 'reactivate',
+        label: 'Reativar cliente',
+        subject: 'Reativação de cliente',
+        message: `Oi, ${name}! Sentimos falta de vocês por aqui 🐾 Que tal reservar o próximo cuidado do ${pet} na PetFunny? Escolha um horário pelo app: https://agendapetfunny.com.br/app`
+      },
+      {
+        key: 'package',
+        label: 'Ofertar pacote',
+        subject: 'Oferta de pacote PetFunny',
+        message: `Oi, ${name}! Temos pacotes para manter a rotina do ${pet} com economia, recorrência e agenda garantida. Quer ver as opções? https://agendapetfunny.com.br/app`
+      },
+      {
+        key: 'health',
+        label: 'Saúde 360',
+        subject: 'Saúde 360 PetFunny',
+        message: `Oi, ${name}! O App PetFunny também acompanha bem-estar, Saúde 360, alertas de cuidado e teleconsulta veterinária para o ${pet}. Acesse: https://agendapetfunny.com.br/app`
+      }
+    ];
+  }
+
+  function attr(value='') { return esc(value); }
+  function actionButton(item, option){
+    return `<button type="button" data-crm-send="${attr(item.id)}" data-phone="${attr(item.whatsapp)}" data-subject="${attr(option.subject)}" data-message="${attr(option.message)}">${esc(option.label)}</button>`;
+  }
+  function copyButton(item, option){
+    return `<button type="button" data-crm-copy="${attr(item.id)}" data-message="${attr(option.message)}">Copiar mensagem sugerida</button>`;
+  }
+  function suggestedOption(item){
+    return messageCatalog(item)[0] || {
+      label: 'Enviar mensagem sugerida',
+      subject: 'Mensagem CRM PetFunny',
+      message: item.suggestedAction?.message || ''
+    };
+  }
+  function directMessageButton(item, label='Enviar mensagem'){
+    const option = suggestedOption(item);
+    return `<button class="btn btn-sm crm-send-direct" type="button" data-crm-send="${attr(item.id)}" data-phone="${attr(item.whatsapp)}" data-subject="${attr(option.subject)}" data-message="${attr(option.message)}">💬 ${esc(label)}</button>`;
+  }
+
   function actionMenu(item){
-    const activation = `Oi, ${item.name}! Agora você pode acompanhar agenda, mimos, fotos e cuidados do seu pet pelo App PetFunny: https://agendapetfunny.com.br/app`;
-    const reactivation = `Oi, ${item.name}! Sentimos falta do seu pet por aqui 🐾 Você pode escolher o próximo horário pelo App PetFunny: https://agendapetfunny.com.br/app`;
-    const packageMsg = `Oi, ${item.name}! Temos pacotes para manter a rotina do seu pet com economia e recorrência. Veja pelo app: https://agendapetfunny.com.br/app`;
-    const healthMsg = `Oi, ${item.name}! O App PetFunny também acompanha Saúde 360, dicas de cuidado e teleconsulta veterinária. Acesse: https://agendapetfunny.com.br/app`;
-    return `<div class="kebab-wrap">
+    const options = messageCatalog(item);
+    const suggested = options[0];
+    return `<div class="kebab-wrap crm-kebab-wrap">
       <button class="icon-btn kebab-btn" type="button" aria-label="Ações">⋯</button>
-      <div class="kebab-menu app-kebab-menu">
-        <a target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, item.suggestedAction?.message)}">${esc(item.suggestedAction?.label || 'Enviar WhatsApp')}</a>
-        <a target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, activation)}">Ativar app</a>
-        <a target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, reactivation)}">Reativar cliente</a>
-        <a target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, packageMsg)}">Ofertar pacote</a>
-        <a target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, healthMsg)}">Saúde 360</a>
+      <div class="kebab-menu app-kebab-menu crm-action-menu">
+        ${actionButton(item, suggested)}
+        ${copyButton(item, suggested)}
+        ${options.slice(1).map((option) => actionButton(item, option)).join('')}
         <a href="/admin/tutores?tutor=${esc(item.id)}">Abrir tutor</a>
         <a href="/admin/app-acessos?tutor=${esc(item.id)}">Ver acessos</a>
       </div>
     </div>`;
+  }
+
+  async function sendCrmWhatsapp({ id, phone, message, subject }) {
+    const text = String(message || '').trim();
+    const cleanPhone = waNumber(phone || '');
+    if (!text) return toast('Mensagem vazia. Não foi possível enviar.', 'warning');
+    if (!cleanPhone) return toast('Este tutor não tem WhatsApp cadastrado.', 'warning');
+    try {
+      const result = await api.post(`/api/crm/tutors/${encodeURIComponent(id)}/interactions`, { channel: 'whatsapp', subject, message: text });
+      const item = state.items.find((row) => row.id === id);
+      if (item) {
+        const previousCount = Number(item.sentMessagesCount || 0);
+        item.sentMessagesCount = Number(result.sentMessagesCount ?? item.sentMessagesCount ?? 0);
+        item.lastMessageAt = result.lastMessageAt || new Date().toISOString();
+        const delta = Math.max(0, Number(item.sentMessagesCount || 0) - previousCount);
+        state.metrics.sentMessages = Number(state.metrics.sentMessages || 0) + (delta || 1);
+      }
+      renderMetrics(); renderRows(); renderPriority();
+    } catch (error) {
+      toast(error.message || 'Não consegui registrar a mensagem no CRM, mas vou abrir o WhatsApp.', 'warning');
+    }
+    window.open(whatsappUrl(cleanPhone, text), '_blank', 'noopener');
   }
 
   function renderRows(reset=false){
@@ -199,7 +279,7 @@
         <td><span class="badge ${badgeClass(item.crmStatus?.tone)}">${esc(item.crmStatus?.label || '—')}</span><br><small>${Number(item.activePackages || 0)} pacote(s) ativo(s)</small></td>
         <td><span class="badge ${badgeClass(item.appStatus?.tone)}">${esc(item.appStatus?.label || '—')}</span><br><small>${Number(item.totalAccesses || 0)} acesso(s) · ${esc(item.lastAction || item.lastPage || '—')}</small></td>
         <td><strong>🦴 ${Number(item.pointsBalance || 0)}</strong><br><small>${Number(item.referralsCount || 0)} indicação(ões) · ${Number(item.referralsConverted || 0)} convertida(s)</small></td>
-        <td><strong>${esc(item.suggestedAction?.label || 'Acompanhar')}</strong><br><small>${money(item.paidCents || 0)} em receita registrada</small></td>
+        <td><strong>${esc(item.suggestedAction?.label || 'Acompanhar')}</strong><br><small>${esc(item.suggestedAction?.reason || `${money(item.paidCents || 0)} em receita registrada`)}</small><p class="crm-message-preview">${esc(item.suggestedAction?.message || '')}</p><small>${Number(item.sentMessagesCount || 0)} mensagem(ns) enviada(s)</small></td>
         <td>${actionMenu(item)}</td>
       </tr>
     `).join('') || '<tr><td colspan="8">Nenhum tutor encontrado.</td></tr>';
@@ -209,9 +289,10 @@
 
   function renderPriority(){
     const priority = [...state.items].sort((a,b) => priorityScore(b)-priorityScore(a)).slice(0, 8);
-    $('priority-list').innerHTML = priority.map(item => `<article class="module-card compact-card"><strong>${esc(item.name)}</strong><small>${esc(item.crmStatus?.label)} · ${item.daysWithoutAppointment === null ? 'sem agendamento' : `${item.daysWithoutAppointment} dias sem agendar`}</small><p>${esc(item.suggestedAction?.label || '')}</p><a class="btn btn-secondary" target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, item.suggestedAction?.message)}">Enviar WhatsApp</a></article>`).join('') || '<p class="empty-small">Sem prioridades agora.</p>';
+    $('priority-list').innerHTML = priority.map(item => `<article class="module-card compact-card crm-action-card crm-priority-card"><div class="crm-card-copy"><strong>${esc(item.name)}</strong><small>${esc(item.crmStatus?.label)} · ${item.daysWithoutAppointment === null ? 'sem agendamento' : `${item.daysWithoutAppointment} dias sem agendar`}</small><p><b>${esc(item.suggestedAction?.label || '')}</b></p><p class="crm-message-preview">${esc(item.suggestedAction?.message || '')}</p><div class="crm-priority-actions">${directMessageButton(item)}</div></div>${actionMenu(item)}</article>`).join('') || '<p class="empty-small">Sem prioridades agora.</p>';
     const activation = state.items.filter(item => item.appStatus?.code === 'nunca_acessou').slice(0, 8);
-    $('activation-list').innerHTML = activation.map(item => `<article class="module-card compact-card"><strong>${esc(item.name)}</strong><small>${esc(item.whatsapp || 'Sem WhatsApp')} · ${Number(item.petsCount || 0)} pet(s)</small><p>Nunca acessou o App do Tutor.</p><a class="btn btn-secondary" target="_blank" rel="noopener" href="${whatsappUrl(item.whatsapp, `Oi, ${item.name}! Acesse o App PetFunny para acompanhar agenda, mimos, fotos e cuidados: https://agendapetfunny.com.br/app`)}">Ativar app</a></article>`).join('') || '<p class="empty-small">Todos os tutores principais já têm acesso registrado.</p>';
+    $('activation-list').innerHTML = activation.map(item => `<article class="module-card compact-card crm-action-card"><div class="crm-card-copy"><strong>${esc(item.name)}</strong><small>${esc(item.whatsapp || 'Sem WhatsApp')} · ${Number(item.petsCount || 0)} pet(s)</small><p>Nunca acessou o App do Tutor.</p><p class="crm-message-preview">${esc(messageCatalog(item)[0]?.message || '')}</p></div>${actionMenu(item)}</article>`).join('') || '<p class="empty-small">Todos os tutores principais já têm acesso registrado.</p>';
+    attachKebabMenus();
   }
 
   function attachKebabMenus(){
@@ -221,6 +302,28 @@
         const wrap = btn.closest('.kebab-wrap');
         document.querySelectorAll('.kebab-wrap.open').forEach(el => { if(el !== wrap) el.classList.remove('open'); });
         wrap?.classList.toggle('open');
+      };
+    });
+    document.querySelectorAll('[data-crm-send]').forEach(btn => {
+      btn.onclick = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const wrap = btn.closest('.kebab-wrap');
+        wrap?.classList.remove('open');
+        await sendCrmWhatsapp({ id: btn.dataset.crmSend, phone: btn.dataset.phone, subject: btn.dataset.subject || 'Mensagem CRM PetFunny', message: btn.dataset.message || '' });
+      };
+    });
+    document.querySelectorAll('[data-crm-copy]').forEach(btn => {
+      btn.onclick = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(btn.dataset.message || '');
+          toast('Mensagem copiada.', 'success');
+        } catch (error) {
+          toast('Não consegui copiar automaticamente. Selecione o texto da mensagem na tabela.', 'warning');
+        }
+        btn.closest('.kebab-wrap')?.classList.remove('open');
       };
     });
   }
