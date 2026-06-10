@@ -9881,6 +9881,17 @@ async function refreshCustomerPackageProgress(customerPackageId, { allowRenew = 
   return { renewed: false, usedSessions: finished };
 }
 
+async function releaseAdvisoryLock(client, key) {
+  if (!client) return;
+  try {
+    if (key) await client.query('SELECT pg_advisory_unlock(hashtext($1::text))', [key]);
+  } catch (error) {
+    console.warn('[pacotes] não foi possível liberar lock advisory:', error.message);
+  } finally {
+    client.release();
+  }
+}
+
 async function renewDueRecurringCustomerPackages() {
   const due = await query(`
     SELECT cp.id
@@ -10141,6 +10152,8 @@ app.delete('/api/pacotes/:id', requireAuth, async (req, res, next) => {
 
 
 app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next) => {
+  let historicalPackageLockClient = null;
+  let historicalPackageLockKey = '';
   try {
     const tutorId = cleanText(req.body?.tutorId);
     const petId = cleanText(req.body?.petId);
@@ -10154,6 +10167,7 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     const paymentMethodId = cleanText(req.body?.paymentMethodId);
     const notes = cleanText(req.body?.notes);
     const recurring = parseBool(req.body?.recurring, false);
+    const clientRequestId = cleanText(req.body?.clientRequestId);
     if (!tutorId || !petId || !packageId) return res.status(400).json({ error: 'Selecione tutor, pet e pacote.' });
     if (amountCents <= 0) return res.status(400).json({ error: 'Informe manualmente o valor final pago do pacote antigo.' });
     const pack = await query('SELECT * FROM packages WHERE id=$1::uuid AND deleted_at IS NULL LIMIT 1', [packageId]);
@@ -10175,12 +10189,55 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     }).length;
     const usedSessions = Math.min(computedUsedSessions, sessions);
     const status = recurring ? 'active' : (usedSessions >= sessions ? 'finished' : 'active');
+    const duplicateLockKey = `historical-package:${tutorId}:${petId}:${packageId}:${startsOn}:${firstTime}:${sessions}:${finalAmount}`;
     await query('BEGIN');
+    historicalPackageLockKey = duplicateLockKey;
+    if (pool) {
+      historicalPackageLockClient = await pool.connect();
+      await historicalPackageLockClient.query('SELECT pg_advisory_lock(hashtext($1::text))', [historicalPackageLockKey]);
+    }
+    const duplicate = await query(`
+      SELECT cp.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, pt.name AS pet_name, p.name AS package_name, pm.name AS payment_method_name,
+             COUNT(a.id)::int AS appointment_count,
+             (array_agg(a.id ORDER BY a.starts_at ASC) FILTER (WHERE a.id IS NOT NULL))[1] AS first_appointment_id
+      FROM customer_packages cp
+      INNER JOIN tutors t ON t.id = cp.tutor_id
+      LEFT JOIN pets pt ON pt.id = cp.pet_id
+      INNER JOIN packages p ON p.id = cp.package_id
+      LEFT JOIN payment_methods pm ON pm.id = cp.payment_method_id
+      LEFT JOIN appointments a ON a.customer_package_id = cp.id AND a.deleted_at IS NULL
+      WHERE cp.deleted_at IS NULL
+        AND cp.tutor_id = $1::uuid
+        AND cp.pet_id = $2::uuid
+        AND cp.package_id = $3::uuid
+        AND cp.starts_on = $4::date
+        AND cp.total_sessions = $5::integer
+        AND cp.amount_cents = $6::integer
+        AND COALESCE((cp.recurrence_rule->>'historicalImport')::boolean, FALSE) = TRUE
+        AND (
+          ($7::text <> '' AND cp.recurrence_rule->>'clientRequestId' = $7::text)
+          OR cp.created_at >= NOW() - INTERVAL '5 minutes'
+        )
+      GROUP BY cp.id, t.name, t.whatsapp, pt.name, p.name, pm.name
+      ORDER BY cp.created_at DESC
+      LIMIT 1
+    `, [tutorId, petId, packageId, startsOn, sessions, finalAmount, clientRequestId || '']);
+    if (duplicate.rowCount) {
+      await query('COMMIT');
+      await releaseAdvisoryLock(historicalPackageLockClient, historicalPackageLockKey);
+      historicalPackageLockClient = null;
+      return res.status(200).json({
+        duplicatePrevented: true,
+        customerPackage: sanitizeCustomerPackage(duplicate.rows[0]),
+        generatedAppointments: { created: 0, totalSessions: sessions, finishedSessions: Number(duplicate.rows[0].used_sessions || usedSessions), firstTime, intervalDays, recurring: Boolean(duplicate.rows[0].recurring || duplicate.rows[0].recurrence_rule?.enabled) },
+        message: 'Pacote antigo já havia sido importado. Duplicidade evitada.'
+      });
+    }
     const sold = await query(`
       INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule, created_at, updated_at)
-      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, $15::boolean, $5::date, jsonb_build_object('enabled', $15::boolean, 'historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'appointmentsPerMonth', $16::integer, 'intervalDays', $13::integer, 'reconstructedHistory', true, 'autoRenewUntilCancelled', $15::boolean), $5::date, NOW())
+      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, $15::boolean, $5::date, jsonb_build_object('enabled', $15::boolean, 'historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'appointmentsPerMonth', $16::integer, 'intervalDays', $13::integer, 'reconstructedHistory', true, 'autoRenewUntilCancelled', $15::boolean, 'clientRequestId', NULLIF($17::text, '')), $5::date, NOW())
       RETURNING *
-    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes, sessions, intervalDays, firstTime, recurring, perMonth]);
+    `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes, sessions, intervalDays, firstTime, recurring, perMonth, clientRequestId || '']);
     let generated = { created: 0, totalSessions: sessions, finishedSessions: usedSessions, firstTime, intervalDays, recurring };
     if (petId) {
       generated = await generateAppointmentsForCustomerPackage(sold.rows[0].id, { startsOn, firstTime, historicalImport: true });
@@ -10214,8 +10271,14 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       if (tx.rows[0]) await query(`INSERT INTO payments (financial_transaction_id, payment_method_id, amount_cents, paid_at, notes) VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::integer, $4::date, 'Pagamento histórico de pacote') ON CONFLICT DO NOTHING`, [tx.rows[0].id, paymentMethodId || '', Number(tx.rows[0].amount_cents || finalAmount), startsOn]);
     }
     await query('COMMIT');
+    await releaseAdvisoryLock(historicalPackageLockClient, historicalPackageLockKey);
+    historicalPackageLockClient = null;
     res.status(201).json({ customerPackage: sanitizeCustomerPackage({ ...sold.rows[0], package_name: packageRow.name }), generatedAppointments: generated, message: recurring ? 'Pacote antigo importado com recorrência automática e histórico reconstruído.' : 'Pacote antigo importado com histórico reconstruído.' });
-  } catch (error) { try { await query('ROLLBACK'); } catch {} next(error); }
+  } catch (error) {
+    try { await query('ROLLBACK'); } catch {}
+    await releaseAdvisoryLock(historicalPackageLockClient, historicalPackageLockKey);
+    next(error);
+  }
 });
 
 app.post('/api/pacotes/clientes', requireAuth, async (req, res, next) => {

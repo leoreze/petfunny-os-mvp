@@ -46,7 +46,8 @@
     saleSortBy: 'createdAt',
     saleSortDir: 'desc',
     packageViewMode: localStorage.getItem('admin_pacotes_view') || 'list',
-    saleViewMode: localStorage.getItem('admin_pacotes_vendidos_view') || 'list'
+    saleViewMode: localStorage.getItem('admin_pacotes_vendidos_view') || 'list',
+    savingHistoricalPackage: false
   };
 
   const content = `
@@ -255,7 +256,7 @@
           <label class="form-field mt-20"><span>Observações internas</span><textarea class="textarea" id="hist-package-notes" rows="4" placeholder="Ex.: pacote vendido no balcão antes da implantação do sistema..."></textarea></label>
           <p class="muted mt-20">O sistema gera as sessões a partir da data e horário escolhidos: datas passadas entram como finalizadas e datas futuras ficam agendadas. Se a recorrência estiver marcada, os ciclos antigos também serão reconstruídos até o ciclo atual/futuro. Nenhuma notificação é disparada para o tutor.</p>
         </div>
-        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-package-modal">Cancelar</button><button class="btn" type="submit">Salvar pacote antigo</button></footer>
+        <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-package-modal">Cancelar</button><button class="btn" id="save-historical-package-btn" type="submit">Salvar pacote antigo</button></footer>
       </form>
     </dialog>
 
@@ -853,6 +854,15 @@
 
   async function saveHistoricalPackage(ev) {
     ev.preventDefault();
+    if (state.savingHistoricalPackage) return;
+    state.savingHistoricalPackage = true;
+    const submitButton = ids('save-historical-package-btn');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.dataset.originalText = submitButton.dataset.originalText || submitButton.textContent;
+      submitButton.textContent = 'Salvando...';
+    }
+    const clientRequestId = `hist-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const payload = {
       tutorId: ids('hist-package-tutor').value,
       petId: ids('hist-package-pet').value,
@@ -864,18 +874,32 @@
       paymentStatus: ids('hist-package-payment').value,
       paymentMethodId: ids('hist-package-payment-method')?.value || '',
       recurring: ids('hist-package-recurring')?.checked || false,
-      notes: ids('hist-package-notes')?.value || ''
+      notes: ids('hist-package-notes')?.value || '',
+      clientRequestId
     };
     if (!payload.tutorId || !payload.petId || !payload.packageId || !payload.startsOn || !payload.firstTime || payload.amountCents <= 0) {
+      state.savingHistoricalPackage = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.originalText || 'Salvar pacote antigo';
+      }
       showPackageError(new Error('Preencha tutor, pet, pacote, data original, horário e valor final.'));
       return;
     }
-    await withLoading(async () => {
-      await api.post('/api/pacotes/clientes/historical', payload);
-      ids('historical-package-modal').close();
-      await loadPackages();
-      toast.success('Pacote antigo importado com sucesso.');
-    }, 'Importando pacote antigo...');
+    try {
+      await withLoading(async () => {
+        const response = await api.post('/api/pacotes/clientes/historical', payload);
+        ids('historical-package-modal').close();
+        await loadPackages();
+        toast.success(response?.duplicatePrevented ? 'Pacote antigo já havia sido salvo. Duplicidade evitada.' : 'Pacote antigo importado com sucesso.');
+      }, 'Importando pacote antigo...');
+    } finally {
+      state.savingHistoricalPackage = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.originalText || 'Salvar pacote antigo';
+      }
+    }
   }
 
   async function sellPackage(ev) {
