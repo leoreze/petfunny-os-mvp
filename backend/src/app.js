@@ -6433,7 +6433,7 @@ async function finalizePaidPackageIntent(intentId, providerStatus = 'approved', 
     if (!pack.rowCount) throw new Error('Pacote ativo não encontrado.');
     const packageRow = pack.rows[0];
     const perMonth = Number(packageRow.appointments_per_month || 4);
-    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
+    const intervalDays = resolvePackageIntervalDays({ totalSessions: Number(packageRow.sessions_count || 1), appointmentsPerMonth: perMonth });
     const isCardPayment = isCardLikeAppPaymentType(intent.payment_type || 'pix');
     const paymentMethod = await query(`SELECT id FROM payment_methods WHERE deleted_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE $2) ORDER BY sort_order ASC LIMIT 1`, isCardPayment ? ['%cart%', '%card%'] : ['%pix%', '%pix%']).catch(() => ({ rows: [] }));
     const paidViaCode = isCardPayment ? 'mercado_pago_card' : 'mercado_pago_pix';
@@ -8136,6 +8136,46 @@ function addDaysToDateString(dateValue, days = 0) {
   return parsed.toISOString().slice(0, 10);
 }
 
+
+function normalizeDateOnly(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+function getRecurrenceRule(rowOrRule) {
+  const raw = rowOrRule?.recurrence_rule ?? rowOrRule ?? {};
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function resolvePackageIntervalDays({ totalSessions = 0, appointmentsPerMonth = 0, recurrenceRule = {} } = {}) {
+  const rule = getRecurrenceRule(recurrenceRule);
+  const explicitDays = Number(rule.intervalDays || 0);
+  if (Number.isFinite(explicitDays) && explicitDays > 0) return explicitDays;
+  const sessions = Number(totalSessions || 0);
+  if (sessions >= 4) return 7;
+  if (sessions === 2) return 15;
+  const perMonth = Number(appointmentsPerMonth || 0);
+  if (perMonth >= 4) return 7;
+  if (perMonth === 2) return 15;
+  return 30;
+}
+
 function toIsoOrNull(value) {
   if (!value) return null;
   if (value instanceof Date) {
@@ -9714,8 +9754,8 @@ async function generateAppointmentsForCustomerPackage(customerPackageId, { start
   const contract = contractResult.rows[0];
   if (!contract?.pet_id) return { created: 0 };
   const perMonth = Number(contract.appointments_per_month || 4);
-  const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
   const totalSessions = Number(contract.total_sessions || contract.sessions_count || 1);
+  const intervalDays = resolvePackageIntervalDays({ totalSessions, appointmentsPerMonth: perMonth, recurrenceRule: contract.recurrence_rule });
   const cycleStart = cleanText(startsOn) || new Date().toISOString().slice(0, 10);
   const services = await query(`
     SELECT s.id, s.name, s.price_cents, s.duration_minutes, pi.quantity
@@ -9779,8 +9819,8 @@ async function ensureHistoricalRecurringCyclesForCustomerPackage(customerPackage
     return { renewedCycles: 0, created: 0 };
   }
   const perMonth = Number(cp.appointments_per_month || cp.recurrence_rule?.appointmentsPerMonth || 4);
-  const intervalDays = Number(cp.recurrence_rule?.intervalDays || (perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30));
   const totalSessions = Math.max(1, Number(cp.total_sessions || cp.sessions_count || 1));
+  const intervalDays = resolvePackageIntervalDays({ totalSessions, appointmentsPerMonth: perMonth, recurrenceRule: cp.recurrence_rule });
   let cycleStart = cleanText(cp.current_cycle_started_on) || cleanText(startsOn) || cleanText(cp.starts_on) || new Date().toISOString().slice(0, 10);
   let cycleNumber = Math.max(1, Number(cp.cycle_number || 1));
   let renewedCycles = 0;
@@ -9831,9 +9871,158 @@ async function ensureHistoricalRecurringCyclesForCustomerPackage(customerPackage
   return { renewedCycles, created, currentCycleStartedOn: cycleStart, usedSessions };
 }
 
+async function createNextRecurringCustomerPackageCycle(customerPackageId, { reason = 'auto_renewal' } = {}) {
+  const result = await query(`
+    SELECT cp.*, pk.appointments_per_month, pk.sessions_count, pk.price_cents, pk.name AS package_name
+    FROM customer_packages cp
+    INNER JOIN packages pk ON pk.id = cp.package_id
+    WHERE cp.id = $1::uuid AND cp.deleted_at IS NULL
+    LIMIT 1
+  `, [customerPackageId]);
+  const cp = result.rows[0];
+  if (!cp || !cp.pet_id) return { renewed: false, reason: 'missing_package_or_pet' };
+  const rule = getRecurrenceRule(cp);
+  const recurringEnabled = Boolean(cp.recurring || rule.enabled || rule.autoRenewUntilCancelled);
+  const cancelled = ['cancelled', 'canceled'].includes(String(cp.status || '').toLowerCase());
+  if (!recurringEnabled || cancelled) return { renewed: false, reason: 'not_recurring' };
+
+  const totalSessions = Math.max(1, Number(cp.total_sessions || cp.sessions_count || 1));
+  const perMonth = Number(cp.appointments_per_month || rule.appointmentsPerMonth || 4);
+  const intervalDays = resolvePackageIntervalDays({ totalSessions, appointmentsPerMonth: perMonth, recurrenceRule: rule });
+  const cycleStart = normalizeDateOnly(cp.current_cycle_started_on) || normalizeDateOnly(cp.starts_on) || new Date().toISOString().slice(0, 10);
+
+  const progress = await query(`
+    SELECT COUNT(DISTINCT COALESCE(a.package_session_number::text, a.id::text))::int AS finished_count,
+           MAX(a.starts_at)::date AS last_session_date,
+           to_char(MIN(a.starts_at AT TIME ZONE 'America/Sao_Paulo'), 'HH24:MI') AS first_session_time
+    FROM appointments a
+    WHERE a.customer_package_id = $1::uuid
+      AND a.deleted_at IS NULL
+      AND a.starts_at::date >= $2::date
+      AND a.status = 'finalizado'
+  `, [customerPackageId, cycleStart]);
+  const finished = Math.min(Number(progress.rows[0]?.finished_count || 0), totalSessions);
+  if (finished < totalSessions) {
+    await query(`
+      UPDATE customer_packages
+      SET used_sessions = $2::integer,
+          updated_at = NOW()
+      WHERE id = $1::uuid AND deleted_at IS NULL
+    `, [customerPackageId, finished]);
+    return { renewed: false, usedSessions: finished, reason: 'cycle_not_finished' };
+  }
+
+  const firstTime = cleanText(rule.firstTime) || cleanText(progress.rows[0]?.first_session_time) || '09:00';
+  const lastSessionDate = normalizeDateOnly(progress.rows[0]?.last_session_date)
+    || normalizeDateOnly(cp.ends_on)
+    || addDaysToDateString(cycleStart, (totalSessions - 1) * intervalDays);
+  const nextStart = addDaysToDateString(lastSessionDate, intervalDays);
+  const nextEndsOn = addDaysToDateString(nextStart, (totalSessions - 1) * intervalDays);
+  const nextCycleNumber = Math.max(1, Number(cp.cycle_number || 1)) + 1;
+
+  const duplicate = await query(`
+    SELECT id
+    FROM customer_packages
+    WHERE deleted_at IS NULL
+      AND tutor_id = $1::uuid
+      AND pet_id = $2::uuid
+      AND package_id = $3::uuid
+      AND starts_on = $4::date
+      AND total_sessions = $5::integer
+      AND (
+        recurrence_rule->>'renewedFromCustomerPackageId' = $6::text
+        OR recurrence_rule->>'previousCustomerPackageId' = $6::text
+      )
+    ORDER BY created_at DESC
+    LIMIT 1
+  `, [cp.tutor_id, cp.pet_id, cp.package_id, nextStart, totalSessions, String(customerPackageId)]);
+
+  let nextCustomerPackageId = duplicate.rows[0]?.id || null;
+  let generatedAppointments = { created: 0, totalSessions, intervalDays, startsOn: nextStart };
+  let duplicatePrevented = Boolean(nextCustomerPackageId);
+
+  if (!nextCustomerPackageId) {
+    const nextPackage = await query(`
+      INSERT INTO customer_packages (
+        tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions,
+        amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on,
+        cycle_number, recurrence_rule, created_at, updated_at
+      )
+      VALUES (
+        $1::uuid, $2::uuid, $3::uuid, 'active', $4::date, $5::date, $6::integer, 0,
+        $7::integer, $8::text, NULLIF($9::text,'')::uuid, TRUE, $4::date,
+        $10::integer,
+        jsonb_build_object(
+          'enabled', true,
+          'autoRenewUntilCancelled', true,
+          'renewedFromCustomerPackageId', $11::text,
+          'previousCustomerPackageId', $11::text,
+          'previousCycleNumber', $12::integer,
+          'source', $13::text,
+          'firstTime', $14::text,
+          'appointmentsPerMonth', $15::integer,
+          'intervalDays', $16::integer,
+          'generatedFromLastSessionOn', $17::text
+        ),
+        NOW(), NOW()
+      )
+      RETURNING id
+    `, [
+      cp.tutor_id,
+      cp.pet_id,
+      cp.package_id,
+      nextStart,
+      nextEndsOn,
+      totalSessions,
+      Number(cp.amount_cents || cp.price_cents || 0),
+      cleanText(cp.payment_status) || 'pending',
+      cleanText(cp.payment_method_id) || '',
+      nextCycleNumber,
+      String(customerPackageId),
+      Number(cp.cycle_number || 1),
+      reason,
+      firstTime,
+      perMonth,
+      intervalDays,
+      lastSessionDate
+    ]);
+    nextCustomerPackageId = nextPackage.rows[0]?.id;
+    generatedAppointments = await generateAppointmentsForCustomerPackage(nextCustomerPackageId, { startsOn: nextStart, firstTime, historicalImport: false });
+  }
+
+  await query(`
+    UPDATE customer_packages
+    SET status = 'finished',
+        used_sessions = $2::integer,
+        recurring = FALSE,
+        recurrence_rule = COALESCE(recurrence_rule, '{}'::jsonb) || jsonb_build_object(
+          'enabled', false,
+          'autoRenewed', true,
+          'renewedAt', NOW()::text,
+          'renewedToCustomerPackageId', $3::text,
+          'nextCycleStartsOn', $4::text,
+          'intervalDays', $5::integer,
+          'lastFinishedSessionOn', $6::text
+        ),
+        updated_at = NOW()
+    WHERE id = $1::uuid AND deleted_at IS NULL
+  `, [customerPackageId, totalSessions, String(nextCustomerPackageId || ''), nextStart, intervalDays, lastSessionDate]);
+
+  return {
+    renewed: true,
+    usedSessions: totalSessions,
+    newCustomerPackageId: nextCustomerPackageId,
+    nextStart,
+    intervalDays,
+    cycleNumber: nextCycleNumber,
+    duplicatePrevented,
+    generatedAppointments
+  };
+}
+
 async function refreshCustomerPackageProgress(customerPackageId, { allowRenew = true } = {}) {
   const result = await query(`
-    SELECT cp.*, pk.appointments_per_month
+    SELECT cp.*, pk.appointments_per_month, pk.sessions_count
     FROM customer_packages cp
     INNER JOIN packages pk ON pk.id = cp.package_id
     WHERE cp.id = $1::uuid AND cp.deleted_at IS NULL
@@ -9841,35 +10030,22 @@ async function refreshCustomerPackageProgress(customerPackageId, { allowRenew = 
   `, [customerPackageId]);
   const cp = result.rows[0];
   if (!cp) return null;
-  const cycleStart = cp.current_cycle_started_on || cp.starts_on;
+  const cycleStart = normalizeDateOnly(cp.current_cycle_started_on) || normalizeDateOnly(cp.starts_on) || new Date().toISOString().slice(0, 10);
   const done = await query(`
-    SELECT COUNT(*)::int AS finished_count, MAX(starts_at)::date AS last_session_date
+    SELECT COUNT(DISTINCT COALESCE(package_session_number::text, id::text))::int AS finished_count,
+           MAX(starts_at)::date AS last_session_date
     FROM appointments
     WHERE customer_package_id = $1::uuid
       AND deleted_at IS NULL
       AND starts_at::date >= $2::date
       AND status = 'finalizado'
   `, [customerPackageId, cycleStart]);
-  const finished = Math.min(Number(done.rows[0]?.finished_count || 0), Number(cp.total_sessions || 0));
-  const shouldRenew = Boolean(cp.recurring || cp.recurrence_rule?.enabled) && cp.status === 'active' && allowRenew && finished >= Number(cp.total_sessions || 0);
+  const totalSessions = Math.max(1, Number(cp.total_sessions || cp.sessions_count || 0));
+  const finished = Math.min(Number(done.rows[0]?.finished_count || 0), totalSessions);
+  const recurringEnabled = Boolean(cp.recurring || getRecurrenceRule(cp).enabled || getRecurrenceRule(cp).autoRenewUntilCancelled);
+  const shouldRenew = recurringEnabled && cp.status === 'active' && allowRenew && finished >= totalSessions;
   if (shouldRenew) {
-    const perMonth = Number(cp.appointments_per_month || cp.recurrence_rule?.appointmentsPerMonth || 4);
-    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
-    const base = done.rows[0]?.last_session_date || cycleStart;
-    const nextStart = new Date(`${base}T00:00:00`);
-    nextStart.setDate(nextStart.getDate() + intervalDays);
-    const nextStartText = nextStart.toISOString().slice(0, 10);
-    await query(`
-      UPDATE customer_packages
-      SET used_sessions = 0,
-          current_cycle_started_on = $2::date,
-          cycle_number = COALESCE(cycle_number, 1) + 1,
-          recurrence_rule = COALESCE(recurrence_rule, '{}'::jsonb) || jsonb_build_object('enabled', true, 'lastRenewedOn', $2::text, 'intervalDays', $3::integer),
-          updated_at = NOW()
-      WHERE id = $1::uuid
-    `, [customerPackageId, nextStartText, intervalDays]);
-    await generateAppointmentsForCustomerPackage(customerPackageId, { startsOn: nextStartText, firstTime: cp.recurrence_rule?.firstTime || '09:00' });
-    return { renewed: true, usedSessions: 0 };
+    return createNextRecurringCustomerPackageCycle(customerPackageId, { reason: 'auto_renewal_after_last_session' });
   }
   await query(`
     UPDATE customer_packages
@@ -10180,7 +10356,7 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     const sessions = Math.max(1, totalSessions || Number(packageRow.sessions_count || 1));
     const finalAmount = amountCents;
     const perMonth = Number(packageRow.appointments_per_month || 4);
-    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
+    const intervalDays = resolvePackageIntervalDays({ totalSessions: sessions, appointmentsPerMonth: perMonth });
     const computedUsedSessions = Array.from({ length: sessions }).filter((_, idx) => {
       const sessionDate = addDaysToDateString(startsOn, idx * intervalDays);
       const sessionStartsAt = saoPauloLocalToIso(sessionDate, firstTime || '09:00');
@@ -10244,15 +10420,22 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       generated.recurring = recurring;
       generated.finishedSessions = usedSessions;
       if (recurring) {
-        const recurringGeneration = await ensureHistoricalRecurringCyclesForCustomerPackage(sold.rows[0].id, { startsOn, firstTime });
-        generated.created = Number(generated.created || 0) + Number(recurringGeneration.created || 0);
-        generated.renewedCycles = Number(recurringGeneration.renewedCycles || 0);
-        generated.currentCycleStartedOn = recurringGeneration.currentCycleStartedOn || startsOn;
-        generated.finishedSessions = Number(recurringGeneration.usedSessions ?? usedSessions);
-        sold.rows[0].status = 'active';
-        sold.rows[0].recurring = true;
-        sold.rows[0].current_cycle_started_on = generated.currentCycleStartedOn;
-        sold.rows[0].used_sessions = generated.finishedSessions;
+        const renewalProgress = await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: true });
+        generated.finishedSessions = Number(renewalProgress?.usedSessions ?? usedSessions);
+        generated.renewed = Boolean(renewalProgress?.renewed);
+        generated.newCustomerPackageId = renewalProgress?.newCustomerPackageId || null;
+        generated.nextStart = renewalProgress?.nextStart || null;
+        generated.renewedCycles = renewalProgress?.renewed ? 1 : 0;
+        generated.created = Number(generated.created || 0) + Number(renewalProgress?.generatedAppointments?.created || 0);
+        if (renewalProgress?.renewed) {
+          sold.rows[0].status = 'finished';
+          sold.rows[0].recurring = false;
+          sold.rows[0].used_sessions = sessions;
+        } else {
+          sold.rows[0].status = 'active';
+          sold.rows[0].recurring = true;
+          sold.rows[0].used_sessions = generated.finishedSessions;
+        }
       } else {
         const progress = await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: false });
         if (progress) {
@@ -10300,13 +10483,14 @@ app.post('/api/pacotes/clientes', requireAuth, async (req, res, next) => {
     }
     const packageRow = pack.rows[0];
     const perMonth = Number(packageRow.appointments_per_month || 4);
-    const intervalDays = perMonth >= 4 ? 7 : perMonth === 2 ? 15 : 30;
+    const packageSessions = Number(packageRow.sessions_count || 1);
+    const intervalDays = resolvePackageIntervalDays({ totalSessions: packageSessions, appointmentsPerMonth: perMonth });
     await query('BEGIN');
     const sold = await query(`
       INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule)
       VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, 'active', $4::date, ($4::date + (($5::integer - 1) * $6::integer || ' days')::interval)::date, $5::integer, 0, $7::integer, $8::text, NULLIF($9::text,'')::uuid, $10::boolean, $4::date, jsonb_build_object('enabled', $10::boolean, 'appointmentsPerMonth', $11::integer, 'intervalDays', $6::integer, 'firstTime', $12::text))
       RETURNING *
-    `, [tutorId, petId || '', packageId, startsOn, Number(packageRow.sessions_count || 1), intervalDays, Number(packageRow.price_cents || 0), cleanText(req.body?.paymentStatus) || 'pending', paymentMethodId || '', recurring, Number(packageRow.appointments_per_month || 4), firstTime]);
+    `, [tutorId, petId || '', packageId, startsOn, packageSessions, intervalDays, Number(packageRow.price_cents || 0), cleanText(req.body?.paymentStatus) || 'pending', paymentMethodId || '', recurring, perMonth, firstTime]);
     await query(`
       INSERT INTO financial_transactions (tutor_id, customer_package_id, type, category, description, amount_cents, due_date, status)
       VALUES ($1::uuid, $2::uuid, 'income', 'pacote', $3::text, $4::integer, $5::date, $6::text)

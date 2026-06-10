@@ -1,1 +1,1 @@
-FunnyOS v1.6.100 — Pacote Antigo sem duplicidade
+FunnyOS v1.6.101 — Pacote Antigo com Renovação Automática por Ciclo
