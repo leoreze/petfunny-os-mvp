@@ -127,7 +127,7 @@
               <th><button class="th-sort" type="button" data-sort="appointmentsCount">Agendamentos <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="lastAppointmentAt">Último agendamento <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="daysWithoutAppointment">Sem agendar <span class="sort-arrow">↕</span></button></th>
-              <th>Status CRM</th>
+              <th><button class="th-sort" type="button" data-sort="crmStatus">Status CRM <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th>
               <th>Ações</th>
             </tr></thead>
@@ -340,6 +340,10 @@
     if (key === 'petsCount' || key === 'appointmentsCount' || key === 'sentMessagesCount') return Number(item[key] || 0);
     if (key === 'daysWithoutAppointment') return item.daysWithoutAppointment === null || item.daysWithoutAppointment === undefined ? -1 : Number(item.daysWithoutAppointment || 0);
     if (key === 'updatedAt' || key === 'lastAppointmentAt') return item[key] ? new Date(item[key]).getTime() : 0;
+    if (key === 'crmStatus') {
+      const crmOrder = { novo_lead: 1, ativo: 2, recorrente: 3, em_atencao: 4, em_risco: 5, perdido: 6 };
+      return crmOrder[item.crmStatus] || 999;
+    }
     return String(item[key] || '').toLowerCase();
   }
 
@@ -883,7 +887,7 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
   document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.sort;
     if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-    else { state.sortKey = key; state.sortDir = key === 'name' ? 'asc' : 'desc'; }
+    else { state.sortKey = key; state.sortDir = (key === 'name' || key === 'crmStatus') ? 'asc' : 'desc'; }
     renderTutores();
   }));
   fields.addressZipcode?.addEventListener('input', (event) => {
