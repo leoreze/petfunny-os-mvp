@@ -23,6 +23,12 @@
   const today = new Date().toISOString().slice(0, 10);
   const esc = (value = '') => String(value ?? '').replace(/[&<>\"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
   const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const dateBR = (value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  };
   const debounce = (fn, wait = 320) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; };
 
   document.body.classList.add('packages-page');
@@ -149,6 +155,7 @@
               <th><span class="th-label">Tutor</span><button class="th-arrow-only sale-sort" data-sort="tutorName" type="button" title="Ordenar por tutor"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Pet</span><button class="th-arrow-only sale-sort" data-sort="petName" type="button" title="Ordenar por pet"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Pacote</span><button class="th-arrow-only sale-sort" data-sort="packageName" type="button" title="Ordenar por pacote"><span class="sort-arrow">↕</span></button></th>
+              <th><span class="th-label">Data do cadastro</span><button class="th-arrow-only sale-sort" data-sort="createdAt" type="button" title="Ordenar por data de cadastro"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Progresso</span><button class="th-arrow-only sale-sort" data-sort="usedSessions" type="button" title="Ordenar por progresso"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Pagamento</span><button class="th-arrow-only sale-sort" data-sort="paymentStatus" type="button" title="Ordenar por pagamento"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Status</span><button class="th-arrow-only sale-sort" data-sort="status" type="button" title="Ordenar por status"><span class="sort-arrow">↕</span></button></th>
@@ -156,7 +163,7 @@
               <th>Ações</th>
             </tr>
           </thead>
-          <tbody id="customer-packages"><tr><td colspan="8">Preparando contratos...</td></tr></tbody>
+          <tbody id="customer-packages"><tr><td colspan="9">Preparando contratos...</td></tr></tbody>
         </table>
         <div class="infinite-loader" id="sales-loader" hidden>Carregando mais contratos...</div>
       </div>
@@ -234,7 +241,7 @@
           <div>
             <p class="eyebrow">Importação histórica</p>
             <h3>Pacote antigo</h3>
-            <p>Cadastre pacotes vendidos antes do sistema, escolha data e horário originais, e deixe o PetFunny OS reconstruir o histórico automaticamente.</p>
+            <p>Cadastre pacotes vendidos antes do sistema. A data escolhida será usada como 1ª sessão do pacote, mesmo se for uma data futura.</p>
           </div>
           <button class="icon-btn" type="button" id="close-historical-package-modal">×</button>
         </header>
@@ -245,8 +252,8 @@
             <label class="form-field"><span>Tutor</span><select class="select" id="hist-package-tutor" required></select></label>
             <label class="form-field"><span>Pet</span><select class="select" id="hist-package-pet" required><option value="">Selecione o tutor</option></select></label>
             <label class="form-field"><span>Pacote</span><select class="select" id="hist-package-id" required></select></label>
-            <label class="form-field"><span>Data original da venda</span><input class="input" id="hist-package-starts" type="date" value="${today}" required></label>
-            <label class="form-field"><span>Horário da contratação</span><input class="input" id="hist-package-time" type="time" value="09:00" required></label>
+            <label class="form-field"><span>Data do 1º agendamento</span><input class="input" id="hist-package-starts" type="date" value="${today}" required></label>
+            <label class="form-field"><span>Horário do 1º agendamento</span><input class="input" id="hist-package-time" type="time" value="09:00" required></label>
             <label class="form-field"><span>Total de sessões</span><input class="input" id="hist-package-total-sessions" type="number" min="1" value="4" required></label>
             <label class="form-field"><span>Valor final pago</span><input class="input" id="hist-package-amount" inputmode="decimal" placeholder="0,00" required></label>
             <label class="form-field"><span>Status do pagamento</span><select class="select" id="hist-package-payment"><option value="pending">Pendente</option><option value="paid" selected>Pago</option></select></label>
@@ -254,7 +261,7 @@
           </div>
           <label class="toggle-line mt-20"><input type="checkbox" id="hist-package-recurring"> Recorrência automática: ao acabar as sessões, gerar novo ciclo de agendamentos até o pacote ser cancelado</label>
           <label class="form-field mt-20"><span>Observações internas</span><textarea class="textarea" id="hist-package-notes" rows="4" placeholder="Ex.: pacote vendido no balcão antes da implantação do sistema..."></textarea></label>
-          <p class="muted mt-20">O sistema gera as sessões a partir da data e horário escolhidos: datas passadas entram como finalizadas e datas futuras ficam agendadas. Se a recorrência estiver marcada, os ciclos antigos também serão reconstruídos até o ciclo atual/futuro. Nenhuma notificação é disparada para o tutor.</p>
+          <p class="muted mt-20">O sistema gera as sessões exatamente a partir da data e horário escolhidos: se escolher 25/06, essa data será o 1 de 4 ou 1 de 2. Para 4 sessões, as próximas serão geradas a cada 7 dias; para 2 sessões, a cada 15 dias. Datas passadas entram como finalizadas e datas futuras ficam agendadas. Nenhuma notificação é disparada para o tutor.</p>
         </div>
         <footer class="modal-footer"><button class="btn btn-secondary" type="button" id="cancel-historical-package-modal">Cancelar</button><button class="btn" id="save-historical-package-btn" type="submit">Salvar pacote antigo</button></footer>
       </form>
@@ -708,6 +715,7 @@
       <td><strong>${esc(cp.tutorName || 'Tutor')}</strong><small>${esc(cp.tutorWhatsapp || 'sem WhatsApp')}</small></td>
       <td>${esc(cp.petName || '—')}</td>
       <td><strong>${esc(cp.packageName || 'Pacote')}</strong><small>${recurring ? 'Recorrência automática ativa' : 'Sem recorrência automática'}</small></td>
+      <td><strong>${esc(dateBR(cp.createdAt))}</strong><small>cadastro do contrato</small></td>
       <td><span class="mini-badge">${esc(cp.progressLabel || `${cp.usedSessions || 0} de ${cp.totalSessions || 0}`)}</span><small>${Number(cp.remainingSessions || 0)} restante(s) · ${Number(cp.appointmentCount || 0)} agenda(s)</small>${cp.packageCommandUrl ? `<a class="inline-link" href="${esc(cp.packageCommandUrl)}" target="_blank" rel="noopener">Abrir comanda do pacote</a>` : ''}</td>
       <td><span class="status-pill ${statusTone(cp.paymentStatus)}">${esc(paymentLabelPt(cp.paymentStatus))}</span><br><small>${esc(cp.paymentMethodName || 'forma não informada')}</small></td>
       <td><span class="status-pill ${statusTone(cp.status)}">${esc(statusLabelPt(cp.status))}</span><br><small>${esc(recurring ? 'recorrência automática' : 'contrato comum')}</small></td>
@@ -729,6 +737,7 @@
       </div>
       <div class="admin-entity-grid">
         <span><b>Progresso</b>${esc(cp.progressLabel || `${cp.usedSessions || 0} de ${cp.totalSessions || 0}`)}<br>${Number(cp.remainingSessions || 0)} restante(s)</span>
+        <span><b>Cadastro</b>${esc(dateBR(cp.createdAt))}<br>data do contrato</span>
         <span><b>Pagamento</b><span class="status-pill ${statusTone(cp.paymentStatus)}">${esc(paymentLabelPt(cp.paymentStatus))}</span><br>${esc(cp.paymentMethodName || 'forma não informada')}</span>
         <span><b>Status</b><span class="status-pill ${statusTone(cp.status)}">${esc(statusLabelPt(cp.status))}</span><br>${esc(recurring ? 'recorrência automática' : 'contrato comum')}</span>
         <span><b>Valor</b>${money(cp.amountCents)}</span>
@@ -755,7 +764,7 @@
     const end = state.salePage * state.limit;
     const visible = sorted.slice(0, end);
     state.saleDone = visible.length >= sorted.length;
-    ids('customer-packages').innerHTML = visible.length ? visible.map(saleRow).join('') : '<tr><td colspan="8">Nenhum pacote vendido encontrado.</td></tr>';
+    ids('customer-packages').innerHTML = visible.length ? visible.map(saleRow).join('') : '<tr><td colspan="9">Nenhum pacote vendido encontrado.</td></tr>';
     if (ids('sales-cards')) ids('sales-cards').innerHTML = visible.length ? visible.map(saleCard).join('') : '<article class="module-card empty-state"><strong>Nenhum pacote vendido encontrado.</strong><p>Venda um pacote ou ajuste o filtro de contratos.</p></article>';
     ids('sales-loader').hidden = state.saleDone;
     applySaleViewMode();
@@ -868,6 +877,8 @@
       petId: ids('hist-package-pet').value,
       packageId: ids('hist-package-id').value,
       startsOn: ids('hist-package-starts').value,
+      firstAppointmentDate: ids('hist-package-starts').value,
+      scheduleStartsOn: ids('hist-package-starts').value,
       firstTime: ids('hist-package-time').value || '09:00',
       totalSessions: ids('hist-package-total-sessions').value,
       amountCents: histCentsFromInput(ids('hist-package-amount').value),
@@ -883,7 +894,7 @@
         submitButton.disabled = false;
         submitButton.textContent = submitButton.dataset.originalText || 'Salvar pacote antigo';
       }
-      showPackageError(new Error('Preencha tutor, pet, pacote, data original, horário e valor final.'));
+      showPackageError(new Error('Preencha tutor, pet, pacote, data do 1º agendamento, horário e valor final.'));
       return;
     }
     try {

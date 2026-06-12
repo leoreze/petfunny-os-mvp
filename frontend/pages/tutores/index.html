@@ -26,7 +26,7 @@
     page: 1,
     limit: 20,
     search: '',
-    status: 'active',
+    status: 'all',
     loading: false,
     done: false,
     items: [],
@@ -114,7 +114,7 @@
         </div>
         <div class="filter-row tutors-filter-row tutors-filter-row-single">
           <input class="input admin-search-input" id="search-tutors" type="search" data-mask="none" placeholder="Buscar por nome, WhatsApp ou e-mail" autocomplete="off">
-          <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
+          <select class="select" id="status-filter"><option value="all">Todos</option><option value="active">Ativos</option><option value="inactive">Inativos</option></select>
           <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
         </div>
         <div class="table-scroll custom-scroll tutors-table-wrap" id="tutors-scroll">
@@ -280,7 +280,7 @@
   function rowTemplate(item) {
     const lastAppointment = formatDateBR(item.lastAppointmentAt);
     const days = daysWithoutLabel(item.daysWithoutAppointment);
-    return `<tr data-id="${item.id}">
+    return `<tr data-id="${item.id}" class="${item.status === 'inactive' ? 'is-inactive-row' : ''}">
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(item.city || 'Ribeirão Preto')} / ${esc(item.state || 'SP')}</small></div></div></td>
       <td><strong>${formatWhatsapp(item.whatsapp)}</strong><br><small>${esc(lastPetLabel(item))}</small></td>
       <td><span class="status-pill info">${Number(item.sentMessagesCount || 0)}</span><br><small>${item.lastMessageAt ? `última: ${formatDateBR(item.lastMessageAt)}` : 'sem envio registrado'}</small></td>
@@ -357,7 +357,7 @@
   function tutorCardTemplate(item) {
     const lastAppointment = formatDateBR(item.lastAppointmentAt);
     const days = daysWithoutLabel(item.daysWithoutAppointment);
-    return `<article class="admin-entity-card" data-id="${esc(item.id)}">
+    return `<article class="admin-entity-card ${item.status === 'inactive' ? 'is-inactive-card' : ''}" data-id="${esc(item.id)}">
       <div class="admin-entity-card-header">
         <div class="admin-entity-card-title">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${formatWhatsapp(item.whatsapp)}<br>${esc(lastPetLabel(item))}</small></div></div>
         <div class="row-actions tutor-actions-menu-wrap">
@@ -378,6 +378,7 @@
         <span><b>Pets</b>${Number(item.petsCount || 0)} vinculado(s)</span>
         <span><b>Agendamentos</b>${Number(item.appointmentsCount || 0)} registro(s)</span>
         <span><b>Mensagens</b>${Number(item.sentMessagesCount || 0)} enviada(s)</span>
+        <span><b>Status</b><span class="status-pill ${item.status === 'active' ? 'ok' : 'muted-pill'}">${item.status === 'active' ? 'Ativo' : 'Inativo'}</span></span>
         <span><b>Último</b>${esc(lastAppointment)}</span>
         <span><b>Sem agendar</b>${esc(days)}</span>
       </div>
@@ -955,7 +956,15 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
     if (del) {
       closeTutorMenus();
       if (!confirm('Inativar este tutor e os pets vinculados?')) return;
-      try { showLoading('Inativando tutor...'); await api.delete(`/tutores/${del.dataset.id}`); toast('Tutor inativado.', 'success'); await loadTutores(true); }
+      try {
+        showLoading('Inativando tutor...');
+        await api.delete(`/tutores/${del.dataset.id}`);
+        state.status = 'all';
+        const statusFilter = document.getElementById('status-filter');
+        if (statusFilter) statusFilter.value = 'all';
+        toast('Tutor marcado como inativo e mantido na listagem.', 'success');
+        await loadTutores(true);
+      }
       catch (error) { toast(error.message, 'error'); }
       finally { hideLoading(); }
     }

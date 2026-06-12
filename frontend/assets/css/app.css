@@ -14568,3 +14568,15 @@ body.client-radar-page .client-radar-actions .btn {
     justify-content: center;
   }
 }
+
+/* v1.6.102 — Inativos continuam visíveis nas listagens de Tutores e Pets */
+.premium-table tr.is-inactive-row {
+  opacity: 0.72;
+}
+.premium-table tr.is-inactive-row td {
+  background: rgba(17, 24, 39, 0.025);
+}
+.admin-entity-card.is-inactive-card {
+  opacity: 0.76;
+  border-style: dashed;
+}

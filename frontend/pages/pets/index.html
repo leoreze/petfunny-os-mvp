@@ -27,7 +27,7 @@
     limit: 20,
     search: '',
     size: 'all',
-    status: 'active',
+    status: 'all',
     loading: false,
     done: false,
     items: [],
@@ -93,7 +93,7 @@
           <div class="compact-filter-row pets-filter-row">
             <input class="input admin-search-input" id="search-pets" type="search" data-mask="none" placeholder="Buscar pet, tutor, WhatsApp ou e-mail" autocomplete="off">
             <select class="select" id="size-filter"><option value="all">Todos os portes</option></select>
-            <select class="select" id="status-filter"><option value="active">Ativos</option><option value="inactive">Inativos</option><option value="all">Todos</option></select>
+            <select class="select" id="status-filter"><option value="all">Todos</option><option value="active">Ativos</option><option value="inactive">Inativos</option></select>
             <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
           </div>
         </div>
@@ -199,7 +199,7 @@
 
   function rowTemplate(item) {
     const care = item.restrictions || item.preferences || item.notes || '';
-    return `<tr data-id="${esc(item.id)}">
+    return `<tr data-id="${esc(item.id)}" class="${item.status === 'inactive' ? 'is-inactive-row' : ''}">
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(speciesLabel(item.species))}</small></div></div></td>
       <td><strong>${esc(item.tutorName || 'Tutor não informado')}</strong><small>${formatWhatsapp(item.tutorWhatsapp || '') || 'sem WhatsApp'}</small></td>
       <td><strong>${esc(sizeLabel(item.size))}</strong><small>${esc(item.coatType || 'pelagem não informada')}</small></td>
@@ -212,7 +212,7 @@
 
   function petCardTemplate(item) {
     const care = item.restrictions || item.preferences || item.notes || '';
-    return `<article class="admin-entity-card" data-id="${esc(item.id)}">
+    return `<article class="admin-entity-card ${item.status === 'inactive' ? 'is-inactive-card' : ''}" data-id="${esc(item.id)}">
       <div class="admin-entity-card-header">
         <div class="admin-entity-card-title">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(speciesLabel(item.species))} · ${esc(item.breed || 'raça não informada')}</small></div></div>
         ${petActionsMenu(item)}
@@ -526,7 +526,15 @@
     if (del) {
       closePetMenus();
       if (!confirm('Inativar este pet?')) return;
-      try { showLoading('Inativando pet...'); await api.delete(`/pets/${del.dataset.id}`); toast('Pet inativado.', 'success'); await loadPets(true); }
+      try {
+        showLoading('Inativando pet...');
+        await api.delete(`/pets/${del.dataset.id}`);
+        state.status = 'all';
+        const statusFilter = document.getElementById('status-filter');
+        if (statusFilter) statusFilter.value = 'all';
+        toast('Pet marcado como inativo e mantido na listagem.', 'success');
+        await loadPets(true);
+      }
       catch (error) { toast(error.message, 'error'); }
       finally { hideLoading(); }
     }

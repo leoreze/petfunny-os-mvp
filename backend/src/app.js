@@ -2663,13 +2663,13 @@ app.delete('/api/tutores/:id', requireAuth, async (req, res, next) => {
   try {
     const result = await query(`
       UPDATE tutors
-      SET deleted_at = NOW(), status = 'inactive', updated_at = NOW()
+      SET status = 'inactive', updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
-      RETURNING id
+      RETURNING id, status
     `, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Tutor não encontrado.' });
-    await query(`UPDATE pets SET deleted_at = NOW(), status = 'inactive', updated_at = NOW() WHERE tutor_id = $1 AND deleted_at IS NULL`, [req.params.id]);
-    res.json({ ok: true, message: 'Tutor e pets vinculados foram inativados.' });
+    await query(`UPDATE pets SET status = 'inactive', updated_at = NOW() WHERE tutor_id = $1 AND deleted_at IS NULL`, [req.params.id]);
+    res.json({ ok: true, status: 'inactive', message: 'Tutor e pets vinculados foram marcados como inativos.' });
   } catch (error) {
     next(error);
   }
@@ -2969,12 +2969,12 @@ app.delete('/api/pets/:id', requireAuth, async (req, res, next) => {
   try {
     const result = await query(`
       UPDATE pets
-      SET deleted_at = NOW(), status = 'inactive', updated_at = NOW()
+      SET status = 'inactive', updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
-      RETURNING id
+      RETURNING id, status
     `, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Pet não encontrado.' });
-    res.json({ ok: true, message: 'Pet inativado com sucesso.' });
+    res.json({ ok: true, status: 'inactive', message: 'Pet marcado como inativo.' });
   } catch (error) {
     next(error);
   }
@@ -10334,7 +10334,12 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     const tutorId = cleanText(req.body?.tutorId);
     const petId = cleanText(req.body?.petId);
     const packageId = cleanText(req.body?.packageId);
-    const startsOn = cleanText(req.body?.startsOn) || new Date().toISOString().slice(0, 10);
+    // No fluxo "Pacote Antigo", a data escolhida pelo admin é a data do 1º agendamento do pacote,
+    // mesmo quando ela for futura. Não usar "hoje" nem reconstruir ciclos antes dessa data.
+    const startsOn = normalizeDateOnly(req.body?.firstAppointmentDate)
+      || normalizeDateOnly(req.body?.scheduleStartsOn)
+      || normalizeDateOnly(req.body?.startsOn)
+      || new Date().toISOString().slice(0, 10);
     const firstTime = cleanText(req.body?.firstTime) || cleanText(req.body?.startsAtTime) || cleanText(req.body?.time) || '09:00';
     const totalSessionsRaw = Number.parseInt(req.body?.totalSessions || '0', 10);
     const totalSessions = Number.isFinite(totalSessionsRaw) && totalSessionsRaw > 0 ? totalSessionsRaw : 0;
@@ -10364,6 +10369,8 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       return d.getTime() < Date.now();
     }).length;
     const usedSessions = Math.min(computedUsedSessions, sessions);
+    const firstSessionIso = saoPauloLocalToIso(startsOn, firstTime || '09:00');
+    const firstSessionIsFuture = firstSessionIso ? new Date(firstSessionIso).getTime() > Date.now() : false;
     const status = recurring ? 'active' : (usedSessions >= sessions ? 'finished' : 'active');
     const duplicateLockKey = `historical-package:${tutorId}:${petId}:${packageId}:${startsOn}:${firstTime}:${sessions}:${finalAmount}`;
     await query('BEGIN');
@@ -10411,7 +10418,7 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
     }
     const sold = await query(`
       INSERT INTO customer_packages (tutor_id, pet_id, package_id, status, starts_on, ends_on, total_sessions, used_sessions, amount_cents, payment_status, payment_method_id, recurring, current_cycle_started_on, recurrence_rule, created_at, updated_at)
-      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, $15::boolean, $5::date, jsonb_build_object('enabled', $15::boolean, 'historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'appointmentsPerMonth', $16::integer, 'intervalDays', $13::integer, 'reconstructedHistory', true, 'autoRenewUntilCancelled', $15::boolean, 'clientRequestId', NULLIF($17::text, '')), $5::date, NOW())
+      VALUES ($1::uuid, NULLIF($2::text,'')::uuid, $3::uuid, $4::text, $5::date, ($5::date + (($12::integer - 1) * $13::integer || ' days')::interval)::date, $6::integer, $7::integer, $8::integer, $9::text, NULLIF($10::text,'')::uuid, $15::boolean, $5::date, jsonb_build_object('enabled', $15::boolean, 'historicalImport', true, 'notes', $11::text, 'firstTime', $14::text, 'appointmentsPerMonth', $16::integer, 'intervalDays', $13::integer, 'reconstructedHistory', true, 'startsFromSelectedDate', true, 'firstAppointmentDate', $5::text, 'autoRenewUntilCancelled', $15::boolean, 'clientRequestId', NULLIF($17::text, '')), NOW(), NOW())
       RETURNING *
     `, [tutorId, petId || '', packageId, status, startsOn, sessions, usedSessions, finalAmount, paymentStatus, paymentMethodId || '', notes, sessions, intervalDays, firstTime, recurring, perMonth, clientRequestId || '']);
     let generated = { created: 0, totalSessions: sessions, finishedSessions: usedSessions, firstTime, intervalDays, recurring };
@@ -10420,9 +10427,16 @@ app.post('/api/pacotes/clientes/historical', requireAuth, async (req, res, next)
       generated.recurring = recurring;
       generated.finishedSessions = usedSessions;
       if (recurring) {
-        const renewalProgress = await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: true });
+        // Se o 1º agendamento escolhido ainda está no futuro, o pacote antigo deve apenas gerar
+        // 1 de N, 2 de N... a partir dessa data. A renovação automática só pode acontecer depois
+        // que a última sessão do ciclo for finalizada.
+        const renewalProgress = firstSessionIsFuture
+          ? { renewed: false, usedSessions }
+          : await refreshCustomerPackageProgress(sold.rows[0].id, { allowRenew: true });
         generated.finishedSessions = Number(renewalProgress?.usedSessions ?? usedSessions);
         generated.renewed = Boolean(renewalProgress?.renewed);
+        generated.firstAppointmentDate = startsOn;
+        generated.startsOn = startsOn;
         generated.newCustomerPackageId = renewalProgress?.newCustomerPackageId || null;
         generated.nextStart = renewalProgress?.nextStart || null;
         generated.renewedCycles = renewalProgress?.renewed ? 1 : 0;
