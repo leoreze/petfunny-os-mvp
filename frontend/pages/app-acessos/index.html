@@ -102,6 +102,24 @@
     const appUrl = 'https://agendapetfunny.com.br/app';
     return `Oi, ${name}! Tudo bem? Aqui é do PetFunny 🐶✨\n\nLiberamos seu primeiro acesso ao Clube PetFunny, o app do tutor para acompanhar tudo do seu pet em um só lugar.\n\nNo Clube você pode:\n• agendar banho, tosa e cuidados;\n• acompanhar pacotes e próximos horários;\n• ver Momentos do Atendimento com fotos e vídeos;\n• consultar histórico e notificações;\n• pedir Táxi Pet quando precisar;\n• acompanhar bem-estar e Saúde 360.\n\nAcesse pelo link e entre com seu WhatsApp cadastrado:\n${appUrl}\n\nQualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
   }
+  function appWorldCupPromoMessage(tutor = {}) {
+    const name = tutor?.name || 'tudo bem';
+    const appUrl = 'https://agendapetfunny.com.br/app/bolao-copa';
+    return `Oi, ${name}! Tudo bem? Aqui é do PetFunny 🐶🏆\n\nEntrou no clima da Copa? Criamos o Bolão da Copa PetFunny no App do Tutor!\n\nFunciona assim:\n• você entra no app;\n• dá 1 palpite por jogo do Brasil;\n• se acertar o placar exato, ganha um banho grátis PetFunny. 🛁✨\n\nAcesse aqui e participe:\n${appUrl}\n\nBoa sorte no bolão! 🇧🇷⚽`;
+  }
+  async function registerWhatsappInteraction(tutor, subject, message) {
+    const tutorId = tutor?.tutorId || tutor?.id;
+    if (!tutorId || !message) return;
+    try {
+      await api.post(`/crm/tutors/${encodeURIComponent(tutorId)}/interactions`, {
+        channel: 'whatsapp',
+        subject,
+        message
+      });
+    } catch (error) {
+      console.warn('[app-acessos] não foi possível registrar interação CRM:', error?.message || error);
+    }
+  }
   function openWhatsappToTutor(tutor, message) {
     const digits = onlyDigits(tutor?.whatsapp || '');
     if (!digits) return toast('Este tutor não possui WhatsApp cadastrado.', 'warning');
@@ -114,6 +132,7 @@
       <button class="icon-btn app-access-menu-btn" data-id="${id}" type="button" title="Ações do tutor" aria-haspopup="true" aria-expanded="false">⋯</button>
       <div class="tutor-row-menu app-access-row-menu" data-menu-for="${id}">
         <button type="button" class="open-access-modal" data-id="${id}">📊 Log App</button>
+        <button type="button" class="send-worldcup-promo-btn" data-id="${id}">🏆 Enviar promoção da Copa</button>
         ${activation}
       </div>
     </div>`;
@@ -310,6 +329,7 @@
     const menuButton = event.target.closest('.app-access-menu-btn');
     const open = event.target.closest('.open-access-modal');
     const sendFirstAccess = event.target.closest('.send-first-access-btn');
+    const sendWorldCupPromo = event.target.closest('.send-worldcup-promo-btn');
     if (menuButton) {
       event.preventDefault();
       event.stopPropagation();
@@ -324,7 +344,17 @@
     if (sendFirstAccess) {
       closeAccessActionMenus();
       const tutor = tutorById(sendFirstAccess.dataset.id);
-      openWhatsappToTutor(tutor, appFirstAccessMessage(tutor));
+      const message = appFirstAccessMessage(tutor);
+      await registerWhatsappInteraction(tutor, 'Convite primeiro acesso App do Tutor', message);
+      openWhatsappToTutor(tutor, message);
+      return;
+    }
+    if (sendWorldCupPromo) {
+      closeAccessActionMenus();
+      const tutor = tutorById(sendWorldCupPromo.dataset.id);
+      const message = appWorldCupPromoMessage(tutor);
+      await registerWhatsappInteraction(tutor, 'Promoção Bolão da Copa PetFunny', message);
+      openWhatsappToTutor(tutor, message);
       return;
     }
     if (!event.target.closest('.app-access-actions-menu-wrap')) closeAccessActionMenus();

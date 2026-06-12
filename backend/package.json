@@ -1,6 +1,6 @@
 {
   "name": "petfunny-os-backend",
-  "version": "1.6.104",
+  "version": "1.6.113",
   "type": "module",
   "main": "src/server.js",
   "engines": {

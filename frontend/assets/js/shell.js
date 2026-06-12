@@ -14,6 +14,7 @@ const menuItems = [
   { label: 'Relatórios', icon: '📈', href: '/admin/relatorios', aliases: ['/relatorios', '/admin/relatorios'] },
   { label: 'CRM & Marketing', icon: '📣', href: '/admin/crm', aliases: ['/crm', '/admin/crm'] },
   { label: 'Promoções', icon: '🏷️', href: '/admin/promocoes', aliases: ['/promocoes', '/admin/promocoes'] },
+  { label: 'Bolão da Copa', icon: '🏆', href: '/admin/bolao-copa', aliases: ['/bolao-copa', '/admin/bolao-copa'] },
   { label: 'PetFunny 360', icon: '🧠', href: '/admin/bem-estar', aliases: ['/bem-estar', '/admin/bem-estar'] },
   { label: 'Saúde 360', icon: '🩺', href: '/admin/saude-360', aliases: ['/saude-360', '/admin/saude-360'] },
   { label: 'Roleta de Mimos', icon: '🎡', href: '/admin/roleta-de-mimos', aliases: ['/roleta-de-mimos', '/admin/roleta-de-mimos'] },

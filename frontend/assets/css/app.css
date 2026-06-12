@@ -3717,9 +3717,9 @@ dialog.modal-shell.agenda-message-modal::backdrop {
 /* v1.5.43 · Tutores: menu de ações, histórico/extrato e pets em modal */
 .tutor-actions-menu-wrap { position: relative; display: inline-flex; justify-content: flex-end; }
 .tutor-row-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
+  position: fixed;
+  right: auto;
+  top: auto;
   min-width: 218px;
   padding: 8px;
   border-radius: 18px;
@@ -14579,4 +14579,281 @@ body.client-radar-page .client-radar-actions .btn {
 .admin-entity-card.is-inactive-card {
   opacity: 0.76;
   border-style: dashed;
+}
+
+/* v1.6.105 · Bolão da Copa PetFunny */
+.bolao-copa-hero {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, .9), transparent 22%),
+    linear-gradient(135deg, rgba(1, 173, 183, .18), rgba(249, 161, 151, .16)),
+    #fff;
+}
+.bolao-copa-table td small,
+.bolao-copa-predictions-card td small { display:block; color: var(--text-muted, #64748b); margin-top:4px; }
+.wrap-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.tag-info { background: rgba(1, 173, 183, .12); color:#087985; border:1px solid rgba(1, 173, 183, .22); }
+.tag-warning { background: rgba(245, 158, 11, .14); color:#92400e; border:1px solid rgba(245, 158, 11, .24); }
+.tag-success { background: rgba(22, 163, 74, .14); color:#166534; border:1px solid rgba(22, 163, 74, .24); }
+.tag-danger { background: rgba(220, 38, 38, .12); color:#991b1b; border:1px solid rgba(220, 38, 38, .22); }
+.btn-danger { background:#fee2e2 !important; color:#991b1b !important; border-color:#fecaca !important; }
+.client-worldcup-card {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  min-height:220px;
+  padding:24px 20px 28px;
+  border-radius:28px;
+  background:
+    radial-gradient(circle at 92% 18%, rgba(255,255,255,.8), transparent 24%),
+    linear-gradient(135deg, #008d46 0%, #00a859 42%, #fcd116 100%);
+  color:#fff;
+  box-shadow:0 18px 44px rgba(0, 141, 70, .24);
+  overflow:hidden;
+  position:relative;
+}
+.client-worldcup-card::after {
+  content:'⚽';
+  position:absolute;
+  right:20px;
+  bottom:-12px;
+  font-size:82px;
+  opacity:.18;
+  transform:rotate(-12deg);
+}
+.client-worldcup-card .eyebrow,
+.client-worldcup-card h2,
+.client-worldcup-card p,
+.client-worldcup-card small { color:#fff; }
+.client-worldcup-card h2 { margin:4px 0 6px; font-size:1.25rem; }
+.client-worldcup-card p { margin:0 0 24px; max-width:560px; }
+.client-worldcup-card .btn { background:#fff !important; color:#007a3d !important; border-color:rgba(255,255,255,.8) !important; position:relative; z-index:2; white-space:nowrap; }
+.client-worldcup-meta { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+.client-worldcup-meta span { display:inline-flex; align-items:center; gap:5px; padding:7px 10px; border-radius:999px; background:rgba(255,255,255,.2); font-size:.82rem; font-weight:800; }
+.client-worldcup-ball { font-size:42px; position:relative; z-index:2; }
+.client-worldcup-empty { background:linear-gradient(135deg, #01adb7, #f9a197); }
+
+/* v1.6.112 — App Tutor: respiro visual no Bolão da Copa */
+.client-worldcup-card {
+  min-height: 220px !important;
+  padding-bottom: 30px !important;
+}
+.client-worldcup-card .client-worldcup-copy {
+  position: relative;
+  z-index: 2;
+  padding-bottom: 18px;
+}
+.client-worldcup-card .client-worldcup-copy p,
+.client-worldcup-card > div > p {
+  margin-bottom: 24px !important;
+}
+.client-worldcup-card .client-worldcup-meta {
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+.client-worldcup-empty > div {
+  position: relative;
+  z-index: 2;
+  padding-bottom: 18px;
+}
+body.app-client .client-mobile-hero.client-area-hero.section-bolao .client-hero-subtitle,
+body.app-client .client-mobile-hero.client-area-hero.section-bolao p.client-hero-subtitle {
+  margin-bottom: 20px !important;
+  padding-bottom: 20px !important;
+}
+.client-bolao-hero p {
+  margin-bottom: 20px !important;
+}
+.client-bolao-hero {
+  padding-bottom: 30px !important;
+}
+
+.client-bolao-page { display:grid; gap:18px; }
+.client-bolao-hero {
+  padding:24px;
+  border-radius:30px;
+  background:
+    radial-gradient(circle at 90% 8%, rgba(255,255,255,.55), transparent 25%),
+    linear-gradient(135deg, #007a3d, #00a859 48%, #fcd116);
+  color:#fff;
+  box-shadow:0 20px 50px rgba(0, 122, 61, .22);
+}
+.client-bolao-hero > span { font-size:42px; display:block; margin-bottom:6px; }
+.client-bolao-hero h2,
+.client-bolao-hero p,
+.client-bolao-hero .eyebrow { color:#fff; }
+.client-bolao-hero h2 { margin:6px 0; font-size:1.55rem; line-height:1.05; }
+.client-bolao-hero p { margin:0 0 20px; }
+.client-bolao-kpis { display:flex; gap:10px; margin-top:14px; }
+.client-bolao-kpis div { min-width:94px; padding:12px; border-radius:18px; background:rgba(255,255,255,.2); display:grid; gap:2px; }
+.client-bolao-kpis strong { font-size:1.4rem; }
+.client-bolao-kpis small { color:#fff; opacity:.9; }
+.client-bolao-games { display:grid; gap:14px; }
+.client-bolao-game-card {
+  padding:18px;
+  border-radius:26px;
+  background:#fff;
+  border:1px solid rgba(15, 23, 42, .08);
+  box-shadow:0 18px 40px rgba(15, 23, 42, .08);
+  display:grid;
+  gap:14px;
+}
+.client-bolao-game-card.status-correct { border-color:rgba(22, 163, 74, .35); box-shadow:0 18px 44px rgba(22, 163, 74, .13); }
+.client-bolao-game-header { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.client-bolao-game-header h3 { margin:3px 0; font-size:1.22rem; }
+.client-bolao-prize { padding:8px 10px; border-radius:999px; background:rgba(252, 211, 77, .22); color:#92400e; font-weight:900; font-size:.78rem; white-space:nowrap; }
+.client-bolao-scoreline { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px; text-align:center; padding:14px; border-radius:22px; background:linear-gradient(135deg, rgba(1,173,183,.08), rgba(249,161,151,.08)); }
+.client-bolao-scoreline span { font-size:1.5rem; font-weight:1000; color:#01adb7; }
+.client-bolao-status { display:flex; gap:10px; align-items:center; padding:12px; border-radius:20px; background:#f8fafc; }
+.client-bolao-status > span { font-size:24px; }
+.client-bolao-status strong { display:block; }
+.client-bolao-status small { color:#64748b; }
+.client-bolao-form { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:end; }
+.client-bolao-form label { display:grid; gap:5px; font-weight:900; color:#334155; }
+.client-bolao-form label span { font-size:.8rem; color:#64748b; }
+.client-bolao-form input { width:100%; border:1px solid rgba(15,23,42,.12); border-radius:16px; padding:12px; font-weight:900; font-size:1.05rem; text-align:center; }
+.client-bolao-form .btn { grid-column:1 / -1; }
+.client-bolao-form-readonly { align-items:end; }
+.client-bolao-form-readonly input { background:#f1f5f9; color:#0f172a; border-color:rgba(15,23,42,.08); cursor:not-allowed; opacity:1; }
+.client-bolao-submitted { display:grid; gap:10px; }
+.client-bolao-locked { padding:12px; border-radius:18px; background:#f8fafc; display:grid; gap:3px; }
+.client-bolao-locked small { color:#64748b; }
+.client-bolao-rules { padding:16px; border-radius:22px; background:#fff; border:1px solid rgba(15,23,42,.08); }
+.client-bolao-rules h3 { margin:0 0 6px; }
+.client-bolao-rules p { margin:0 0 20px; color:#475569; }
+.client-bolao-rules small { color:#64748b; }
+@media (max-width: 680px) {
+  .client-worldcup-card { align-items:flex-start; flex-direction:column; }
+  .client-worldcup-card .btn { width:100%; justify-content:center; }
+  .client-bolao-game-header { flex-direction:column; }
+  .client-bolao-prize { white-space:normal; }
+}
+
+/* v1.6.109 · Bolão da Copa: seta preta funcional e menu 3 pontinhos robusto */
+.bolao-copa-admin-page .bolao-copa-table th::after,
+.bolao-copa-admin-page .bolao-copa-predictions-table th::after {
+  content: none !important;
+  display: none !important;
+}
+.bolao-copa-admin-page .bolao-sort-btn {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 950;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.bolao-copa-admin-page .bolao-sort-btn:hover,
+.bolao-copa-admin-page .bolao-sort-btn.is-active,
+.bolao-copa-admin-page .bolao-sort-btn.active {
+  color: #111827;
+  text-decoration: none;
+}
+.bolao-copa-admin-page .bolao-sort-btn .sort-arrow {
+  display: inline-block !important;
+  width: 14px !important;
+  min-width: 14px !important;
+  height: auto !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #111827 !important;
+  font-size: .72rem !important;
+  line-height: 1 !important;
+  font-weight: 950 !important;
+  margin-left: 2px;
+  text-align: center;
+}
+.bolao-copa-admin-page .bolao-sort-btn:hover .sort-arrow,
+.bolao-copa-admin-page .bolao-sort-btn.is-active .sort-arrow,
+.bolao-copa-admin-page .bolao-sort-btn.active .sort-arrow {
+  color: #111827 !important;
+}
+.bolao-copa-admin-page .bolao-action-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: visible;
+}
+.bolao-copa-admin-page .bolao-menu-btn {
+  position: static;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 13px;
+}
+.bolao-copa-admin-page .bolao-menu-btn[aria-expanded="true"] {
+  background: linear-gradient(135deg, rgba(1, 173, 183, .12), rgba(249, 161, 151, .14));
+  border-color: rgba(1, 173, 183, .22);
+}
+.bolao-copa-admin-page .bolao-action-menu,
+body > .bolao-action-menu[data-bolao-menu-panel] {
+  position: fixed;
+  right: auto;
+  top: auto;
+  min-width: 220px;
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #fff;
+  box-shadow: 0 22px 56px rgba(15, 23, 42, .24);
+  z-index: 2147483647 !important;
+}
+.bolao-copa-admin-page .bolao-action-menu[hidden],
+body > .bolao-action-menu[data-bolao-menu-panel][hidden] { display: none !important; }
+.bolao-copa-admin-page .bolao-action-menu.is-open,
+body > .bolao-action-menu[data-bolao-menu-panel].is-open { display: grid !important; gap: 4px; }
+.bolao-copa-admin-page .bolao-action-menu button,
+body > .bolao-action-menu[data-bolao-menu-panel] button {
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  padding: 10px 11px;
+  color: #233347;
+  font-weight: 850;
+  text-align: left;
+  cursor: pointer;
+}
+.bolao-copa-admin-page .bolao-action-menu button:hover,
+body > .bolao-action-menu[data-bolao-menu-panel] button:hover {
+  background: linear-gradient(135deg, rgba(1, 173, 183, .10), rgba(249, 161, 151, .12));
+}
+.bolao-copa-admin-page .bolao-action-menu .danger-menu-item,
+body > .bolao-action-menu[data-bolao-menu-panel] .danger-menu-item { color: #be123c; }
+.bolao-copa-admin-page .bolao-copa-table th:last-child,
+.bolao-copa-admin-page .bolao-copa-predictions-table th:last-child,
+.bolao-copa-admin-page .bolao-copa-table td:last-child,
+.bolao-copa-admin-page .bolao-copa-predictions-table td:last-child {
+  text-align: right;
+  overflow: visible;
+}
+.bolao-copa-admin-page .table-scroll { overflow: visible; }
+
+
+/* v1.6.113 — App Home + Acessos: cards promocionais e convite Bolão da Copa */
+body.app-client .client-home-referral-cta,
+body.app-client.client-pwa-layout-v1652 .client-home-referral-cta,
+body.app-client.client-pwa-layout-v1657 .client-home-referral-cta {
+  min-height: 250px !important;
+  box-sizing: border-box !important;
+  align-content: center !important;
+}
+body.app-client .client-worldcup-card p.eyebrow,
+body.app-client .client-worldcup-card .eyebrow {
+  margin-top: 20px !important;
+}
+body.app-client .client-worldcup-card .client-worldcup-description {
+  padding-bottom: 14px !important;
+  margin-bottom: 24px !important;
+}
+body.app-access-page .app-access-row-menu .send-worldcup-promo-btn {
+  font-weight: 900;
 }

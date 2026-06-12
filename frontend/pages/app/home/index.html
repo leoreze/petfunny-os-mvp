@@ -132,6 +132,7 @@
     notificacoes: ['Notificações', 'Acompanhe lembretes, avisos e novidades do PetFunny separados por data.'],
     perfil: ['Meu perfil', 'Atualize seus dados de cadastro. O WhatsApp fica protegido e não pode ser alterado pelo app.'],
     promocoes: ['Promoções PetFunny', 'Descontos ativos entram automaticamente no agendamento quando o serviço, porte e dia combinarem.'],
+    bolao: ['Bolão da Copa PetFunny', 'Dê seu palpite nos jogos do Brasil. Acertou o placar? Ganha banho grátis!'],
     bemestar: ['PetFunny 360 IA', 'Avaliação de bem-estar, comportamento, rotina e cuidado do pet com linguagem responsável.']
   };
 
@@ -909,6 +910,120 @@
     </section>`;
   }
 
+
+
+  function bolaoGameDateLabel(game = {}) {
+    if (!game.matchDate) return 'Data a definir';
+    const [year, month, day] = String(game.matchDate).slice(0, 10).split('-');
+    return `${day}/${month}/${year}${game.matchTime ? ` às ${String(game.matchTime).slice(0, 5)}` : ''}`;
+  }
+
+  function bolaoGameDeadline(game = {}) {
+    if (!game.matchDate) return null;
+    const [year, month, day] = String(game.matchDate).slice(0, 10).split('-').map(Number);
+    const [hour, minute] = String(game.matchTime || '16:00').slice(0, 5).split(':').map(Number);
+    if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return null;
+    const kickoff = new Date(year, month - 1, day, hour, minute, 0, 0);
+    return new Date(kickoff.getTime() - 10 * 60 * 1000);
+  }
+
+  function bolaoGameIsOpen(game = {}) {
+    const status = String(game.status || 'scheduled');
+    if (!['scheduled', 'open'].includes(status)) return false;
+    const deadline = bolaoGameDeadline(game);
+    if (!deadline) return Boolean(game.isOpen);
+    return Date.now() < deadline.getTime();
+  }
+
+  function bolaoGameDeadlineText(game = {}) {
+    const deadline = bolaoGameDeadline(game);
+    if (!deadline) return 'Os palpites encerram 10 minutos antes da bola rolar.';
+    return `Palpites até ${deadline.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}. Depois disso, o jogo fica encerrado para palpites.`;
+  }
+
+  function bolaoPredictionStatus(prediction = {}, game = {}) {
+    const status = prediction?.status || '';
+    if (status === 'correct') return ['🏆', 'Você acertou!', prediction.awardDescription || 'Você ganhou banho grátis PetFunny.'];
+    if (status === 'awarded') return ['✅', 'Prêmio entregue', prediction.awardDescription || 'Banho grátis já marcado como entregue.'];
+    if (status === 'wrong') return ['💚', 'Não foi dessa vez', 'Continue participando nos próximos jogos do Brasil.'];
+    if (prediction?.id) return ['📌', 'Palpite enviado', prediction.guessLabel || 'Aguardando o jogo acontecer.'];
+    if (!bolaoGameIsOpen(game)) return ['🔒', 'Encerrado para palpites', 'Os palpites encerram automaticamente 10 minutos antes do jogo.'];
+    return ['⚽', 'Dê seu palpite', bolaoGameDeadlineText(game)];
+  }
+
+  function renderHomeWorldCupBolaoCard() {
+    const bolao = data.bolaoCopa || {};
+    const game = bolao.openGame || (bolao.games || [])[0] || null;
+    if (!game) {
+      return `<section class="client-worldcup-card client-worldcup-empty"><div><p class="eyebrow">Copa do Mundo PetFunny</p><h2>Bolão do Brasil chegando</h2><p class="client-worldcup-description">Logo você poderá palpitar nos jogos do Brasil pelo app. Acertou o placar, ganhou banho grátis.</p></div><span class="client-worldcup-ball">🏆</span></section>`;
+    }
+    const [icon, statusTitle, statusText] = bolaoPredictionStatus(game.myPrediction || {}, game);
+    return `<section class="client-worldcup-card">
+      <div class="client-worldcup-copy">
+        <p class="eyebrow">Copa do Mundo PetFunny</p>
+        <h2>Bolão: Brasil x ${escapeHtml(game.opponent || 'adversário')}</h2>
+        <p class="client-worldcup-description">${escapeHtml(game.prizeDescription || 'Acertou o placar? Ganha banho grátis!')}</p>
+        <div class="client-worldcup-meta"><span>📅 ${escapeHtml(bolaoGameDateLabel(game))}</span><span>${icon} ${escapeHtml(statusTitle)}</span></div>
+        <small>${escapeHtml(statusText)}</small>
+      </div>
+      <a class="btn btn-sm" href="/app/bolao-copa">${game.myPrediction?.id ? 'Ver meu palpite' : (bolaoGameIsOpen(game) ? 'Dar palpite' : 'Ver bolão')}</a>
+    </section>`;
+  }
+
+  function renderBolaoGameCard(game = {}) {
+    const prediction = game.myPrediction || null;
+    const hasPrediction = Boolean(prediction?.id);
+    const [icon, statusTitle, statusText] = bolaoPredictionStatus(prediction || {}, game);
+    const disabled = !bolaoGameIsOpen(game) || ['finished','closed','canceled'].includes(game.status);
+    const canSubmit = !disabled && !hasPrediction;
+    const readonlyPrediction = hasPrediction ? `<div class="client-bolao-submitted" aria-label="Palpite já registrado">
+        <div class="client-bolao-form client-bolao-form-readonly">
+          <label><span>Brasil</span><input type="number" value="${escapeHtml(prediction?.predictedBrazilScore ?? '')}" disabled readonly></label>
+          <strong>x</strong>
+          <label><span>${escapeHtml(game.opponent || 'Adversário')}</span><input type="number" value="${escapeHtml(prediction?.predictedOpponentScore ?? '')}" disabled readonly></label>
+        </div>
+        <div class="client-bolao-locked"><strong>${escapeHtml(prediction?.guessLabel || 'Palpite registrado')}</strong><small>Você já enviou 1 palpite para este jogo. Ele fica registrado e não pode ser alterado pelo app.</small></div>
+      </div>` : '';
+    const unavailableText = game.status === 'finished'
+      ? 'Jogo finalizado e apurado pelo PetFunny.'
+      : 'O prazo de envio encerra automaticamente 10 minutos antes do jogo.';
+    return `<article class="client-bolao-game-card ${prediction?.status ? `status-${escapeHtml(prediction.status)}` : ''}">
+      <div class="client-bolao-game-header">
+        <div><p class="eyebrow">${escapeHtml(game.roundName || 'Jogo do Brasil')}</p><h3>Brasil x ${escapeHtml(game.opponent || 'Adversário')}</h3><p>${escapeHtml(bolaoGameDateLabel(game))}</p></div>
+        <span class="client-bolao-prize">🎁 ${escapeHtml(game.prizeDescription || 'Banho grátis')}</span>
+      </div>
+      <div class="client-bolao-scoreline">
+        <strong>Brasil</strong>
+        <span>${game.finalScore ? escapeHtml(game.finalScore.replace('Brasil ', '')) : 'x'}</span>
+        <strong>${escapeHtml(game.opponent || 'Adversário')}</strong>
+      </div>
+      <div class="client-bolao-status"><span>${icon}</span><div><strong>${escapeHtml(statusTitle)}</strong><small>${escapeHtml(statusText)}</small></div></div>
+      ${canSubmit ? `<form class="client-bolao-form" data-bolao-prediction-form data-game-id="${escapeHtml(game.id)}">
+        <label><span>Brasil</span><input type="number" name="brazilScore" min="0" max="99" required></label>
+        <strong>x</strong>
+        <label><span>${escapeHtml(game.opponent || 'Adversário')}</span><input type="number" name="opponentScore" min="0" max="99" required></label>
+        <button class="btn" type="submit">Enviar palpite</button>
+      </form>` : (readonlyPrediction || `<div class="client-bolao-locked"><strong>${game.isOpen ? 'Palpite indisponível' : 'Palpites encerrados'}</strong><small>${escapeHtml(unavailableText)}</small></div>`)}
+    </article>`;
+  }
+
+  function renderBolaoCopa() {
+    const bolao = data.bolaoCopa || { games: [] };
+    const games = bolao.games || [];
+    const winners = Number(bolao.winners || 0);
+    return `<section class="client-mobile-section client-bolao-page">
+      <div class="client-bolao-hero">
+        <span>🏆</span>
+        <p class="eyebrow">Promoção Copa do Mundo</p>
+        <h2>Palpite no Brasil. Banho grátis no PetFunny.</h2>
+        <p>Dê o placar exato dos jogos do Brasil. Se acertar, você ganha <strong>banho grátis</strong> para seu pet.</p>
+        <div class="client-bolao-kpis"><div><strong>${games.length}</strong><small>jogos</small></div><div><strong>${winners}</strong><small>acertos seus</small></div></div>
+      </div>
+      ${games.length ? `<div class="client-bolao-games">${games.map(renderBolaoGameCard).join('')}</div>` : empty('🏆', 'Bolão ainda não liberado', 'A PetFunny vai cadastrar os jogos do Brasil e você verá os palpites aqui.')}
+      <article class="client-bolao-rules"><h3>Como funciona?</h3><p>Você envia um palpite por jogo antes da bola rolar. Depois que o PetFunny lançar o placar oficial, quem acertar o resultado exato ganha banho grátis.</p><small>Promoção válida conforme disponibilidade da agenda e regras internas do PetFunny.</small></article>
+    </section>`;
+  }
+
   function renderHome() {
     const quickAccess = `<section class="client-mobile-section client-quick-access-section"><div class="client-section-title"><h2>O que você deseja?</h2><p>Escolha uma ação rápida para cuidar melhor do seu pet.</p></div>${clientCards()}</section>`;
     const bigNumbers = `<div class="client-kpi-grid client-home-big-numbers"><article><strong>${data.stats.pets}</strong><span>pets cadastrados</span></article><article><strong>${data.stats.upcomingAppointments}</strong><span>próximos horários</span></article><article><strong>${data.stats.activePackages}</strong><span>pacotes ativos</span></article></div>`;
@@ -917,6 +1032,7 @@
       renderMeuPetHero(),
       quickAccess,
       bigNumbers,
+      renderHomeWorldCupBolaoCard(),
       renderHomeEngagementGrid(),
       renderHomeReferralCta(),
       renderPushActivationCard(),
@@ -2061,7 +2177,7 @@
     <section class="client-mobile-section">${renderPushActivationCard()}</section>`;
   }
 
-  const renderers = { home: renderHome, agenda: renderAgenda, agendamentos: renderMeusAgendamentos, saude: renderHealth360, teleconsultas: renderTeleconsultas, notificacoes: renderNotificacoes, pets: renderPets, historico: renderHistorico, momentos: renderMomentos, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, indique: renderIndique, promocoes: renderPromocoes, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
+  const renderers = { home: renderHome, agenda: renderAgenda, agendamentos: renderMeusAgendamentos, saude: renderHealth360, teleconsultas: renderTeleconsultas, notificacoes: renderNotificacoes, pets: renderPets, historico: renderHistorico, momentos: renderMomentos, pacotes: renderPacotes, mimos: renderMimos, roleta: renderRoleta, indique: renderIndique, promocoes: renderPromocoes, bolao: renderBolaoCopa, bemestar: renderBemEstar, perfil: renderPerfil, pagamento: renderPagamento };
 
   function clearClientMomentFloatingUpload() {
     document.querySelectorAll('body > .client-moment-floating-upload').forEach((element) => element.remove());
@@ -2153,6 +2269,21 @@
     bindPetDetailEvents();
     await loadPetRecordsList();
   }
+
+  function hasBolaoDeadlineExpiredLocally() {
+    const bolao = data.bolaoCopa || {};
+    return (bolao.games || []).some((game) => Boolean(game?.isOpen) && !bolaoGameIsOpen(game));
+  }
+
+  let bolaoAutoRefreshRunning = false;
+  window.setInterval(async () => {
+    if (document.hidden || bolaoAutoRefreshRunning) return;
+    const section = currentClientSection();
+    if (!['home', 'bolao'].includes(section)) return;
+    if (!hasBolaoDeadlineExpiredLocally()) return;
+    bolaoAutoRefreshRunning = true;
+    try { await reload(section); } finally { bolaoAutoRefreshRunning = false; }
+  }, 30000);
 
   function formPayload(form) {
     return Object.fromEntries(new FormData(form).entries());
@@ -2871,6 +3002,33 @@
         else await loadHealth360Panel(event.target.petId?.value || '');
       } catch (error) {
         openModal('Não foi possível solicitar teleconsulta', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
+      }
+    });
+
+
+
+    document.body.addEventListener('submit', async (event) => {
+      const form = event.target?.closest?.('[data-bolao-prediction-form]');
+      if (!form) return;
+      event.preventDefault();
+      const gameId = form.dataset.gameId || '';
+      const submitButton = form.querySelector('button[type="submit"]');
+      try {
+        if (submitButton) {
+          submitButton.disabled = true;
+          submitButton.textContent = 'Registrando...';
+        }
+        const payload = formPayload(form);
+        const response = await clientApi.post(`/app/bolao-copa/${encodeURIComponent(gameId)}/prediction`, payload);
+        toast(response.message || 'Palpite enviado no Bolão da Copa.');
+        data.bolaoCopa = response.bolao || data.bolaoCopa;
+        await reload('bolao');
+      } catch (error) {
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Enviar palpite';
+        }
+        openModal('Não foi possível enviar o palpite', `<p>${escapeHtml(error.message)}</p>`, '<button class="btn" data-close-modal>OK</button>');
       }
     });
 

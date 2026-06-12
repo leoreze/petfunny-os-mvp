@@ -18,6 +18,7 @@ const overflowNavItems = [
   { key: 'pacotes', label: 'Pacotes', icon: '📦', href: '/app/pacotes', priority: 10 },
   { key: 'roleta', label: 'Roleta', icon: '🎁', href: '/app/roleta', priority: 11 },
   { key: 'promocoes', label: 'Promoções', icon: '🏷️', href: '/app/promocoes', priority: 12 },
+  { key: 'bolao', label: 'Bolão da Copa', icon: '🏆', href: '/app/bolao-copa', priority: 12 },
   { key: 'notificacoes', label: 'Notificações', icon: '🔔', href: '/app/notificacoes', priority: 13 },
   { key: 'bemestar', label: '360 IA', icon: '🧠', href: '/app/bem-estar', priority: 14 }
 ];
@@ -37,6 +38,7 @@ const sectionHeroMeta = {
   teleconsultas: { icon: '📹', tag: 'Consulta veterinária online', actionLabel: 'Escolher pet', href: '/app/teleconsultas' },
   notificacoes: { icon: '🔔', tag: 'Central de avisos', actionLabel: 'Ver notificações', href: '/app/notificacoes' },
   promocoes: { icon: '🏷️', tag: 'Condições especiais', actionLabel: 'Agendar com desconto', href: '/app/agenda' },
+  bolao: { icon: '🏆', tag: 'Copa do Mundo PetFunny', actionLabel: 'Dar palpite', href: '/app/bolao-copa' },
   bemestar: { icon: '🧠', tag: 'PetFunny 360 IA', actionLabel: 'Avaliar pet', href: '/app/bem-estar' },
   perfil: { icon: '👤', tag: 'Seus dados protegidos', actionLabel: 'Meus pets', href: '/app/pets' },
   pagamento: { icon: '💠', tag: 'Pagamento seguro via Pix', actionLabel: 'Voltar à agenda', href: '/app/agenda' }
@@ -56,6 +58,7 @@ export function currentClientSection() {
   if (path.includes('/notificacoes')) return 'notificacoes';
   if (path.includes('/saude-360')) return 'saude';
   if (path.includes('/roleta')) return 'roleta';
+  if (path.includes('/bolao-copa')) return 'bolao';
   if (path.includes('/promocoes')) return 'promocoes';
   if (path.includes('/bem-estar')) return 'bemestar';
   if (path.includes('/perfil')) return 'perfil';

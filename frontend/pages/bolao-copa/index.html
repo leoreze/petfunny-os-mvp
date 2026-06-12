@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>Bolão da Copa · PetFunny OS</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+  <link rel="manifest" href="/admin-manifest.webmanifest">
+  <meta name="theme-color" content="#01ADB7">
+  <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<script type="module">
+  import { buildShell, bigNumberGrid, setupPremiumInteractions } from '/assets/js/shell.js';
+  import { api } from '/assets/js/api.js';
+  import { toast } from '/assets/js/toast.js';
+  import { finishPageLoading } from '/assets/js/loading.js';
+
+  document.body.classList.add('bolao-copa-admin-page');
+
+  const state = {
+    games: [],
+    predictions: [],
+    selectedGameId: '',
+    editing: null,
+    loading: false,
+    sort: {
+      games: { key: 'matchDate', direction: 'asc' },
+      predictions: { key: 'submittedAt', direction: 'desc' }
+    }
+  };
+
+  const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const todayIso = () => new Date().toISOString().slice(0, 10);
+  const statusLabel = (status) => ({ scheduled: 'Aberto', open: 'Aberto', closed: 'Encerrado para palpites', finished: 'Finalizado', canceled: 'Cancelado' }[status] || status || 'Aberto');
+  const statusClass = (status) => ['scheduled','open'].includes(status) ? 'success' : status === 'finished' ? 'info' : status === 'canceled' ? 'danger' : 'warning';
+  const predictionStatusLabel = (status) => ({ correct: 'Ganhou banho grátis', awarded: 'Prêmio entregue', wrong: 'Não acertou', pending: 'Aguardando jogo' }[status] || 'Aguardando jogo');
+  const predictionStatusClass = (status) => status === 'correct' || status === 'awarded' ? 'success' : status === 'wrong' ? 'danger' : 'warning';
+
+  function normalizeDateOnly(value) {
+    if (!value) return '';
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+    const text = String(value).trim();
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
+  }
+
+  function normalizeTimeOnly(value) {
+    if (!value) return '';
+    const text = String(value).trim();
+    const match = text.match(/(\d{2}):(\d{2})/);
+    if (match) return `${match[1]}:${match[2]}`;
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+    }
+    return '';
+  }
+
+  function formatDateOnly(value) {
+    const iso = normalizeDateOnly(value);
+    if (!iso) return '—';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  function formatTimeOnly(value, fallback = '—') {
+    return normalizeTimeOnly(value) || fallback;
+  }
+
+  function bolaoGameDeadline(game = {}) {
+    const date = normalizeDateOnly(game.matchDate);
+    const time = normalizeTimeOnly(game.matchTime) || '16:00';
+    if (!date) return null;
+    const [year, month, day] = date.split('-').map(Number);
+    const [hour, minute] = time.split(':').map(Number);
+    if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return null;
+    const kickoff = new Date(year, month - 1, day, hour, minute, 0, 0);
+    return new Date(kickoff.getTime() - 10 * 60 * 1000);
+  }
+
+  function bolaoGameIsOpen(game = {}) {
+    const status = String(game.status || 'scheduled');
+    if (!['scheduled', 'open'].includes(status)) return false;
+    const deadline = bolaoGameDeadline(game);
+    if (!deadline) return Boolean(game.isOpen);
+    return Date.now() < deadline.getTime();
+  }
+
+  function bolaoEffectiveStatus(game = {}) {
+    if (bolaoGameIsOpen(game)) return game.status || 'scheduled';
+    if (game.status === 'finished' || game.status === 'canceled') return game.status;
+    return 'closed';
+  }
+
+  function bolaoGameDeadlineLabel(game = {}) {
+    const deadline = bolaoGameDeadline(game);
+    if (!deadline) return 'Palpites encerram 10 minutos antes do jogo.';
+    return `Palpites até ${deadline.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`;
+  }
+
+  function splitDateTime(value) {
+    if (!value) return { date: '—', time: '—', dateKey: '', timeKey: '' };
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return { date: formatDateOnly(value), time: formatTimeOnly(value), dateKey: normalizeDateOnly(value), timeKey: normalizeTimeOnly(value) };
+    return {
+      date: parsed.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      time: parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }),
+      dateKey: parsed.toISOString(),
+      timeKey: parsed.toISOString()
+    };
+  }
+
+  function sortDirectionIcon(scope, key) {
+    const current = state.sort[scope] || {};
+    if (current.key !== key) return '↕';
+    return current.direction === 'asc' ? '▲' : '▼';
+  }
+
+  function sortButton(scope, key, label) {
+    const current = state.sort[scope] || {};
+    const active = current.key === key;
+    const title = active
+      ? `Ordenado por ${label} em ordem ${current.direction === 'asc' ? 'crescente' : 'decrescente'}. Clique para inverter.`
+      : `Ordenar por ${label}`;
+    return `<button class="bolao-sort-btn th-sort ${active ? 'is-active active' : ''}" type="button" data-sort-scope="${esc(scope)}" data-sort-key="${esc(key)}" title="${esc(title)}"><span>${esc(label)}</span><span class="sort-arrow" aria-hidden="true">${sortDirectionIcon(scope, key)}</span></button>`;
+  }
+
+  function compareValues(a, b) {
+    const va = a ?? '';
+    const vb = b ?? '';
+    if (typeof va === 'number' || typeof vb === 'number') return Number(va || 0) - Number(vb || 0);
+    return String(va).localeCompare(String(vb), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  }
+
+  function sortRows(rows, scope) {
+    const { key, direction } = state.sort[scope] || {};
+    const factor = direction === 'desc' ? -1 : 1;
+    return [...rows].sort((a, b) => factor * compareValues(getSortValue(a, key, scope), getSortValue(b, key, scope)));
+  }
+
+  function getSortValue(item, key, scope) {
+    if (scope === 'games') {
+      if (key === 'game') return `${item.opponent || ''} ${item.roundName || ''}`;
+      if (key === 'matchDate') return normalizeDateOnly(item.matchDate);
+      if (key === 'matchTime') return normalizeTimeOnly(item.matchTime);
+      if (key === 'prize') return item.prizeDescription || '';
+      if (key === 'predictions') return Number(item.predictionsCount || 0);
+      if (key === 'result') return item.finalScore || '';
+      if (key === 'status') return statusLabel(item.status);
+    }
+    if (scope === 'predictions') {
+      const submitted = splitDateTime(item.submittedAt);
+      if (key === 'tutor') return item.tutorName || '';
+      if (key === 'game') return `${item.opponent || ''} ${item.roundName || ''}`;
+      if (key === 'guess') return item.guessLabel || '';
+      if (key === 'status') return predictionStatusLabel(item.status);
+      if (key === 'submittedDate') return submitted.dateKey;
+      if (key === 'submittedTime') return submitted.timeKey;
+      if (key === 'submittedAt') return item.submittedAt || '';
+    }
+    return item?.[key] ?? '';
+  }
+
+  const content = `
+    <section class="hero-panel stack-lg bolao-copa-hero">
+      <div class="page-heading-row between">
+        <div>
+          <p class="eyebrow">Promoção Copa do Mundo</p>
+          <h1>Bolão da Copa PetFunny</h1>
+          <p>Cadastre os jogos do Brasil, abra palpites no App do Tutor e apure automaticamente quem acertou o placar para ganhar banho grátis.</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" id="refresh-bolao" type="button">↻ Atualizar</button>
+          <button class="btn" id="new-game" type="button">＋ Novo jogo do Brasil</button>
+        </div>
+      </div>
+      <div id="bolao-metrics">${bigNumberGrid([
+        ['Jogos cadastrados', '—', 'Brasil na Copa'],
+        ['Jogos abertos', '—', 'recebendo palpites'],
+        ['Palpites enviados', '—', 'tutores engajados'],
+        ['Banhos grátis', '—', 'ganhadores']
+      ])}</div>
+    </section>
+
+    <section class="module-card stack-md bolao-copa-list-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line">
+          <div>
+            <h3>Jogos do Brasil</h3>
+            <p>Ao finalizar o placar oficial, o sistema marca automaticamente os palpites certos como ganhadores.</p>
+          </div>
+        </div>
+      </div>
+      <div class="table-scroll custom-scroll">
+        <table class="premium-table bolao-copa-table">
+          <thead>
+            <tr>
+              <th>${sortButton('games', 'game', 'Jogo')}</th>
+              <th>${sortButton('games', 'matchDate', 'Data')}</th>
+              <th>${sortButton('games', 'matchTime', 'Horário')}</th>
+              <th>${sortButton('games', 'prize', 'Prêmio')}</th>
+              <th>${sortButton('games', 'predictions', 'Palpites')}</th>
+              <th>${sortButton('games', 'result', 'Resultado')}</th>
+              <th>${sortButton('games', 'status', 'Status')}</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="games-body"><tr><td colspan="8">Carregando bolão...</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="module-card stack-md bolao-copa-predictions-card">
+      <div class="section-toolbar stacked-toolbar">
+        <div class="toolbar-copy-line">
+          <div>
+            <h3>Palpites dos tutores</h3>
+            <p>Veja quem participou, quem acertou e quem já recebeu o banho grátis.</p>
+          </div>
+          <select class="select" id="prediction-game-filter"><option value="">Todos os jogos</option></select>
+        </div>
+      </div>
+      <div class="table-scroll custom-scroll">
+        <table class="premium-table bolao-copa-predictions-table">
+          <thead>
+            <tr>
+              <th>${sortButton('predictions', 'tutor', 'Tutor')}</th>
+              <th>${sortButton('predictions', 'game', 'Jogo')}</th>
+              <th>${sortButton('predictions', 'guess', 'Palpite')}</th>
+              <th>${sortButton('predictions', 'status', 'Status')}</th>
+              <th>${sortButton('predictions', 'submittedDate', 'Data envio')}</th>
+              <th>${sortButton('predictions', 'submittedTime', 'Horário envio')}</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="predictions-body"><tr><td colspan="7">Selecione ou aguarde os palpites...</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <dialog class="premium-modal" id="game-modal">
+      <form class="modal-card" method="dialog" id="game-form">
+        <header class="modal-header">
+          <div>
+            <p class="eyebrow">Bolão da Copa</p>
+            <h3 id="game-modal-title">Novo jogo do Brasil</h3>
+            <p>Enquanto o jogo estiver aberto e no futuro, o tutor consegue enviar ou alterar o palpite no app.</p>
+          </div>
+          <button class="icon-btn" id="close-game-modal" type="button">×</button>
+        </header>
+        <div class="modal-body custom-scroll">
+          <div class="form-grid form-row-gap">
+            <label class="form-field"><span>Título</span><input class="input" id="g-title" placeholder="Brasil na Copa" value="Brasil na Copa"></label>
+            <label class="form-field"><span>Fase / rodada</span><input class="input" id="g-round" placeholder="Ex.: Fase de grupos"></label>
+            <label class="form-field"><span>Adversário</span><input class="input" id="g-opponent" required placeholder="Ex.: Brasil x Espanha — informe Espanha"></label>
+            <label class="form-field"><span>Prêmio</span><input class="input" id="g-prize" required value="Banho grátis PetFunny"></label>
+            <label class="form-field"><span>Data do jogo</span><input class="input" id="g-date" type="date" required></label>
+            <label class="form-field"><span>Horário</span><input class="input" id="g-time" type="time" required value="16:00"></label>
+            <label class="form-field"><span>Status</span><select class="select" id="g-status"><option value="scheduled">Aberto para palpites</option><option value="closed">Encerrado para palpites</option><option value="finished">Finalizado / apurar</option><option value="canceled">Cancelado</option></select></label>
+            <label class="form-field"><span>Ativo no app</span><select class="select" id="g-active"><option value="true">Sim</option><option value="false">Não</option></select></label>
+            <label class="form-field"><span>Gols Brasil</span><input class="input" id="g-brazil-score" type="number" min="0" max="99" placeholder="após o jogo"></label>
+            <label class="form-field"><span>Gols adversário</span><input class="input" id="g-opponent-score" type="number" min="0" max="99" placeholder="após o jogo"></label>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button class="btn btn-secondary" id="cancel-game-modal" type="button">Cancelar</button>
+          <button class="btn" type="submit">Salvar jogo</button>
+        </footer>
+      </form>
+    </dialog>
+  `;
+
+  buildShell({ active: 'Bolão da Copa', eyebrow: 'Marketing de Copa', title: 'Bolão da Copa', subtitle: 'Campanha para engajar tutores no App e premiar quem acertar o placar do Brasil.', content });
+
+  const $ = (id) => document.getElementById(id);
+
+  function renderMetrics() {
+    const games = state.games || [];
+    const predictions = state.predictions || [];
+    $('bolao-metrics').innerHTML = bigNumberGrid([
+      ['Jogos cadastrados', String(games.length), 'Brasil na Copa'],
+      ['Jogos abertos', String(games.filter((g) => g.isOpen || ['scheduled','open'].includes(g.status)).length), 'recebendo palpites'],
+      ['Palpites enviados', String(predictions.length), 'tutores engajados'],
+      ['Banhos grátis', String(predictions.filter((p) => ['correct','awarded'].includes(p.status)).length), 'ganhadores']
+    ]);
+  }
+
+  function gameActions(game) {
+    const canEvaluate = game.status !== 'finished';
+    const id = `game-${game.id}`;
+    return `<div class="bolao-action-wrap">
+      <button class="kebab-btn bolao-menu-btn" type="button" data-bolao-menu="${esc(id)}" aria-label="Ações do jogo" aria-expanded="false">⋯</button>
+      <div class="bolao-action-menu" data-bolao-menu-panel="${esc(id)}" hidden>
+        <button type="button" data-edit-game="${esc(game.id)}">Editar jogo</button>
+        ${canEvaluate ? `<button type="button" data-evaluate-game="${esc(game.id)}">Apurar resultado</button>` : ''}
+        <button type="button" data-view-predictions="${esc(game.id)}">Ver palpites</button>
+        <button type="button" class="danger-menu-item" data-delete-game="${esc(game.id)}">Excluir jogo</button>
+      </div>
+    </div>`;
+  }
+
+  function predictionWhatsappMessage(item = {}) {
+    const name = item.tutorName ? item.tutorName.split(' ')[0] : 'tudo bem';
+    if (item.status === 'correct' || item.status === 'awarded') {
+      return `Oi, ${name}! 🐾🇧🇷 Parabéns! Você acertou o placar do Bolão da Copa PetFunny (${item.guessLabel || 'seu palpite'}) e ganhou um banho grátis. Chama a gente para combinar o melhor dia.`;
+    }
+    if (item.status === 'wrong') {
+      return `Oi, ${name}! 🐾🇧🇷 Obrigado por participar do Bolão da Copa PetFunny. Seu palpite foi ${item.guessLabel || 'registrado'}. Não foi dessa vez, mas fique de olho nos próximos jogos do Brasil!`;
+    }
+    return `Oi, ${name}! 🐾🇧🇷 Seu palpite no Bolão da Copa PetFunny foi registrado: ${item.guessLabel || 'palpite enviado'}. Se acertar o placar do Brasil, você ganha um banho grátis!`;
+  }
+
+  function predictionActions(item) {
+    const id = `prediction-${item.id}`;
+    return `<div class="bolao-action-wrap">
+      <button class="kebab-btn bolao-menu-btn" type="button" data-bolao-menu="${esc(id)}" aria-label="Ações do palpite" aria-expanded="false">⋯</button>
+      <div class="bolao-action-menu" data-bolao-menu-panel="${esc(id)}" hidden>
+        <button type="button" data-copy-prediction="${esc(item.id)}">Copiar resumo</button>
+        <button type="button" data-whatsapp-prediction="${esc(item.id)}">Enviar WhatsApp</button>
+        ${item.status === 'correct' ? `<button type="button" data-redeem-prediction="${esc(item.id)}">Marcar prêmio entregue</button>` : ''}
+        <button type="button" data-filter-prediction-game="${esc(item.gameId || '')}">Ver jogo</button>
+      </div>
+    </div>`;
+  }
+
+  function renderGames() {
+    removeStaleBolaoMenus();
+    const body = $('games-body');
+    if (!state.games.length) {
+      body.innerHTML = `<tr><td colspan="8"><div class="empty-state"><strong>Nenhum jogo cadastrado</strong><span>Cadastre o primeiro jogo do Brasil para liberar o card no App do Tutor.</span></div></td></tr>`;
+      return;
+    }
+    body.innerHTML = sortRows(state.games, 'games').map((game) => `
+      <tr>
+        <td><strong>Brasil x ${esc(game.opponent)}</strong><small>${esc(game.roundName || game.title || 'Bolão da Copa')}</small></td>
+        <td>${formatDateOnly(game.matchDate)}</td>
+        <td><strong>${formatTimeOnly(game.matchTime)}</strong></td>
+        <td>${esc(game.prizeDescription || 'Banho grátis PetFunny')}</td>
+        <td><strong>${Number(game.predictionsCount || 0)}</strong><small>${Number(game.correctCount || 0)} ganhadores</small></td>
+        <td>${game.finalScore ? esc(game.finalScore) : '<span class="muted">Aguardando placar</span>'}</td>
+        <td><span class="tag tag-${statusClass(bolaoEffectiveStatus(game))}">${statusLabel(bolaoEffectiveStatus(game))}</span><small>${bolaoGameIsOpen(game) ? bolaoGameDeadlineLabel(game) : 'Palpites encerrados'}</small></td>
+        <td>${gameActions(game)}</td>
+      </tr>`).join('');
+  }
+
+  function renderGameFilter() {
+    $('prediction-game-filter').innerHTML = `<option value="">Todos os jogos</option>${state.games.map((game) => `<option value="${esc(game.id)}" ${state.selectedGameId === game.id ? 'selected' : ''}>Brasil x ${esc(game.opponent)} · ${formatDateOnly(game.matchDate)} · ${formatTimeOnly(game.matchTime)}</option>`).join('')}`;
+  }
+
+  function renderPredictions() {
+    removeStaleBolaoMenus();
+    const body = $('predictions-body');
+    if (!state.predictions.length) {
+      body.innerHTML = `<tr><td colspan="7"><div class="empty-state"><strong>Nenhum palpite ainda</strong><span>Quando os tutores participarem pelo app, eles aparecem aqui.</span></div></td></tr>`;
+      return;
+    }
+    body.innerHTML = sortRows(state.predictions, 'predictions').map((item) => {
+      const submitted = splitDateTime(item.submittedAt);
+      return `
+        <tr>
+          <td><strong>${esc(item.tutorName || 'Tutor')}</strong><small>${esc(item.tutorWhatsapp || '')}</small></td>
+          <td><strong>Brasil x ${esc(item.opponent || 'Adversário')}</strong><small>${formatDateOnly(item.matchDate)} · ${formatTimeOnly(item.matchTime)}</small></td>
+          <td>${esc(item.guessLabel || '')}</td>
+          <td><span class="tag tag-${predictionStatusClass(item.status)}">${predictionStatusLabel(item.status)}</span></td>
+          <td>${submitted.date}</td>
+          <td><strong>${submitted.time}</strong></td>
+          <td>${predictionActions(item)}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  function refreshSortHeaders() {
+    document.querySelectorAll('[data-sort-scope]').forEach((button) => {
+      const scope = button.dataset.sortScope;
+      const key = button.dataset.sortKey;
+      const label = button.querySelector('span:first-child')?.textContent?.trim() || button.textContent.trim();
+      const current = state.sort[scope] || {};
+      const active = current.key === key;
+      button.classList.toggle('is-active', active);
+      button.classList.toggle('active', active);
+      const arrow = button.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = sortDirectionIcon(scope, key);
+      button.setAttribute('title', active
+        ? `Ordenado por ${label} em ordem ${current.direction === 'asc' ? 'crescente' : 'decrescente'}. Clique para inverter.`
+        : `Ordenar por ${label}`);
+    });
+  }
+
+  function openGameModal(game = null) {
+    state.editing = game;
+    $('game-modal-title').textContent = game ? 'Editar jogo do Brasil' : 'Novo jogo do Brasil';
+    $('g-title').value = game?.title || 'Brasil na Copa';
+    $('g-round').value = game?.roundName || '';
+    $('g-opponent').value = game?.opponent || '';
+    $('g-prize').value = game?.prizeDescription || 'Banho grátis PetFunny';
+    $('g-date').value = normalizeDateOnly(game?.matchDate) || todayIso();
+    $('g-time').value = normalizeTimeOnly(game?.matchTime) || '16:00';
+    $('g-status').value = game?.status || 'scheduled';
+    $('g-active').value = String(game?.isActive !== false);
+    $('g-brazil-score').value = game?.brazilScore ?? '';
+    $('g-opponent-score').value = game?.opponentScore ?? '';
+    $('game-modal').showModal();
+  }
+
+  function closeGameModal() { $('game-modal')?.close(); state.editing = null; }
+
+  function payloadFromForm() {
+    return {
+      title: $('g-title').value,
+      roundName: $('g-round').value,
+      opponent: $('g-opponent').value,
+      prizeDescription: $('g-prize').value,
+      matchDate: $('g-date').value,
+      matchTime: $('g-time').value,
+      status: $('g-status').value,
+      isActive: $('g-active').value === 'true',
+      brazilScore: $('g-brazil-score').value,
+      opponentScore: $('g-opponent-score').value
+    };
+  }
+
+  function removeStaleBolaoMenus() {
+    document.querySelectorAll('body > .bolao-action-menu[data-bolao-menu-panel]').forEach((menu) => menu.remove());
+  }
+
+  function findBolaoMenuPanel(id) {
+    return Array.from(document.querySelectorAll('[data-bolao-menu-panel]')).find((panel) => panel.dataset.bolaoMenuPanel === id) || null;
+  }
+
+  function closeBolaoMenus() {
+    document.querySelectorAll('[data-bolao-menu-panel]').forEach((menu) => {
+      menu.hidden = true;
+      menu.classList.remove('is-open');
+      menu.style.top = '';
+      menu.style.left = '';
+      menu.style.right = '';
+      menu.style.visibility = '';
+    });
+    document.querySelectorAll('[data-bolao-menu]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+  }
+
+  function positionBolaoMenu(button, panel) {
+    const rect = button.getBoundingClientRect();
+    if (panel.parentElement !== document.body) document.body.appendChild(panel);
+    panel.style.position = 'fixed';
+    panel.style.zIndex = '2147483647';
+    panel.style.visibility = 'hidden';
+    panel.hidden = false;
+    panel.classList.add('is-open');
+
+    const menuWidth = Math.max(panel.offsetWidth || 0, 220);
+    const menuHeight = Math.max(panel.offsetHeight || 0, 120);
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 360;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 640;
+    const gap = 8;
+    const margin = 10;
+
+    let left = rect.right - menuWidth;
+    left = Math.max(margin, Math.min(left, viewportWidth - menuWidth - margin));
+
+    let top = rect.bottom + gap;
+    if (top + menuHeight > viewportHeight - margin) {
+      top = Math.max(margin, rect.top - menuHeight - gap);
+    }
+
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = 'auto';
+    panel.style.visibility = '';
+  }
+
+  function toggleBolaoMenu(button) {
+    const id = button.dataset.bolaoMenu;
+    const panel = findBolaoMenuPanel(id);
+    const wasOpen = panel && !panel.hidden;
+    closeBolaoMenus();
+    if (panel && !wasOpen) {
+      positionBolaoMenu(button, panel);
+      button.setAttribute('aria-expanded', 'true');
+    }
+  }
+
+  function normalizeWhatsapp(phone = '') {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return '';
+    return digits.startsWith('55') ? digits : `55${digits}`;
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  async function loadPredictions(gameId = state.selectedGameId) {
+    const response = await api.get(`/bolao-copa/predictions${gameId ? `?gameId=${encodeURIComponent(gameId)}` : ''}`);
+    state.predictions = response.predictions || [];
+    renderPredictions();
+    refreshSortHeaders();
+    renderMetrics();
+  }
+
+  async function load() {
+    const response = await api.get('/bolao-copa/games');
+    state.games = response.games || [];
+    renderGames();
+    renderGameFilter();
+    await loadPredictions();
+    renderMetrics();
+    refreshSortHeaders();
+  }
+
+  async function saveGame(event) {
+    event.preventDefault();
+    try {
+      const payload = payloadFromForm();
+      if (state.editing?.id) await api.put(`/bolao-copa/games/${state.editing.id}`, payload);
+      else await api.post('/bolao-copa/games', payload);
+      closeGameModal();
+      toast('Jogo salvo no Bolão da Copa.');
+      await load();
+    } catch (error) { toast(error.message || 'Erro ao salvar jogo.', 'error'); }
+  }
+
+  document.addEventListener('click', async (event) => {
+    const menuButton = event.target.closest('[data-bolao-menu]');
+    if (menuButton) { event.stopPropagation(); toggleBolaoMenu(menuButton); return; }
+
+    const sortButtonEl = event.target.closest('[data-sort-scope][data-sort-key]');
+    if (sortButtonEl) {
+      const scope = sortButtonEl.dataset.sortScope;
+      const key = sortButtonEl.dataset.sortKey;
+      const current = state.sort[scope] || {};
+      state.sort[scope] = { key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' };
+      if (scope === 'games') renderGames();
+      if (scope === 'predictions') renderPredictions();
+      refreshSortHeaders();
+      return;
+    }
+
+    const edit = event.target.closest('[data-edit-game]');
+    if (edit) { closeBolaoMenus(); return openGameModal(state.games.find((item) => item.id === edit.dataset.editGame)); }
+
+    const view = event.target.closest('[data-view-predictions]');
+    if (view) { closeBolaoMenus(); state.selectedGameId = view.dataset.viewPredictions; renderGameFilter(); return loadPredictions(state.selectedGameId); }
+
+    const remove = event.target.closest('[data-delete-game]');
+    if (remove) {
+      closeBolaoMenus();
+      if (confirm('Remover este jogo do bolão?')) { await api.delete(`/bolao-copa/games/${remove.dataset.deleteGame}`); toast('Jogo removido.'); await load(); }
+      return;
+    }
+
+    const evaluate = event.target.closest('[data-evaluate-game]');
+    if (evaluate) {
+      closeBolaoMenus();
+      const game = state.games.find((item) => item.id === evaluate.dataset.evaluateGame);
+      const brazil = prompt(`Gols do Brasil contra ${game?.opponent || 'adversário'}:`, game?.brazilScore ?? '');
+      if (brazil === null) return;
+      const opponent = prompt(`Gols de ${game?.opponent || 'adversário'}:`, game?.opponentScore ?? '');
+      if (opponent === null) return;
+      await api.post(`/bolao-copa/games/${evaluate.dataset.evaluateGame}/evaluate`, { brazilScore: brazil, opponentScore: opponent });
+      toast('Bolão apurado. Ganhadores liberados.');
+      await load();
+      return;
+    }
+
+    const redeem = event.target.closest('[data-redeem-prediction]');
+    if (redeem) { closeBolaoMenus(); await api.post(`/bolao-copa/predictions/${redeem.dataset.redeemPrediction}/redeem`, {}); toast('Prêmio marcado como entregue.'); await loadPredictions(); return; }
+
+    const copyPrediction = event.target.closest('[data-copy-prediction]');
+    if (copyPrediction) {
+      closeBolaoMenus();
+      const item = state.predictions.find((prediction) => prediction.id === copyPrediction.dataset.copyPrediction);
+      if (!item) return;
+      await copyText(`${item.tutorName || 'Tutor'} · Brasil x ${item.opponent || 'Adversário'} · ${item.guessLabel || 'Palpite'} · ${predictionStatusLabel(item.status)}`);
+      toast('Resumo do palpite copiado.');
+      return;
+    }
+
+    const whatsappPrediction = event.target.closest('[data-whatsapp-prediction]');
+    if (whatsappPrediction) {
+      closeBolaoMenus();
+      const item = state.predictions.find((prediction) => prediction.id === whatsappPrediction.dataset.whatsappPrediction);
+      if (!item) return;
+      const phone = normalizeWhatsapp(item.tutorWhatsapp);
+      if (!phone) return toast('Tutor sem WhatsApp cadastrado.', 'warning');
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(predictionWhatsappMessage(item))}`, '_blank', 'noopener');
+      return;
+    }
+
+    const filterGame = event.target.closest('[data-filter-prediction-game]');
+    if (filterGame) {
+      closeBolaoMenus();
+      state.selectedGameId = filterGame.dataset.filterPredictionGame || '';
+      renderGameFilter();
+      await loadPredictions(state.selectedGameId);
+      return;
+    }
+
+    if (!event.target.closest('.bolao-action-wrap') && !event.target.closest('.bolao-action-menu')) closeBolaoMenus();
+  });
+
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeBolaoMenus(); });
+  window.addEventListener('scroll', closeBolaoMenus, true);
+  window.addEventListener('resize', closeBolaoMenus);
+
+  $('new-game').addEventListener('click', () => openGameModal());
+  $('refresh-bolao').addEventListener('click', load);
+  $('game-form').addEventListener('submit', saveGame);
+  $('close-game-modal').addEventListener('click', closeGameModal);
+  $('cancel-game-modal').addEventListener('click', closeGameModal);
+  $('prediction-game-filter').addEventListener('change', (event) => { state.selectedGameId = event.target.value; loadPredictions(state.selectedGameId); });
+
+  function hasGameEnteringPredictionDeadline() {
+    return state.games.some((game) => Boolean(game?.isOpen) && !bolaoGameIsOpen(game));
+  }
+
+  let bolaoDeadlineReloading = false;
+  window.setInterval(async () => {
+    if (document.hidden || bolaoDeadlineReloading) return;
+    if (!hasGameEnteringPredictionDeadline()) return;
+    bolaoDeadlineReloading = true;
+    try { await load(); } finally { bolaoDeadlineReloading = false; }
+  }, 30000);
+
+  load().catch((error) => toast(error.message || 'Erro ao carregar bolão.', 'error')).finally(() => { setupPremiumInteractions(); finishPageLoading(); });
+</script>
+</body>
+</html>

@@ -715,6 +715,108 @@ CREATE TABLE IF NOT EXISTS promotions (
 CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions (is_active, status, starts_on, ends_on) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_promotions_service ON promotions (service_id) WHERE deleted_at IS NULL;
 
+
+-- Bolão da Copa: cria primeiro as tabelas para evitar erro em bancos novos.
+CREATE TABLE IF NOT EXISTS world_cup_games (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL DEFAULT 'Brasil na Copa',
+  opponent TEXT NOT NULL DEFAULT 'Adversário',
+  round_name TEXT,
+  match_date DATE,
+  match_time TIME NOT NULL DEFAULT '16:00',
+  status TEXT NOT NULL DEFAULT 'scheduled',
+  brazil_score INTEGER,
+  opponent_score INTEGER,
+  prize_description TEXT NOT NULL DEFAULT 'Banho grátis PetFunny',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS world_cup_predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID REFERENCES world_cup_games(id) ON DELETE CASCADE,
+  tutor_id UUID REFERENCES tutors(id) ON DELETE CASCADE,
+  predicted_brazil_score INTEGER NOT NULL DEFAULT 0,
+  predicted_opponent_score INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',
+  award_description TEXT,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  evaluated_at TIMESTAMPTZ,
+  redeemed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+
+-- Compatibilidade incremental do Bolão da Copa para bancos já existentes.
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT 'Brasil na Copa';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS opponent TEXT NOT NULL DEFAULT 'Adversário';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS round_name TEXT;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS match_date DATE;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS match_time TIME NOT NULL DEFAULT '16:00';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'scheduled';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS brazil_score INTEGER;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS opponent_score INTEGER;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS prize_description TEXT NOT NULL DEFAULT 'Banho grátis PetFunny';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS game_id UUID REFERENCES world_cup_games(id) ON DELETE CASCADE;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS tutor_id UUID REFERENCES tutors(id) ON DELETE CASCADE;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS predicted_brazil_score INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS predicted_opponent_score INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS award_description TEXT;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS evaluated_at TIMESTAMPTZ;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS redeemed_at TIMESTAMPTZ;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_world_cup_predictions_game_tutor_unique ON world_cup_predictions (game_id, tutor_id) WHERE deleted_at IS NULL;
+
+
+
+CREATE TABLE IF NOT EXISTS world_cup_games (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL DEFAULT 'Brasil na Copa',
+  opponent TEXT NOT NULL,
+  round_name TEXT,
+  match_date DATE NOT NULL,
+  match_time TIME NOT NULL DEFAULT '16:00',
+  status TEXT NOT NULL DEFAULT 'scheduled',
+  brazil_score INTEGER CHECK (brazil_score IS NULL OR brazil_score >= 0),
+  opponent_score INTEGER CHECK (opponent_score IS NULL OR opponent_score >= 0),
+  prize_description TEXT NOT NULL DEFAULT 'Banho grátis PetFunny',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_world_cup_games_active ON world_cup_games (is_active, status, match_date, match_time) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS world_cup_predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES world_cup_games(id) ON DELETE CASCADE,
+  tutor_id UUID NOT NULL REFERENCES tutors(id) ON DELETE CASCADE,
+  predicted_brazil_score INTEGER NOT NULL CHECK (predicted_brazil_score >= 0),
+  predicted_opponent_score INTEGER NOT NULL CHECK (predicted_opponent_score >= 0),
+  status TEXT NOT NULL DEFAULT 'pending',
+  award_description TEXT,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  evaluated_at TIMESTAMPTZ,
+  redeemed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ,
+  UNIQUE (game_id, tutor_id)
+);
+CREATE INDEX IF NOT EXISTS idx_world_cup_predictions_game ON world_cup_predictions (game_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_world_cup_predictions_tutor ON world_cup_predictions (tutor_id, submitted_at DESC) WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   key TEXT NOT NULL UNIQUE,
@@ -833,6 +935,30 @@ ALTER TABLE promotions ADD COLUMN IF NOT EXISTS weekdays SMALLINT[] NOT NULL DEF
 ALTER TABLE promotions ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions (is_active, status, starts_on, ends_on) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_promotions_service ON promotions (service_id) WHERE deleted_at IS NULL;
+
+
+-- Compatibilidade incremental do Bolão da Copa para bancos já existentes.
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT 'Brasil na Copa';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS opponent TEXT NOT NULL DEFAULT 'Adversário';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS round_name TEXT;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS match_date DATE;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS match_time TIME NOT NULL DEFAULT '16:00';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'scheduled';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS brazil_score INTEGER;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS opponent_score INTEGER;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS prize_description TEXT NOT NULL DEFAULT 'Banho grátis PetFunny';
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_games ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS award_description TEXT;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS evaluated_at TIMESTAMPTZ;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS redeemed_at TIMESTAMPTZ;
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE world_cup_predictions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 
 ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS pet_type_code TEXT REFERENCES pet_types(code) ON DELETE SET NULL;

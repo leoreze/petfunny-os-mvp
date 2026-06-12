@@ -904,7 +904,7 @@ const AI_GROWTH_ALLOWED_ROUTES = new Set([
   '/admin/pacotes', '/admin/assinaturas', '/admin/financeiro', '/admin/comandas-recibos',
   '/admin/crm', '/admin/promocoes', '/admin/bem-estar', '/admin/saude-360',
   '/admin/roleta-de-mimos', '/admin/relatorios', '/admin/notificacoes', '/admin/app-acessos', '/admin/radar-clientes',
-  '/admin/whatsapp', '/admin/assistente-ia', '/admin/avaliacoes', '/admin/configuracoes'
+  '/admin/whatsapp', '/admin/assistente-ia', '/admin/avaliacoes', '/admin/bolao-copa', '/admin/configuracoes'
 ]);
 
 const AI_GROWTH_ROUTE_KEYWORDS = [
@@ -918,6 +918,7 @@ const AI_GROWTH_ROUTE_KEYWORDS = [
   { route: '/admin/comandas-recibos', terms: ['comanda', 'comandas', 'recibo', 'recibos', 'documento', 'documentos'] },
   { route: '/admin/crm', terms: ['crm', 'marketing', 'lead', 'leads', 'reativar', 'reativacao', 'reativação', 'campanha', 'campanhas', 'whatsapp comercial'] },
   { route: '/admin/promocoes', terms: ['promocao', 'promoção', 'promocoes', 'promoções', 'oferta', 'desconto'] },
+  { route: '/admin/bolao-copa', terms: ['bolao', 'bolão', 'copa', 'copa do mundo', 'brasil', 'palpite', 'placar', 'banho gratis', 'banho grátis'] },
   { route: '/admin/bem-estar', terms: ['petfunny 360', 'diagnostico', 'diagnóstico', 'avaliacao', 'avaliação', 'bem-estar', 'bem estar'] },
   { route: '/admin/saude-360', terms: ['saude', 'saúde', 'teleconsulta', 'veterinario', 'veterinário', 'triagem'] },
   { route: '/admin/roleta-de-mimos', terms: ['roleta', 'mimo', 'mimos', 'sorteio', 'brinde', 'brindes'] },
@@ -1300,7 +1301,7 @@ async function askOpenAiForGrowthPlan({ summary, snapshot, fallbackPlan }) {
   if (!env.openaiApiKey) return null;
   if (typeof fetch !== 'function') return null;
 
-  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route e, quando houver cliente específico, clientName, petName, whatsappPhone, whatsappMessage e actionLabel. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/radar-clientes, /admin/whatsapp, /admin/assistente-ia, /admin/avaliacoes, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
+  const systemPrompt = `${getPetFunnyAiSystemPrompt()}\n\nVocê é o Gerente IA de Crescimento do PetFunny OS. Analise dados reais do dashboard, agenda, financeiro, pacotes, CRM e engajamento. Gere um plano diário prático para crescer o banho e tosa. Não invente números. Se houver poucos dados, use hipótese operacional claramente. Retorne APENAS JSON válido com: title, dateLabel, score, mood, diagnosis, mainGoal, tasks, campaigns, risks, opportunities, routine. tasks deve ter title, description, priority, module, due, effort, kpi, route e, quando houver cliente específico, clientName, petName, whatsappPhone, whatsappMessage e actionLabel. Use somente estas rotas em tasks.route: /admin/dashboard, /admin/agenda, /admin/tutores, /admin/pets, /admin/servicos, /admin/pacotes, /admin/assinaturas, /admin/financeiro, /admin/comandas-recibos, /admin/crm, /admin/promocoes, /admin/bem-estar, /admin/saude-360, /admin/roleta-de-mimos, /admin/relatorios, /admin/notificacoes, /admin/app-acessos, /admin/radar-clientes, /admin/whatsapp, /admin/assistente-ia, /admin/avaliacoes, /admin/bolao-copa, /admin/configuracoes. campaigns deve ter title, channel, target, message. routine deve ter morning, afternoon, closing.`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8500);
   let response;
@@ -4645,6 +4646,7 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
     const activePackages = packagesResult.rows.filter((row) => row.status === 'active');
     const sanitizedPets = petsResult.rows.map(sanitizeClientPet);
     const rewards = await getTutorRewardsSummary(tutorId);
+    const bolaoCopa = await getAppWorldCupBolaoPayload(tutorId).catch((error) => { console.warn('[app:summary] bolao copa indisponível:', error.message); return { ok: true, games: [], openGame: null, winners: 0, prize: 'Banho grátis PetFunny', title: 'Bolão da Copa PetFunny' }; });
     const engagement = await buildClientEngagementSummary(tutorId, { tutor: req.clientApp.tutor, pets: sanitizedPets });
     const activePetForInsight = engagement.activePet || sanitizedPets[0] || null;
     const careInsight = activePetForInsight?.id ? await getPetCareInsightForClient(activePetForInsight.id, tutorId).catch(() => null) : null;
@@ -4683,6 +4685,7 @@ app.get('/api/app/summary', requireClientAuth, async (req, res, next) => {
       history: historyResult.rows.map(sanitizeClientAppointment),
       packages: packagesResult.rows.map(sanitizeClientPackage),
       rewards,
+      bolaoCopa,
       engagement,
       careInsight,
       mediaPreview,
@@ -4973,6 +4976,168 @@ app.delete('/api/promocoes/:id', requireAuth, async (req, res, next) => {
     const result = await query(`UPDATE promotions SET deleted_at=NOW(), is_active=FALSE, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING id`, [req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Promoção não encontrada.' });
     res.json({ ok: true, message: 'Promoção removida.' });
+  } catch (error) { next(error); }
+});
+
+
+
+app.get('/api/bolao-copa/summary', requireAuth, async (req, res, next) => {
+  try {
+    await closeWorldCupGamesForPredictionDeadline();
+    const result = await query(`
+      SELECT
+        COUNT(*)::int AS games_count,
+        COUNT(*) FILTER (WHERE status IN ('scheduled','open') AND is_active = TRUE AND deleted_at IS NULL)::int AS active_games,
+        COALESCE((SELECT COUNT(*)::int FROM world_cup_predictions WHERE deleted_at IS NULL), 0)::int AS predictions_count,
+        COALESCE((SELECT COUNT(*)::int FROM world_cup_predictions WHERE deleted_at IS NULL AND status IN ('correct','awarded')), 0)::int AS winners_count
+      FROM world_cup_games
+      WHERE deleted_at IS NULL
+    `);
+    res.json({ ok: true, summary: result.rows[0] || { gamesCount: 0, activeGames: 0, predictionsCount: 0, winnersCount: 0 } });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/bolao-copa/games', requireAuth, async (req, res, next) => {
+  try {
+    await closeWorldCupGamesForPredictionDeadline();
+    const result = await query(`
+      SELECT g.*,
+             ((g.match_date + COALESCE(g.match_time, TIME '16:00')) > ((NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '10 minutes') AND g.status IN ('scheduled','open')) AS is_open,
+             COUNT(wp.id)::int AS predictions_count,
+             COUNT(wp.id) FILTER (WHERE wp.status IN ('correct','awarded'))::int AS correct_count,
+             COUNT(wp.id) FILTER (WHERE wp.status = 'wrong')::int AS wrong_count,
+             COUNT(wp.id) FILTER (WHERE wp.status = 'awarded')::int AS awarded_count
+      FROM world_cup_games g
+      LEFT JOIN world_cup_predictions wp ON wp.game_id = g.id AND wp.deleted_at IS NULL
+      WHERE g.deleted_at IS NULL
+      GROUP BY g.id
+      ORDER BY g.match_date ASC, g.match_time ASC, g.created_at DESC
+    `);
+    res.json({ ok: true, games: result.rows.map(sanitizeWorldCupGame) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/bolao-copa/games', requireAuth, async (req, res, next) => {
+  try {
+    const payload = worldCupGamePayload(req.body || {});
+    const result = await query(`
+      INSERT INTO world_cup_games (title, opponent, round_name, match_date, match_time, status, brazil_score, opponent_score, prize_description, is_active)
+      VALUES ($1::text, $2::text, NULLIF($3::text,''), $4::date, $5::time, $6::text, $7::int, $8::int, $9::text, $10::boolean)
+      RETURNING *
+    `, [payload.title, payload.opponent, payload.roundName || '', payload.matchDate, payload.matchTime, payload.status, payload.brazilScore, payload.opponentScore, payload.prizeDescription, payload.isActive]);
+    if (payload.status === 'finished' && payload.brazilScore !== null && payload.opponentScore !== null) await evaluateWorldCupGame(result.rows[0].id).catch(() => null);
+    res.status(201).json({ ok: true, game: sanitizeWorldCupGame(result.rows[0]), message: 'Jogo do Brasil cadastrado no Bolão da Copa.' });
+  } catch (error) { next(error); }
+});
+
+app.put('/api/bolao-copa/games/:id', requireAuth, async (req, res, next) => {
+  try {
+    const payload = worldCupGamePayload(req.body || {});
+    const result = await query(`
+      UPDATE world_cup_games
+      SET title=$2::text, opponent=$3::text, round_name=NULLIF($4::text,''), match_date=$5::date, match_time=$6::time,
+          status=$7::text, brazil_score=$8::int, opponent_score=$9::int, prize_description=$10::text, is_active=$11::boolean, updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL
+      RETURNING *
+    `, [req.params.id, payload.title, payload.opponent, payload.roundName || '', payload.matchDate, payload.matchTime, payload.status, payload.brazilScore, payload.opponentScore, payload.prizeDescription, payload.isActive]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Jogo do bolão não encontrado.' });
+    let evaluation = null;
+    if (payload.status === 'finished' && payload.brazilScore !== null && payload.opponentScore !== null) evaluation = await evaluateWorldCupGame(result.rows[0].id).catch(() => null);
+    res.json({ ok: true, game: sanitizeWorldCupGame(result.rows[0]), evaluation, message: 'Jogo do Bolão da Copa atualizado.' });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/bolao-copa/games/:id', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`UPDATE world_cup_games SET deleted_at=NOW(), is_active=FALSE, updated_at=NOW() WHERE id=$1::uuid AND deleted_at IS NULL RETURNING id`, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Jogo do bolão não encontrado.' });
+    res.json({ ok: true, message: 'Jogo removido do Bolão da Copa.' });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/bolao-copa/games/:id/evaluate', requireAuth, async (req, res, next) => {
+  try {
+    const game = await query(`
+      UPDATE world_cup_games
+      SET brazil_score=COALESCE($2::int, brazil_score), opponent_score=COALESCE($3::int, opponent_score), status='finished', updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL
+      RETURNING *
+    `, [req.params.id, normalizeScore(req.body?.brazilScore || req.body?.brazil_score), normalizeScore(req.body?.opponentScore || req.body?.opponent_score)]);
+    if (!game.rowCount) return res.status(404).json({ error: 'Jogo do bolão não encontrado.' });
+    const evaluation = await evaluateWorldCupGame(req.params.id);
+    res.json({ ok: true, ...evaluation, message: 'Bolão apurado. Quem acertou ganhou banho grátis.' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/bolao-copa/predictions', requireAuth, async (req, res, next) => {
+  try {
+    const gameId = cleanText(req.query.gameId || req.query.game_id);
+    const params = [];
+    let where = `wp.deleted_at IS NULL`;
+    if (gameId) { params.push(gameId); where += ` AND wp.game_id=$${params.length}::uuid`; }
+    const result = await query(`
+      SELECT wp.*, t.name AS tutor_name, t.whatsapp AS tutor_whatsapp, g.title, g.round_name, g.opponent, g.match_date, g.match_time, g.brazil_score, g.opponent_score, g.prize_description
+      FROM world_cup_predictions wp
+      INNER JOIN world_cup_games g ON g.id = wp.game_id
+      INNER JOIN tutors t ON t.id = wp.tutor_id
+      WHERE ${where}
+      ORDER BY wp.submitted_at DESC
+      LIMIT 250
+    `, params);
+    res.json({ ok: true, predictions: result.rows.map(sanitizeWorldCupPrediction) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/bolao-copa/predictions/:id/redeem', requireAuth, async (req, res, next) => {
+  try {
+    const result = await query(`
+      UPDATE world_cup_predictions
+      SET status='awarded', redeemed_at=NOW(), updated_at=NOW()
+      WHERE id=$1::uuid AND deleted_at IS NULL AND status IN ('correct','awarded')
+      RETURNING *
+    `, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Palpite vencedor não encontrado ou ainda não premiado.' });
+    res.json({ ok: true, prediction: sanitizeWorldCupPrediction(result.rows[0]), message: 'Prêmio marcado como entregue.' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/app/bolao-copa', requireClientAuth, async (req, res, next) => {
+  try {
+    res.json(await getAppWorldCupBolaoPayload(req.clientApp.tutor.id));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/app/bolao-copa/:gameId/prediction', requireClientAuth, async (req, res, next) => {
+  try {
+    const tutorId = req.clientApp.tutor.id;
+    const gameId = req.params.gameId;
+    const brazil = normalizeScore(req.body?.brazilScore || req.body?.brazil_score);
+    const opponent = normalizeScore(req.body?.opponentScore || req.body?.opponent_score);
+    if (brazil === null || opponent === null) return res.status(400).json({ error: 'Informe o placar completo do palpite.' });
+    await closeWorldCupGamesForPredictionDeadline();
+    const gameResult = await query(`
+      SELECT *, ((match_date + COALESCE(match_time, TIME '16:00')) > ((NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '10 minutes') AND status IN ('scheduled','open')) AS is_open
+      FROM world_cup_games
+      WHERE id=$1::uuid AND deleted_at IS NULL AND is_active = TRUE
+    `, [gameId]);
+    const game = gameResult.rows[0];
+    if (!game) return res.status(404).json({ error: 'Jogo do Bolão da Copa não encontrado.' });
+    if (!game.is_open) return res.status(400).json({ error: 'Palpites encerrados para este jogo.' });
+    const existing = await query(`SELECT * FROM world_cup_predictions WHERE game_id=$1::uuid AND tutor_id=$2::uuid AND deleted_at IS NULL`, [gameId, tutorId]);
+    if (existing.rows[0]) return res.status(409).json({ error: 'Você já enviou 1 palpite para este jogo. O palpite fica registrado e não pode ser alterado pelo app.' });
+    const result = await query(`
+      INSERT INTO world_cup_predictions (game_id, tutor_id, predicted_brazil_score, predicted_opponent_score, status)
+      VALUES ($1::uuid, $2::uuid, $3::int, $4::int, 'pending')
+      RETURNING *
+    `, [gameId, tutorId, brazil, opponent]);
+    await awardTutorPoints({
+      tutorId,
+      eventType: 'world_cup_guess',
+      points: 2,
+      description: `Palpite enviado no Bolão da Copa: Brasil ${brazil} x ${opponent} ${game.opponent}.`,
+      metadata: { gameId, predictionId: result.rows[0].id }
+    }).catch(() => null);
+    res.status(201).json({ ok: true, prediction: sanitizeWorldCupPrediction({ ...result.rows[0], opponent: game.opponent }), bolao: await getAppWorldCupBolaoPayload(tutorId), message: 'Palpite registrado. Se acertar o placar, você ganha banho grátis!' });
   } catch (error) { next(error); }
 });
 
@@ -5682,6 +5847,219 @@ function sanitizePromotion(row = {}) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+
+
+function normalizeDateInput(value) {
+  const text = String(value || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function normalizeTimeInput(value, fallback = '16:00') {
+  const text = String(value || '').trim().slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
+}
+
+function normalizeScore(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0 || n > 99) return null;
+  return n;
+}
+
+function toWorldCupIsoDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const text = String(value || '').trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function toWorldCupTime(value, fallback = '16:00') {
+  if (!value) return fallback;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+  }
+  const text = String(value || '').trim();
+  const match = text.match(/(\d{2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]}` : fallback;
+}
+
+function subtractMinutesFromWorldCupDateTime(dateValue, timeValue, minutes = 10) {
+  const date = toWorldCupIsoDate(dateValue);
+  const time = toWorldCupTime(timeValue, '16:00');
+  if (!date || !time) return null;
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  if (!year || !month || !day || Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  const value = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  value.setUTCMinutes(value.getUTCMinutes() - Number(minutes || 0));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}T${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}`;
+}
+
+function sanitizeWorldCupGame(row = {}) {
+  const matchDate = toWorldCupIsoDate(row.match_date);
+  const matchTime = toWorldCupTime(row.match_time, '16:00');
+  const brazilScore = row.brazil_score === null || row.brazil_score === undefined ? null : Number(row.brazil_score);
+  const opponentScore = row.opponent_score === null || row.opponent_score === undefined ? null : Number(row.opponent_score);
+  const predictionDeadline = subtractMinutesFromWorldCupDateTime(row.match_date, row.match_time, 10);
+  return {
+    id: row.id,
+    title: row.title || 'Brasil na Copa',
+    opponent: row.opponent || 'Adversário',
+    roundName: row.round_name || '',
+    matchDate,
+    matchTime,
+    matchDateTime: matchDate ? `${matchDate}T${matchTime}` : null,
+    predictionClosesAt: predictionDeadline,
+    predictionCloseRule: 'Palpites encerram automaticamente 10 minutos antes do jogo.',
+    status: row.status || 'scheduled',
+    brazilScore,
+    opponentScore,
+    finalScore: brazilScore !== null && opponentScore !== null ? `Brasil ${brazilScore} x ${opponentScore} ${row.opponent || ''}`.trim() : '',
+    prizeDescription: row.prize_description || 'Banho grátis PetFunny',
+    isActive: row.is_active !== false,
+    isOpen: row.is_open === undefined ? false : Boolean(row.is_open),
+    predictionsCount: Number(row.predictions_count || 0),
+    correctCount: Number(row.correct_count || 0),
+    wrongCount: Number(row.wrong_count || 0),
+    awardedCount: Number(row.awarded_count || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function sanitizeWorldCupPrediction(row = {}) {
+  const matchDate = toWorldCupIsoDate(row.match_date);
+  const matchTime = toWorldCupTime(row.match_time, '');
+  return {
+    id: row.prediction_id || row.id,
+    gameId: row.game_id,
+    tutorId: row.tutor_id,
+    tutorName: row.tutor_name || '',
+    tutorWhatsapp: row.tutor_whatsapp || '',
+    opponent: row.opponent || 'Adversário',
+    roundName: row.round_name || row.title || '',
+    matchDate,
+    matchTime,
+    prizeDescription: row.prize_description || 'Banho grátis PetFunny',
+    predictedBrazilScore: Number(row.predicted_brazil_score || 0),
+    predictedOpponentScore: Number(row.predicted_opponent_score || 0),
+    guessLabel: `Brasil ${Number(row.predicted_brazil_score || 0)} x ${Number(row.predicted_opponent_score || 0)} ${row.opponent || ''}`.trim(),
+    status: row.prediction_status || row.status || 'pending',
+    awardDescription: row.award_description || '',
+    submittedAt: row.submitted_at,
+    evaluatedAt: row.evaluated_at,
+    redeemedAt: row.redeemed_at
+  };
+}
+
+function worldCupGamePayload(body = {}) {
+  const opponent = cleanText(body.opponent);
+  const matchDate = normalizeDateInput(body.matchDate || body.match_date);
+  if (!opponent) throw Object.assign(new Error('Informe o adversário do Brasil.'), { status: 400 });
+  if (!matchDate) throw Object.assign(new Error('Informe a data do jogo.'), { status: 400 });
+  const status = cleanText(body.status) || 'scheduled';
+  const allowedStatus = ['scheduled', 'open', 'closed', 'finished', 'canceled'];
+  return {
+    title: cleanText(body.title) || 'Brasil na Copa',
+    opponent,
+    roundName: cleanText(body.roundName || body.round_name),
+    matchDate,
+    matchTime: normalizeTimeInput(body.matchTime || body.match_time),
+    status: allowedStatus.includes(status) ? status : 'scheduled',
+    brazilScore: normalizeScore(body.brazilScore || body.brazil_score),
+    opponentScore: normalizeScore(body.opponentScore || body.opponent_score),
+    prizeDescription: cleanText(body.prizeDescription || body.prize_description) || 'Banho grátis PetFunny',
+    isActive: parseBool(body.isActive ?? body.is_active, true)
+  };
+}
+
+async function closeWorldCupGamesForPredictionDeadline() {
+  return query(`
+    UPDATE world_cup_games
+    SET status='closed', updated_at=NOW()
+    WHERE deleted_at IS NULL
+      AND is_active = TRUE
+      AND status IN ('scheduled','open')
+      AND match_date IS NOT NULL
+      AND (match_date + COALESCE(match_time, TIME '16:00')) <= ((NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '10 minutes')
+    RETURNING id
+  `).catch((error) => {
+    console.warn('[bolao-copa] não foi possível encerrar jogos automaticamente:', error.message);
+    return { rows: [], rowCount: 0 };
+  });
+}
+
+async function evaluateWorldCupGame(gameId) {
+  const gameResult = await query(`SELECT * FROM world_cup_games WHERE id=$1::uuid AND deleted_at IS NULL`, [gameId]);
+  const game = gameResult.rows[0];
+  if (!game) throw Object.assign(new Error('Jogo do bolão não encontrado.'), { status: 404 });
+  if (game.brazil_score === null || game.opponent_score === null || game.brazil_score === undefined || game.opponent_score === undefined) {
+    return { game: sanitizeWorldCupGame(game), predictions: [] };
+  }
+  const predictions = await query(`
+    UPDATE world_cup_predictions wp
+    SET status = CASE
+        WHEN wp.predicted_brazil_score = $2::int AND wp.predicted_opponent_score = $3::int THEN 'correct'
+        ELSE 'wrong'
+      END,
+      award_description = CASE
+        WHEN wp.predicted_brazil_score = $2::int AND wp.predicted_opponent_score = $3::int THEN $4::text
+        ELSE NULL
+      END,
+      evaluated_at = NOW(),
+      updated_at = NOW()
+    WHERE wp.game_id=$1::uuid
+      AND wp.deleted_at IS NULL
+      AND wp.status IN ('pending','correct','wrong')
+    RETURNING *
+  `, [game.id, Number(game.brazil_score), Number(game.opponent_score), game.prize_description || 'Banho grátis PetFunny']);
+  const winners = predictions.rows.filter((row) => row.status === 'correct');
+  for (const winner of winners) {
+    await awardTutorPoints({
+      tutorId: winner.tutor_id,
+      eventType: 'world_cup_bolao',
+      points: 10,
+      description: `Acertou o Bolão da Copa: Brasil ${game.brazil_score} x ${game.opponent_score} ${game.opponent}. Prêmio: ${game.prize_description || 'Banho grátis PetFunny'}.`,
+      metadata: { gameId: game.id, predictionId: winner.id, prize: game.prize_description || 'Banho grátis PetFunny' }
+    }).catch(() => null);
+  }
+  return { game: sanitizeWorldCupGame(game), predictions: predictions.rows.map(sanitizeWorldCupPrediction), winners: winners.length };
+}
+
+async function getAppWorldCupBolaoPayload(tutorId) {
+  await closeWorldCupGamesForPredictionDeadline();
+  const result = await safeClientSummaryQuery('bolao copa', `
+    SELECT g.*,
+           ((g.match_date + COALESCE(g.match_time, TIME '16:00')) > ((NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '10 minutes') AND g.status IN ('scheduled','open')) AS is_open,
+           wp.id AS prediction_id,
+           wp.predicted_brazil_score,
+           wp.predicted_opponent_score,
+           wp.status AS prediction_status,
+           wp.award_description,
+           wp.submitted_at,
+           wp.evaluated_at,
+           wp.redeemed_at
+    FROM world_cup_games g
+    LEFT JOIN world_cup_predictions wp ON wp.game_id = g.id AND wp.tutor_id = $1::uuid AND wp.deleted_at IS NULL
+    WHERE g.deleted_at IS NULL
+      AND g.is_active = TRUE
+      AND g.status <> 'canceled'
+      AND g.match_date >= CURRENT_DATE - INTERVAL '20 days'
+    ORDER BY g.match_date ASC, g.match_time ASC
+    LIMIT 12
+  `, [tutorId]);
+  const games = result.rows.map((row) => ({ ...sanitizeWorldCupGame(row), myPrediction: row.prediction_id ? sanitizeWorldCupPrediction(row) : null }));
+  const openGame = games.find((game) => game.isOpen && !game.myPrediction) || games.find((game) => game.isOpen) || games.find((game) => game.status !== 'finished') || games[0] || null;
+  const winners = games.filter((game) => ['correct','awarded'].includes(game.myPrediction?.status)).length;
+  return { ok: true, games, openGame, winners, prize: 'Banho grátis PetFunny', title: 'Bolão da Copa PetFunny' };
 }
 
 async function getActivePromotionsForSchedule({ startsAtLocal, petSize = 'todos', serviceIds = [] } = {}) {
@@ -14740,6 +15118,7 @@ app.use(express.static(frontendRoot, {
 // Rotas explícitas do módulo Promoções antes da landing/fallback.
 // Isso evita que /admin/promocoes caia na landing caso exista cache antigo do PWA ou fallback agressivo.
 app.get(['/admin/promocoes', '/promocoes'], (req, res) => sendFrontendFile(res, 'pages/promocoes/index.html'));
+app.get(['/admin/bolao-copa', '/bolao-copa'], (req, res) => sendFrontendFile(res, 'pages/bolao-copa/index.html'));
 
 app.get(['/', '/site', '/landing'], (req, res) => sendFrontendFile(res, 'index.html'));
 app.get(['/franquias', '/franquias-petfunny', '/franchise'], (req, res) => sendFrontendFile(res, 'pages/franquias/index.html'));
@@ -14747,7 +15126,7 @@ app.get(['/login', '/admin/login'], (req, res) => sendFrontendFile(res, 'pages/l
 app.get(['/dashboard', '/admin', '/admin/dashboard'], (req, res) => sendFrontendFile(res, 'pages/dashboard/index.html'));
 app.get(['/app/login', '/cliente/login'], (req, res) => sendFrontendFile(res, 'pages/app/login/index.html'));
 app.get(['/app/primeiro-acesso', '/cliente/primeiro-acesso'], (req, res) => sendFrontendFile(res, 'pages/app/primeiro-acesso/index.html'));
-app.get(['/app', '/app/home', '/app/agenda', '/app/agendamentos', '/app/saude-360', '/app/teleconsultas', '/app/notificacoes', '/app/pets', '/app/pets/:petId', '/app/pets/:petId/:area', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/app/momentos', '/app/indique', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
+app.get(['/app', '/app/home', '/app/agenda', '/app/agendamentos', '/app/saude-360', '/app/teleconsultas', '/app/notificacoes', '/app/pets', '/app/pets/:petId', '/app/pets/:petId/:area', '/app/historico', '/app/pacotes', '/app/mimos', '/app/roleta', '/app/promocoes', '/app/bolao-copa', '/app/bem-estar', '/app/perfil', '/app/pagamento-pix', '/app/momentos', '/app/indique', '/cliente'], (req, res) => sendFrontendFile(res, 'pages/app/home/index.html'));
 app.get(['/documentos/recibo/:token', '/public/recibos/:token'], (req, res) => sendFrontendFile(res, 'pages/public/recibo/index.html'));
 app.get(['/avaliacao/:token', '/avaliacoes/:token', '/public/avaliacao/:token'], (req, res) => sendFrontendFile(res, 'pages/public/avaliacao/index.html'));
 
@@ -14765,6 +15144,7 @@ const modulePages = {
   'comandas-recibos': 'comandas-recibos',
   crm: 'crm',
   promocoes: 'promocoes',
+  'bolao-copa': 'bolao-copa',
   'bem-estar': 'bem-estar',
   'saude-360': 'saude-360',
   'roleta-de-mimos': 'roleta-de-mimos',
