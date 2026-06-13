@@ -3,17 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>App do Cliente · PetFunny</title>
+  <title>App do Tutor · PetFunny</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#F8A198">
-  
   <link rel="icon" type="image/png" sizes="64x64" href="/assets/img/favicon-petfunny.png">
   <link rel="shortcut icon" href="/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
   <meta name="msapplication-TileColor" content="#26b9c7">
   <link rel="stylesheet" href="/assets/css/app.css">
 </head>
-<body>
+<body class="app-client-auth">
   <main class="page-center client-login-page client-auth-flow-page">
     <section class="card login-card postit-auth-card client-auth-flow-card">
       <div class="client-auth-hero">
@@ -21,20 +20,19 @@
           <img class="client-auth-logo" src="/assets/img/logo-petfunny-full.png" alt="PetFunny">
         </div>
         <p class="eyebrow client-auth-eyebrow">App do tutor</p>
-        <h1 id="auth-title">Seu pet cuidado, você por dentro de tudo</h1>
+        <h1 id="auth-title">Entrar no Meu PetFunny</h1>
         <div class="client-auth-postit" aria-hidden="true">
           <span class="client-auth-postit-tape"></span>
           <strong>Oi, tutor! 🐾</strong>
-          <small>Valide seu WhatsApp para acompanhar agenda, recibos, pacotes e mimos do seu pet.</small>
+          <small>Digite seu WhatsApp para acessar agenda, pacotes, mimos, recibos e cuidados do seu pet.</small>
         </div>
       </div>
-      <p id="auth-subtitle" class="client-auth-subtitle">Informe seu WhatsApp para receber o código de validação e liberar seu acesso com segurança.</p>
+      <p id="auth-subtitle" class="client-auth-subtitle">Comece pelo WhatsApp. Se for seu primeiro acesso, você cria uma senha e completa o cadastro.</p>
 
       <div class="client-auth-progress" aria-label="Etapas de acesso">
         <span class="active" data-progress="whatsapp">WhatsApp</span>
-        <span data-progress="code">Código</span>
         <span data-progress="password">Senha</span>
-        <span data-progress="profile">Cadastro</span>
+        <span data-progress="profile">Tutor</span>
         <span data-progress="pet">Pet</span>
       </div>
 
@@ -43,12 +41,12 @@
           <label for="whatsapp">WhatsApp</label>
           <input class="input" data-mask="whatsapp" id="whatsapp" name="whatsapp" inputmode="tel" autocomplete="tel" placeholder="(16) 99999-9999" required>
         </div>
-        <button class="btn btn-full" type="submit">Enviar código pelo WhatsApp</button>
+        <button class="btn btn-full" type="submit">Continuar</button>
         <p class="client-auth-copyright">© <span id="client-auth-year"></span> PetFunny - Banho e Tosa. Cuidado, carinho e tecnologia para o seu pet.</p>
       </form>
 
       <form id="step-login-password" class="login-form client-auth-step" hidden>
-        <div class="client-auth-summary" id="login-tutor-summary">Acesso já validado. Informe sua senha para entrar.</div>
+        <div class="client-auth-summary" id="login-tutor-summary">Acesso encontrado. Informe sua senha para entrar.</div>
         <div class="form-field">
           <label for="password-login">Senha do app</label>
           <input class="input" id="password-login" name="password" type="password" minlength="8" autocomplete="current-password" required>
@@ -57,73 +55,49 @@
           <button class="btn btn-secondary" type="button" data-back="whatsapp">Alterar WhatsApp</button>
           <button class="btn" type="submit">Entrar no app</button>
         </div>
-        <button class="btn-link client-auth-reset-link" type="button" id="forgot-password-code">Esqueci minha senha / validar por código</button>
-      </form>
-
-      <form id="step-code" class="login-form client-auth-step" hidden>
-        <div class="form-field">
-          <label for="code">Código recebido</label>
-          <input class="input client-code-input" id="code" name="code" inputmode="numeric" maxlength="6" placeholder="Digite os 6 números" required>
-        </div>
-        <div class="client-whatsapp-code-card" id="whatsapp-code-card" hidden>
-          <strong>Envie o código para seu próprio WhatsApp</strong>
-          <small>Toque no botão, envie a mensagem pronta para você mesmo, copie os 6 números recebidos e valide aqui.</small>
-          <a class="btn btn-secondary btn-full" id="open-whatsapp-code" href="#" target="_blank" rel="noopener">Abrir WhatsApp com meu código</a>
-        </div>
-        <div class="form-actions login-actions">
-          <button class="btn btn-secondary" type="button" data-back="whatsapp">Alterar WhatsApp</button>
-          <button class="btn" type="submit">Validar código</button>
-        </div>
       </form>
 
       <form id="step-password" class="login-form client-auth-step" hidden>
-        <div class="client-auth-summary" id="existing-tutor-summary"></div>
+        <div class="client-auth-summary" id="password-summary">Crie uma senha para acessar o App do Tutor PetFunny.</div>
         <div class="form-field">
-          <label for="password-existing">Criar senha do app</label>
-          <input class="input" id="password-existing" name="password" type="password" minlength="8" autocomplete="new-password" required>
+          <label for="password-first-access">Criar senha</label>
+          <input class="input" id="password-first-access" name="password" type="password" minlength="8" autocomplete="new-password" required>
         </div>
         <div class="form-field">
-          <label for="confirm-password-existing">Confirmar senha</label>
-          <input class="input" id="confirm-password-existing" name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required>
+          <label for="confirm-password-first-access">Confirmar senha</label>
+          <input class="input" id="confirm-password-first-access" name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required>
         </div>
         <div class="form-actions login-actions">
-          <button class="btn btn-secondary" type="button" data-back="code">Voltar</button>
+          <button class="btn btn-secondary" type="button" data-back="whatsapp">Voltar</button>
           <button class="btn" type="submit">Criar senha e continuar</button>
         </div>
       </form>
 
       <form id="step-tutor" class="login-form client-auth-step" hidden>
-        <div class="client-auth-summary">WhatsApp validado. Agora precisamos cadastrar o tutor para criar seu acesso.</div>
-        <div class="form-field">
-          <label for="tutor-name">Nome do tutor</label>
-          <input class="input" id="tutor-name" name="name" autocomplete="name" required>
-        </div>
-        <div class="form-field">
-          <label for="tutor-email">E-mail</label>
-          <input class="input" id="tutor-email" name="email" type="email" autocomplete="email" placeholder="opcional">
-        </div>
-        <div class="form-grid two">
-          <div class="form-field">
-            <label for="tutor-city">Cidade</label>
-            <input class="input" id="tutor-city" name="city" value="Ribeirão Preto">
-          </div>
-          <div class="form-field">
-            <label for="tutor-state">UF</label>
-            <input class="input" id="tutor-state" name="state" value="SP" maxlength="2">
-          </div>
-        </div>
-        <div class="form-field">
-          <label for="tutor-address">Endereço</label>
-          <input class="input" id="tutor-address" name="address" placeholder="opcional">
+        <div class="client-auth-summary">WhatsApp validado. Complete o cadastro do tutor com os mesmos dados usados no admin.</div>
+        <div class="form-grid form-row-gap">
+          <label class="form-field span-2"><span>WhatsApp</span><input class="input" id="tutor-whatsapp-display" readonly></label>
+          <label class="form-field"><span>Nome completo</span><input class="input" id="tutor-name" name="name" autocomplete="name" required placeholder="Ex.: Mariana Souza"></label>
+          <label class="form-field"><span>Telefone</span><input class="input" id="tutor-phone" name="phone" data-mask="whatsapp" inputmode="tel" placeholder="opcional"></label>
+          <label class="form-field"><span>E-mail</span><input class="input" id="tutor-email" name="email" type="email" autocomplete="email" placeholder="cliente@email.com"></label>
+          <label class="form-field"><span>Documento</span><input class="input" id="tutor-document" name="documentNumber" placeholder="CPF/CNPJ opcional"></label>
+          <label class="form-field"><span>CEP</span><input class="input" data-mask="cep" id="tutor-zipcode" name="addressZipcode" inputmode="numeric" maxlength="9" autocomplete="postal-code" placeholder="14000-000"></label>
+          <label class="form-field"><span>Número</span><input class="input" id="tutor-address-number" name="addressNumber" placeholder="794"></label>
+          <label class="form-field span-2"><span>Rua / Avenida</span><input class="input" id="tutor-address" name="address" placeholder="Digite o CEP para preencher automaticamente"></label>
+          <label class="form-field"><span>Bairro</span><input class="input" id="tutor-neighborhood" name="addressNeighborhood" placeholder="Bairro"></label>
+          <label class="form-field"><span>Cidade</span><input class="input" id="tutor-city" name="city" value="Ribeirão Preto"></label>
+          <label class="form-field"><span>Estado</span><input class="input" id="tutor-state" name="state" maxlength="2" value="SP"></label>
+          <label class="form-field"><span>Tags</span><input class="input" id="tutor-tags" name="tags" placeholder="recorrente, pacote, vip"></label>
+          <label class="form-field span-2"><span>Observações</span><textarea class="input" id="tutor-notes" name="notes" rows="4" placeholder="Preferências do tutor, restrições, histórico rápido..."></textarea></label>
         </div>
         <div class="form-actions login-actions">
-          <button class="btn btn-secondary" type="button" data-back="code">Voltar</button>
+          <button class="btn btn-secondary" type="button" data-back="password">Voltar</button>
           <button class="btn" type="submit">Cadastrar tutor</button>
         </div>
       </form>
 
       <form id="step-pet" class="login-form client-auth-step" hidden>
-        <div class="client-auth-summary">Última etapa: cadastre o pet e defina sua senha para entrar no app.</div>
+        <div class="client-auth-summary">Última etapa: cadastre seu pet. As raças são carregadas das configurações do sistema.</div>
         <div class="form-field">
           <label for="pet-name">Nome do pet</label>
           <input class="input" id="pet-name" name="petName" required>
@@ -138,7 +112,7 @@
           <div class="form-field">
             <label for="pet-breed">Raça</label>
             <input class="input" id="pet-breed" name="breed" list="pet-breed-list" placeholder="Selecione ou digite a raça">
-              <datalist id="pet-breed-list"></datalist>
+            <datalist id="pet-breed-list"></datalist>
           </div>
         </div>
         <div class="form-field">
@@ -148,14 +122,6 @@
         <div class="form-field">
           <label for="pet-notes">Observações importantes</label>
           <textarea class="input" id="pet-notes" name="notes" rows="3" placeholder="medos, alergias, preferências, restrições..."></textarea>
-        </div>
-        <div class="form-field">
-          <label for="password-new">Criar senha do app</label>
-          <input class="input" id="password-new" name="password" type="password" minlength="8" autocomplete="new-password" required>
-        </div>
-        <div class="form-field">
-          <label for="confirm-password-new">Confirmar senha</label>
-          <input class="input" id="confirm-password-new" name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required>
         </div>
         <div class="form-actions login-actions">
           <button class="btn btn-secondary" type="button" data-back="tutor">Voltar</button>
@@ -175,23 +141,19 @@
 
     applyInputMasks(document);
     initClientInstallPrompt();
-    loadPetConfig();
     window.requestAnimationFrame(() => window.setTimeout(() => finishPageLoading(), 320));
-    const clientAuthYear = document.getElementById('client-auth-year');
-    if (clientAuthYear) clientAuthYear.textContent = new Date().getFullYear();
 
     const params = new URLSearchParams(window.location.search);
     const next = params.get('next') || '/app/home';
+    if (isClientAuthenticated()) window.location.replace(next);
+
     const attribution = {
       utmSource: params.get('utm_source') || params.get('source') || '',
       utmMedium: params.get('utm_medium') || '',
       utmCampaign: params.get('utm_campaign') || '',
       referrer: document.referrer || '',
-      landingPath: window.location.pathname + window.location.search,
-      userAgent: navigator.userAgent || ''
+      landingPath: window.location.pathname + window.location.search
     };
-    const withAttribution = (payload = {}) => ({ ...payload, ...attribution });
-    if (isClientAuthenticated()) window.location.replace(next);
 
     const state = {
       whatsapp: '',
@@ -199,14 +161,14 @@
       tutor: null,
       verificationToken: '',
       onboardingToken: '',
-      whatsappUrl: ''
+      password: '',
+      confirmPassword: ''
     };
 
     let petConfig = { petSizes: [], petBreeds: [] };
 
     const steps = {
       whatsapp: document.getElementById('step-whatsapp'),
-      code: document.getElementById('step-code'),
       loginPassword: document.getElementById('step-login-password'),
       password: document.getElementById('step-password'),
       tutor: document.getElementById('step-tutor'),
@@ -216,42 +178,85 @@
     const title = document.getElementById('auth-title');
     const subtitle = document.getElementById('auth-subtitle');
     const feedback = document.getElementById('feedback');
-    const whatsappCodeCard = document.getElementById('whatsapp-code-card');
-    const openWhatsappCode = document.getElementById('open-whatsapp-code');
     const progressItems = Array.from(document.querySelectorAll('[data-progress]'));
+    const clientAuthYear = document.getElementById('client-auth-year');
+    if (clientAuthYear) clientAuthYear.textContent = new Date().getFullYear();
 
     const copy = {
-      whatsapp: ['Seu pet cuidado, você por dentro de tudo', 'Entre com seu WhatsApp para acompanhar agenda, pacotes, recibos e mimos em uma experiência feita para tutores PetFunny.'],
-      code: ['Confirme que é você', 'Digite os 6 números enviados para liberar seu acesso com segurança.'],
-      loginPassword: ['Que bom te ver de novo', 'Seu WhatsApp já está validado. Digite sua senha para acessar o app do tutor.'],
-      password: ['Crie sua chave de acesso', 'Encontramos seu cadastro. Defina uma senha para entrar no app sempre que precisar.'],
-      tutor: ['Vamos criar seu acesso', 'WhatsApp validado. Complete seus dados para ativar sua área de tutor.'],
-      pet: ['Agora conte sobre seu pet', 'Cadastre o pet, crie sua senha e acompanhe toda a jornada de cuidado no app.']
+      whatsapp: ['Entrar no Meu PetFunny', 'Digite seu WhatsApp para começar. Se for primeiro acesso, você cria sua senha na próxima tela.'],
+      loginPassword: ['Que bom te ver de novo', 'Seu WhatsApp já tem acesso ativo. Informe sua senha para entrar no app.'],
+      password: ['Crie sua senha do app', 'Essa senha será usada para acessar o App do Tutor PetFunny com segurança.'],
+      tutor: ['Cadastro do tutor', 'Complete seus dados de tutor. O endereço pode ser preenchido automaticamente pelo CEP.'],
+      pet: ['Cadastro do pet', 'Cadastre seu pet para liberar a experiência completa do App do Tutor.']
     };
-
 
     function escapeHtml(value = '') {
       return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+    }
+
+    function withAttribution(payload = {}) {
+      return { ...payload, attribution };
+    }
+
+    function setStep(step) {
+      Object.entries(steps).forEach(([key, el]) => { if (el) el.hidden = key !== step; });
+      const [heading, text] = copy[step] || copy.whatsapp;
+      title.textContent = heading;
+      subtitle.textContent = text;
+      const progressKey = step === 'loginPassword' || step === 'password' ? 'password' : step === 'tutor' ? 'profile' : step;
+      progressItems.forEach((item) => item.classList.toggle('active', item.dataset.progress === progressKey));
+      feedback.hidden = true;
+    }
+
+    function showFeedback(message, type = 'success') {
+      feedback.hidden = false;
+      feedback.textContent = message;
+      feedback.dataset.type = type;
+    }
+
+    function completeLogin(response) {
+      setClientToken(response.token);
+      setClientUser({ account: response.account, tutor: response.tutor });
+      window.location.replace(next);
+    }
+
+    function formatCepInput(value = '') {
+      const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+      return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+    }
+
+    async function fillTutorAddressByCep(input) {
+      const cep = String(input?.value || '').replace(/\D/g, '');
+      if (cep.length !== 8 || input.dataset.loadingCep === 'true') return;
+      input.dataset.loadingCep = 'true';
+      try {
+        const response = await clientApi.get(`/cep/${encodeURIComponent(cep)}`);
+        if (response.zipcode) input.value = response.zipcode;
+        if (response.address) document.getElementById('tutor-address').value = response.address;
+        if (response.addressNeighborhood) document.getElementById('tutor-neighborhood').value = response.addressNeighborhood;
+        if (response.city) document.getElementById('tutor-city').value = response.city;
+        if (response.state) document.getElementById('tutor-state').value = response.state;
+      } catch (error) {
+        showFeedback(error.message || 'CEP não encontrado. Preencha manualmente.', 'error');
+      } finally {
+        delete input.dataset.loadingCep;
+      }
     }
 
     async function loadPetConfig() {
       try {
         const response = await clientApi.get('/app/public-options');
         petConfig = { petSizes: response.petSizes || [], petBreeds: response.petBreeds || [] };
+        const fallback = [{ code: 'pequeno', name: 'Pequeno' }, { code: 'medio', name: 'Médio' }, { code: 'grande', name: 'Grande' }, { code: 'gigante', name: 'Gigante' }];
+        const sizes = petConfig.petSizes.length ? petConfig.petSizes : fallback;
         const sizeSelect = document.getElementById('pet-size');
-        if (sizeSelect) {
-          const fallback = [{ code: 'pequeno', name: 'Pequeno' }, { code: 'medio', name: 'Médio' }, { code: 'grande', name: 'Grande' }, { code: 'gigante', name: 'Gigante' }];
-          const sizes = petConfig.petSizes.length ? petConfig.petSizes : fallback;
-          sizeSelect.innerHTML = sizes.map((item, index) => `<option value="${escapeHtml(item.code)}" ${index === 0 ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
-        }
+        if (sizeSelect) sizeSelect.innerHTML = sizes.map((item, index) => `<option value="${escapeHtml(item.code)}" ${index === 0 ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
         const breedList = document.getElementById('pet-breed-list');
         if (breedList) {
           breedList.innerHTML = petConfig.petBreeds.map((breed) => `<option value="${escapeHtml(breed.name)}" data-size="${escapeHtml(breed.suggestedSizeCode || '')}" data-coat="${escapeHtml(breed.coatType || '')}"></option>`).join('');
         }
-        const city = document.getElementById('tutor-city');
-        const stateUf = document.getElementById('tutor-state');
-        if (city && response.business?.city) city.value = response.business.city;
-        if (stateUf && response.business?.state) stateUf.value = response.business.state;
+        if (response.business?.city) document.getElementById('tutor-city').value = response.business.city;
+        if (response.business?.state) document.getElementById('tutor-state').value = response.business.state;
       } catch {
         const sizeSelect = document.getElementById('pet-size');
         if (sizeSelect) sizeSelect.innerHTML = '<option value="pequeno">Pequeno</option><option value="medio">Médio</option><option value="grande">Grande</option><option value="gigante">Gigante</option>';
@@ -268,53 +273,43 @@
       if (selected.coatType && coatInput && !coatInput.value) coatInput.value = selected.coatType;
     }
 
-    function setStep(step) {
-      Object.entries(steps).forEach(([key, el]) => { el.hidden = key !== step; });
-      const [heading, text] = copy[step] || copy.whatsapp;
-      title.textContent = heading;
-      subtitle.textContent = text;
-      const progressKey = step === 'loginPassword' || step === 'password' ? 'password' : step === 'tutor' ? 'profile' : step;
-      progressItems.forEach((item) => item.classList.toggle('active', item.dataset.progress === progressKey));
-      feedback.hidden = true;
-      if (whatsappCodeCard) whatsappCodeCard.hidden = step !== 'code' || !state.whatsappUrl;
-    }
+    loadPetConfig();
 
-    function showFeedback(message, type = 'success') {
-      feedback.hidden = false;
-      feedback.textContent = message;
-      feedback.dataset.type = type;
-    }
-
-    function completeLogin(response) {
-      setClientToken(response.token);
-      setClientUser({ account: response.account, tutor: response.tutor });
-      window.location.replace(next);
-    }
+    document.getElementById('tutor-zipcode')?.addEventListener('input', (event) => {
+      event.target.value = formatCepInput(event.target.value);
+      const digits = event.target.value.replace(/\D/g, '');
+      if (digits.length === 8) fillTutorAddressByCep(event.target).catch(() => null);
+    });
 
     document.getElementById('step-whatsapp').addEventListener('submit', async (event) => {
       event.preventDefault();
-      showLoading('Enviando código para o WhatsApp...');
+      showLoading('Verificando WhatsApp...');
       try {
         const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-        const response = await clientApi.post('/app/auth/request-code', withAttribution(data));
+        const response = await clientApi.post('/app/auth/start-whatsapp', withAttribution(data));
         state.whatsapp = response.whatsapp || data.whatsapp;
         state.tutorExists = Boolean(response.tutorExists);
         state.tutor = response.tutor || null;
-        state.whatsappUrl = response.whatsappUrl || '';
+        state.verificationToken = response.verificationToken || '';
+        document.getElementById('tutor-whatsapp-display').value = state.whatsapp;
+
         if (response.nextStep === 'login_password') {
           const summary = document.getElementById('login-tutor-summary');
-          if (summary) summary.textContent = `Acesso já validado para ${state.tutor?.name || 'Tutor PetFunny'}. Informe sua senha para entrar.`;
+          if (summary) summary.textContent = `Acesso ativo para ${state.tutor?.name || 'Tutor PetFunny'}. Informe sua senha para entrar.`;
           setStep('loginPassword');
           document.getElementById('password-login').focus();
           showFeedback(response.message || 'Acesso encontrado. Informe sua senha.', 'success');
           return;
         }
-        if (openWhatsappCode && state.whatsappUrl) openWhatsappCode.href = state.whatsappUrl;
-        setStep('code');
-        document.getElementById('code').focus();
-        showFeedback(response.message || 'Código gerado. Abra o WhatsApp para enviar a mensagem pronta.', 'success');
+
+        const passwordSummary = document.getElementById('password-summary');
+        passwordSummary.textContent = state.tutorExists
+          ? `Cliente encontrado: ${state.tutor?.name || 'Tutor PetFunny'}. Crie sua senha para acessar o app.`
+          : 'WhatsApp ainda não cadastrado. Crie uma senha e depois complete o cadastro do tutor e do pet.';
+        setStep('password');
+        document.getElementById('password-first-access').focus();
       } catch (error) {
-        showFeedback(error.message || 'Não foi possível enviar o código.', 'error');
+        showFeedback(error.message || 'Não foi possível verificar o WhatsApp.', 'error');
       } finally {
         hideLoading();
       }
@@ -329,68 +324,38 @@
         const response = await clientApi.post('/app/login', data);
         completeLogin(response);
       } catch (error) {
-        showFeedback(error.message || 'Não foi possível entrar. Confira a senha ou valide por código.', 'error');
-        hideLoading();
-      }
-    });
-
-    const forgotPasswordCode = document.getElementById('forgot-password-code');
-    if (forgotPasswordCode) {
-      forgotPasswordCode.addEventListener('click', async () => {
-        showLoading('Gerando código de validação...');
-        try {
-          const response = await clientApi.post('/app/auth/request-code', withAttribution({ whatsapp: state.whatsapp, forceCode: true }));
-          state.whatsappUrl = response.whatsappUrl || '';
-          if (openWhatsappCode && state.whatsappUrl) openWhatsappCode.href = state.whatsappUrl;
-          setStep('code');
-          document.getElementById('code').focus();
-          showFeedback(response.message || 'Código gerado. Abra o WhatsApp e valide o acesso.', 'success');
-        } catch (error) {
-          showFeedback(error.message || 'Não foi possível gerar o código.', 'error');
-        } finally {
-          hideLoading();
-        }
-      });
-    }
-
-    document.getElementById('step-code').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      showLoading('Validando código...');
-      try {
-        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-        data.whatsapp = state.whatsapp;
-        const response = await clientApi.post('/app/auth/verify-code', data);
-        state.verificationToken = response.verificationToken;
-        state.tutorExists = Boolean(response.tutorExists);
-        state.tutor = response.tutor || null;
-        if (state.tutorExists) {
-          const el = document.getElementById('existing-tutor-summary');
-          el.textContent = `Cliente encontrado: ${state.tutor?.name || 'Tutor PetFunny'}. Crie uma senha para acessar o app.`;
-          setStep('password');
-          document.getElementById('password-existing').focus();
-        } else {
-          setStep('tutor');
-          document.getElementById('tutor-name').focus();
-        }
-      } catch (error) {
-        showFeedback(error.message || 'Não foi possível validar o código.', 'error');
-      } finally {
+        showFeedback(error.message || 'Não foi possível entrar. Confira a senha.', 'error');
         hideLoading();
       }
     });
 
     document.getElementById('step-password').addEventListener('submit', async (event) => {
       event.preventDefault();
-      showLoading('Criando senha e liberando o app...');
-      try {
-        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-        data.verificationToken = state.verificationToken;
-        const response = await clientApi.post('/app/auth/set-password', data);
-        completeLogin(response);
-      } catch (error) {
-        showFeedback(error.message || 'Não foi possível criar a senha.', 'error');
-        hideLoading();
+      const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+      if (!data.password || !data.confirmPassword) return showFeedback('Informe senha e confirmação de senha.', 'error');
+      if (data.password !== data.confirmPassword) return showFeedback('A confirmação da senha não confere.', 'error');
+      if (String(data.password).length < 8) return showFeedback('A senha precisa ter pelo menos 8 caracteres.', 'error');
+      state.password = data.password;
+      state.confirmPassword = data.confirmPassword;
+
+      if (state.tutorExists) {
+        showLoading('Criando senha e liberando o app...');
+        try {
+          const response = await clientApi.post('/app/auth/set-password', {
+            verificationToken: state.verificationToken,
+            password: state.password,
+            confirmPassword: state.confirmPassword
+          });
+          completeLogin(response);
+        } catch (error) {
+          showFeedback(error.message || 'Não foi possível criar a senha.', 'error');
+          hideLoading();
+        }
+        return;
       }
+
+      setStep('tutor');
+      document.getElementById('tutor-name').focus();
     });
 
     document.getElementById('step-tutor').addEventListener('submit', async (event) => {
@@ -418,6 +383,8 @@
       try {
         const data = Object.fromEntries(new FormData(event.currentTarget).entries());
         data.onboardingToken = state.onboardingToken;
+        data.password = state.password;
+        data.confirmPassword = state.confirmPassword;
         const response = await clientApi.post('/app/auth/register-pet', data);
         completeLogin(response);
       } catch (error) {

@@ -56,6 +56,7 @@
     sortBy: localStorage.getItem('admin_app_access_sort_by') || 'lastAccessAt',
     sortDir: localStorage.getItem('admin_app_access_sort_dir') || 'desc'
   };
+  const mobileCardsMedia = window.matchMedia('(max-width: 760px)');
 
   buildShell({
     active: 'Acessos do App',
@@ -193,11 +194,21 @@
     });
   }
 
+  function isMobileCardView() {
+    return Boolean(mobileCardsMedia?.matches);
+  }
+
   function applyViewMode() {
-    const isCards = state.viewMode === 'cards';
+    const forceCards = isMobileCardView();
+    const isCards = forceCards || state.viewMode === 'cards';
     tableWrap.hidden = isCards;
     cards.hidden = !isCards;
-    document.querySelectorAll('.app-access-view-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
+    document.querySelectorAll('.app-access-view-btn').forEach(btn => {
+      const activeView = forceCards ? 'cards' : state.viewMode;
+      btn.classList.toggle('is-active', btn.dataset.view === activeView);
+      btn.disabled = forceCards && btn.dataset.view === 'list';
+      btn.title = forceCards && btn.dataset.view === 'list' ? 'No celular a lista aparece automaticamente em cards.' : '';
+    });
     updateSortArrows();
   }
 
@@ -364,6 +375,17 @@
     const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 700;
     if (nearBottom) load(false);
   }, { passive: true });
+  if (mobileCardsMedia?.addEventListener) {
+    mobileCardsMedia.addEventListener('change', () => {
+      closeAccessActionMenus();
+      applyViewMode();
+    });
+  } else if (mobileCardsMedia?.addListener) {
+    mobileCardsMedia.addListener(() => {
+      closeAccessActionMenus();
+      applyViewMode();
+    });
+  }
 
   applyViewMode();
   await load(true);

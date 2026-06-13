@@ -14857,3 +14857,357 @@ body.app-client .client-worldcup-card .client-worldcup-description {
 body.app-access-page .app-access-row-menu .send-worldcup-promo-btn {
   font-weight: 900;
 }
+
+
+/* v1.6.116 — App Tutor: fonte maior + Indique e Ganhe 180px */
+html:has(body.app-client),
+html:has(body.app-client-auth) {
+  font-size: 17px !important;
+}
+body.app-client,
+body.app-client-auth,
+body.app-client .client-app-shell,
+body.app-client-auth .client-login-page {
+  font-size: 1rem !important;
+}
+body.app-client .client-section-title h2,
+body.app-client .client-mobile-hero h1,
+body.app-client .client-mobile-hero h2,
+body.app-client .client-meupet-copy h2,
+body.app-client .client-list-body h3,
+body.app-client .client-shortcut strong,
+body.app-client .client-kpi-card strong,
+body.app-client-auth h1 {
+  letter-spacing: -0.02em;
+}
+body.app-client .client-section-title p,
+body.app-client .client-list-body p,
+body.app-client .client-list-body small,
+body.app-client .client-mobile-hero p,
+body.app-client .client-shortcut small,
+body.app-client .client-kpi-card small,
+body.app-client .client-home-referral-cta p,
+body.app-client .client-worldcup-description,
+body.app-client .client-bolao-rules p,
+body.app-client-auth .client-auth-subtitle,
+body.app-client-auth .client-auth-summary,
+body.app-client-auth label,
+body.app-client-auth .input,
+body.app-client-auth button {
+  font-size: 1rem !important;
+  line-height: 1.45 !important;
+}
+body.app-client .btn,
+body.app-client button,
+body.app-client input,
+body.app-client select,
+body.app-client textarea {
+  font-size: 1rem !important;
+}
+body.app-client .client-bottom-nav a small,
+body.app-client .client-bottom-more small {
+  font-size: .72rem !important;
+}
+body.app-client .client-bottom-nav a span,
+body.app-client .client-bottom-more span {
+  font-size: 1.2rem !important;
+}
+body.app-client .client-home-referral-cta,
+body.app-client.client-pwa-layout-v1652 .client-home-referral-cta,
+body.app-client.client-pwa-layout-v1657 .client-home-referral-cta {
+  min-height: 180px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  align-content: center !important;
+}
+body.app-client .client-home-referral-cta strong,
+body.app-client.client-pwa-layout-v1652 .client-home-referral-cta strong {
+  font-size: 1.22rem !important;
+}
+body.app-client .client-home-referral-cta p,
+body.app-client.client-pwa-layout-v1652 .client-home-referral-cta p {
+  font-size: 1rem !important;
+}
+
+/* v1.6.117 — App Tutor: hero com pet picker, roleta premiada e respiro nos heros */
+body.app-client .client-mobile-hero,
+body.app-client .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1652 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1657 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1658 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1659 .client-mobile-hero {
+  padding-bottom: 20px !important;
+}
+body.app-client .client-meupet-hero.client-meupet-hero-picker {
+  display: block !important;
+  padding: 22px !important;
+  overflow: hidden;
+}
+body.app-client .client-meupet-hero.client-meupet-hero-picker .client-meupet-copy {
+  display: grid;
+  gap: 12px;
+}
+body.app-client .client-home-hero-pet-picker {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+body.app-client .client-home-hero-pet-picker > span {
+  font-weight: 1000;
+  color: var(--client-ink, #30283c);
+  letter-spacing: -0.01em;
+}
+body.app-client .client-home-hero-pet-picker .client-appointment-pet-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+}
+body.app-client .client-home-hero-pet-picker .client-appointment-pet-option {
+  min-width: 112px;
+  scroll-snap-align: start;
+}
+body.app-client .client-prize-celebration {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+  text-align: center;
+  padding: 22px 14px 18px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,255,255,.92), transparent 22%),
+    radial-gradient(circle at 88% 8%, rgba(252,211,77,.42), transparent 28%),
+    linear-gradient(135deg, rgba(1,173,183,.12), rgba(249,161,151,.18));
+  border: 1px solid rgba(1,173,183,.14);
+}
+body.app-client .client-prize-icon {
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  border-radius: 999px;
+  font-size: 2.6rem;
+  background: #fff;
+  box-shadow: 0 16px 45px rgba(1,173,183,.18);
+  animation: clientPrizePop .72s cubic-bezier(.2,.9,.2,1.2) both;
+}
+body.app-client .client-prize-celebration h3 {
+  margin: 0;
+  color: var(--client-ink, #30283c);
+  font-size: 1.55rem;
+  line-height: 1.02;
+}
+body.app-client .client-prize-celebration p {
+  margin: 0;
+  color: #5d5366;
+  font-weight: 850;
+}
+body.app-client .client-prize-celebration small {
+  color: #70657a;
+  font-weight: 800;
+  line-height: 1.35;
+}
+body.app-client .client-prize-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+body.app-client .client-prize-confetti i {
+  position: absolute;
+  top: -18px;
+  width: 10px;
+  height: 16px;
+  border-radius: 4px;
+  background: #01adb7;
+  animation: clientConfettiFall 1.6s ease-in-out infinite;
+}
+body.app-client .client-prize-confetti i:nth-child(2) { left: 18%; background: #f9a197; animation-delay: .15s; }
+body.app-client .client-prize-confetti i:nth-child(3) { left: 34%; background: #fcd116; animation-delay: .3s; }
+body.app-client .client-prize-confetti i:nth-child(4) { left: 55%; background: #00a859; animation-delay: .45s; }
+body.app-client .client-prize-confetti i:nth-child(5) { left: 72%; background: #01adb7; animation-delay: .6s; }
+body.app-client .client-prize-confetti i:nth-child(6) { left: 88%; background: #f9a197; animation-delay: .75s; }
+body.app-client .client-roleta-result-win {
+  animation: clientPrizePop .42s cubic-bezier(.2,.9,.2,1.1) both;
+}
+@keyframes clientPrizePop {
+  from { transform: scale(.86); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes clientConfettiFall {
+  0% { transform: translate3d(0, -18px, 0) rotate(0deg); opacity: 0; }
+  16% { opacity: 1; }
+  100% { transform: translate3d(18px, 250px, 0) rotate(240deg); opacity: 0; }
+}
+
+/* v1.6.118 — App Acessos mobile em cards + links públicos curtos */
+@media (max-width: 760px) {
+  body.app-access-page .app-access-table-wrap,
+  body.app-access-page #access-list-view {
+    display: none !important;
+  }
+  body.app-access-page .app-access-cards,
+  body.app-access-page #access-cards {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+  body.app-access-page .app-access-toolbar .admin-view-toggle .app-access-view-btn[data-view="list"] {
+    opacity: .55 !important;
+    pointer-events: none !important;
+  }
+  body.app-access-page .app-access-card {
+    padding: 16px !important;
+  }
+  body.app-access-page .app-access-card .admin-entity-card-header {
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  body.app-access-page .app-access-card .admin-entity-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+/* v1.6.119 — App Tutor: hero principal 350px + pet picker da home igual agenda */
+body.app-client .client-meupet-hero.client-meupet-hero-picker {
+  min-height: 350px !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  align-content: center !important;
+}
+body.app-client .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1652 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1653 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1655 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1656 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1657 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1658 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1659 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1660 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1662 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1666 .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1676 .client-mobile-hero.client-area-hero {
+  min-height: 350px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  padding-bottom: 20px !important;
+  align-items: center !important;
+}
+body.app-client .client-home-hero-pet-picker.client-field.client-pet-picker-field {
+  margin-top: 12px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+body.app-client .client-home-hero-pet-picker.client-field.client-pet-picker-field > span {
+  display: block !important;
+  color: #fff !important;
+  font-size: 1rem !important;
+  font-weight: 1000 !important;
+  margin-bottom: 10px !important;
+  text-shadow: 0 2px 10px rgba(15, 23, 42, .18);
+}
+body.app-client .client-home-hero-pet-picker .client-appointment-pet-option {
+  background: rgba(255, 255, 255, .92) !important;
+  border-color: rgba(255, 255, 255, .72) !important;
+}
+body.app-client .client-home-hero-pet-picker .client-appointment-pet-option.is-selected {
+  background: #fff !important;
+  border-color: rgba(1, 173, 183, .48) !important;
+}
+@media (max-width: 420px) {
+  body.app-client .client-meupet-hero.client-meupet-hero-picker,
+  body.app-client .client-mobile-hero.client-area-hero {
+    min-height: 350px !important;
+  }
+}
+
+/* v1.6.120 — App Tutor: hero 400px + copy ocupando o card inteiro + cards Home maiores */
+body.app-client .client-mobile-hero,
+body.app-client .client-mobile-hero.client-area-hero,
+body.app-client.client-pwa-layout-v1652 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1653 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1655 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1656 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1657 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1658 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1659 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1660 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1662 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1666 .client-mobile-hero,
+body.app-client.client-pwa-layout-v1676 .client-mobile-hero {
+  min-height: 400px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  padding-bottom: 20px !important;
+}
+body.app-client .client-mobile-hero.client-area-hero .client-area-hero-copy,
+body.app-client .client-area-hero-copy,
+body.app-client.client-pwa-layout-v1656 .client-mobile-hero.client-area-hero .client-area-hero-copy,
+body.app-client.client-pwa-layout-v1657 .client-mobile-hero.client-area-hero .client-area-hero-copy,
+body.app-client.client-pwa-layout-v1658 .client-mobile-hero.client-area-hero .client-area-hero-copy,
+body.app-client.client-pwa-layout-v1659 .client-mobile-hero.client-area-hero .client-area-hero-copy {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  align-self: stretch !important;
+  justify-self: stretch !important;
+  display: grid !important;
+  align-content: center !important;
+}
+body.app-client .client-meupet-hero.client-meupet-hero-picker {
+  min-height: 400px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  align-content: center !important;
+}
+body.app-client .client-meupet-hero.client-meupet-hero-picker .client-meupet-copy {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  align-content: center !important;
+}
+body.app-client .client-home-referral-cta,
+body.app-client.client-pwa-layout-v1652 .client-home-referral-cta,
+body.app-client.client-pwa-layout-v1657 .client-home-referral-cta {
+  min-height: 260px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  align-content: center !important;
+}
+body.app-client .client-worldcup-card,
+body.app-client .client-worldcup-card.client-worldcup-empty {
+  min-height: 260px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  padding-bottom: 34px !important;
+}
+body.app-client .client-worldcup-card .client-worldcup-copy,
+body.app-client .client-worldcup-empty > div {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+@media (max-width: 420px) {
+  body.app-client .client-mobile-hero,
+  body.app-client .client-mobile-hero.client-area-hero,
+  body.app-client .client-meupet-hero.client-meupet-hero-picker {
+    min-height: 400px !important;
+  }
+  body.app-client .client-home-referral-cta,
+  body.app-client .client-worldcup-card,
+  body.app-client .client-worldcup-card.client-worldcup-empty {
+    min-height: 260px !important;
+  }
+}

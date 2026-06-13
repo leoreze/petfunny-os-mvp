@@ -338,14 +338,22 @@
     return String(data?.tutor?.whatsapp || data?.account?.whatsapp || data?.tutorWhatsapp || '').replace(/\D/g, '');
   }
 
-  function appointmentConfirmationWhatsAppButton(appointment = {}, label = 'Enviar confirmação no WhatsApp') {
-    const phone = String(appointment.tutorWhatsapp || appWhatsappNumber() || '').replace(/\D/g, '');
-    const petName = appointment.petName || 'seu pet';
+  function businessWhatsAppNumber() {
+    const fromBusiness = String(data?.business?.whatsapp || data?.business?.phone || '').replace(/\D/g, '');
+    if (fromBusiness) return fromBusiness.startsWith('55') ? fromBusiness : `55${fromBusiness}`;
+    return '5516981535338';
+  }
+
+  function appointmentConfirmationWhatsAppButton(appointment = {}, label = 'Enviar detalhes para o PetFunny') {
+    const phone = businessWhatsAppNumber();
+    const petName = appointment.petName || 'meu pet';
+    const tutorName = data?.tutor?.name || data?.account?.name || 'Tutor PetFunny';
     const when = appointment.startsAt ? dateTime(appointment.startsAt) : 'no horário escolhido';
     const services = appointment.services ? `\nServiços: ${appointment.services}` : '';
     const total = appointment.totalCents ? `\nTotal pago: ${money(appointment.totalCents)}` : '';
-    const message = `Oi! Tudo bem? Aqui é do PetFunny 🐾\n\nPagamento confirmado e agendamento do ${petName} realizado com sucesso!\nData e horário: ${when}${services}${total}\n\nEstamos esperando vocês com muito carinho 💚`;
-    const href = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const appointmentId = appointment.id ? `\nCódigo do agendamento: ${appointment.id}` : '';
+    const message = `Oi, PetFunny! Aqui é ${tutorName} 🐾\n\nAcabei de confirmar o pagamento e quero registrar os detalhes do agendamento do ${petName}.\nData e horário: ${when}${services}${total}${appointmentId}\n\nObrigado!`;
+    const href = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     return `<a class="btn client-whatsapp-confirm-btn" target="_blank" rel="noopener" href="${href}">💬 ${escapeHtml(label)}</a>`;
   }
 
@@ -765,18 +773,21 @@
     const next = data.nextAppointment || null;
     const pkg = (data.packages || []).find((item) => item.status === 'active') || (data.packages || [])[0] || null;
     const status = engagement.customerStatus || { label: 'Cliente PetFunny', message: 'Acompanhe os cuidados pelo app.', tone: 'info' };
-    const petPhoto = pet?.photoUrl ? `<img src="${escapeHtml(pet.photoUrl)}" alt="${escapeHtml(pet.name || 'Pet')}">` : `<span>${pet?.name ? escapeHtml(pet.name.slice(0, 1).toUpperCase()) : '🐶'}</span>`;
+    const selectedPetId = pet?.id || (data.pets || [])[0]?.id || '';
     const nextText = next ? `${dateTime(next.startsAt)} · ${escapeHtml(next.services || next.statusName || 'Atendimento PetFunny')}` : 'Nenhum cuidado agendado ainda';
     const pkgProgress = pkg ? `${Number(pkg.usedSessions || 0)} de ${Number(pkg.totalSessions || 0)} sessões usadas` : 'Nenhum pacote ativo';
     const points = Number(rewards.pointsBalance || 0);
     const goal = rewards.nextGoal || { remaining: 10, label: 'mimo PetFunny', progressPercent: 0 };
     return `
-      <section class="client-meupet-hero">
-        <div class="client-meupet-photo">${petPhoto}</div>
+      <section class="client-meupet-hero client-meupet-hero-picker">
         <div class="client-meupet-copy">
           <p class="eyebrow">Clube PetFunny</p>
           <h2>${pet ? `${escapeHtml(pet.name)} está no Meu PetFunny` : 'Cadastre seu pet para começar'}</h2>
           <p class="client-hero-subtitle">${pet ? 'Acompanhe cada carinho, cada banho, cada mimo e cada cuidado em um só lugar.' : 'Depois de cadastrar, você acompanha agenda, pontos, mimos e histórico.'}</p>
+          <div class="client-field client-pet-picker-field client-home-hero-pet-picker">
+            <span>Escolha seu pet</span>
+            ${renderAppointmentPetPicker(selectedPetId, { inputName: 'homePetId', returnSection: 'home' })}
+          </div>
         </div>
       </section>`;
   }
@@ -1051,6 +1062,10 @@
     const firstPet = roletaContext?.petId || data.pets?.[0]?.id || '';
     const serviceList = serviceOptionsForPet(firstPet);
     const roletaNote = roletaContext ? `🎁 Mimo ganho na Roleta PetFunny: ${roletaContext.giftTitle}${roletaContext.giftDescription ? ` — ${roletaContext.giftDescription}` : ''}` : '';
+    const roletaHiddenInputs = roletaContext ? `
+          <input type="hidden" name="giftSpinId" value="${escapeHtml(roletaContext.spinId || '')}">
+          <input type="hidden" name="rouletteGiftTitle" value="${escapeHtml(roletaContext.giftTitle || '')}">
+          <input type="hidden" name="rouletteGiftDescription" value="${escapeHtml(roletaContext.giftDescription || '')}">` : '';
     const initialDate = nextPromotionAllowedDate(promo, initialScheduleDate());
     const promoBanner = promo ? `<article class="client-promo-selected-banner" data-selected-promo-id="${escapeHtml(promo.id)}"><span>🏷️ Promoção selecionada</span><strong>${escapeHtml(promo.title)}</strong><small>${Number(promo.discountPercent || 0)}% OFF · válida em ${escapeHtml(promotionAllowedDaysText(promo))}</small></article>` : '';
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Novo agendamento</h2></div>
@@ -1065,6 +1080,7 @@
         <input type="hidden" name="transportFeeCents" value="0">
         <input type="hidden" name="transportSummary" value="">
         ${textArea('Observações para a equipe', 'notes', roletaNote)}
+        ${roletaHiddenInputs}
         ${renderAppointmentSummaryBox()}
         ${paymentMethodChoicesHtml({ fieldName: 'paymentType', selected: 'pix' })}
         <button class="btn" type="submit">Criar agendamento</button>
@@ -1513,16 +1529,33 @@
   }
 
   function renderRoleta() {
+    const pets = data.pets || [];
+    const selectedPetId = pets[0]?.id || '';
+    const petOptions = pets.map((pet) => `<option value="${escapeHtml(pet.id)}" ${String(pet.id) === String(selectedPetId) ? 'selected' : ''}>${escapeHtml(pet.name)}</option>`).join('');
     return `<section class="client-mobile-section"><div class="client-section-title"><h2>Roleta de Mimos</h2><p>Escolha um pet e gire para registrar o mimo no sistema.</p></div>
       <article class="client-roulette-card">
         <div class="client-roulette-wheel"><span>🎁</span></div>
         <form id="spin-form" class="client-form-grid compact">
-          ${selectField('Pet participante', 'petId', (data.pets || []).map((pet) => ({ value: pet.id, label: pet.name })), '', 'Opcional')}
+          <label class="client-field"><span>Pet participante</span><select name="petId" required><option value="">Escolha o pet</option>${petOptions}</select></label>
           <button class="btn" type="submit">Girar roleta</button>
         </form>
         <div id="spin-result" class="client-alert-soft">${options.gifts?.length ? `${options.gifts.length} mimo(s) ativo(s) disponíveis.` : 'Nenhum mimo ativo neste momento.'}</div>
       </article>
     </section>`;
+  }
+
+  function openRoletaPrizeModal({ gift = {}, scheduleUrl = '/app/agenda', petName = 'seu pet' } = {}) {
+    const title = gift.title || 'Mimo PetFunny';
+    const description = gift.description || 'Mimo registrado no PetFunny.';
+    openModal('Mimo sorteado!', `
+      <div class="client-prize-celebration">
+        <div class="client-prize-confetti" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="client-prize-icon">🎉</div>
+        <p class="eyebrow">Roleta de Mimos PetFunny</p>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(description)}</p>
+        <small>O mimo ficou vinculado ao ${escapeHtml(petName || 'pet selecionado')}. Agora é só agendar o serviço usando esse benefício.</small>
+      </div>`, `<a class="btn" href="${escapeHtml(scheduleUrl)}">Agendar serviços com o mimo</a><button class="btn btn-secondary" data-close-modal type="button">Depois</button>`);
   }
 
 
@@ -3223,21 +3256,33 @@
 
     document.getElementById('spin-form')?.addEventListener('submit', async (event) => {
       event.preventDefault();
+      const form = event.currentTarget;
       const resultBox = document.getElementById('spin-result');
+      const wheel = document.querySelector('.client-roulette-wheel');
       resultBox.innerHTML = 'Girando a roleta...';
+      wheel?.classList.remove('is-spinning');
+      void wheel?.offsetWidth;
+      wheel?.classList.add('is-spinning');
       try {
-        const response = await clientApi.post('/app/roleta/spin', formPayload(event.currentTarget));
+        const payload = formPayload(form);
+        if (!payload.petId) {
+          resultBox.innerHTML = 'Escolha o pet participante antes de girar.';
+          return;
+        }
+        const response = await clientApi.post('/app/roleta/spin', payload);
+        const gift = response.gift || {};
+        const selectedPetId = response.petId || payload.petId || '';
+        const selectedPet = (data.pets || []).find((pet) => String(pet.id) === String(selectedPetId));
         const params = new URLSearchParams({
-          mimo: response.gift.title || 'Mimo PetFunny',
-          desc: response.gift.description || '',
-          petId: response.petId || '',
+          mimo: gift.title || 'Mimo PetFunny',
+          desc: gift.description || '',
+          petId: selectedPetId,
           spinId: response.spinId || ''
         });
         const scheduleUrl = `/app/agenda?${params.toString()}`;
-        resultBox.innerHTML = `<div class="client-roleta-result-win"><strong>${escapeHtml(response.gift.title)}</strong><br>${escapeHtml(response.gift.description || 'Mimo registrado no PetFunny.')}<br><small>Vamos abrir o novo agendamento com seu mimo destacado.</small><a class="btn btn-sm" href="${scheduleUrl}">Agendar usando este mimo</a></div>`;
-        document.querySelector('.client-roulette-wheel')?.classList.add('is-spinning');
+        resultBox.innerHTML = `<div class="client-roleta-result-win"><strong>${escapeHtml(gift.title || 'Mimo PetFunny')}</strong><br>${escapeHtml(gift.description || 'Mimo registrado no PetFunny.')}<br><small>Toque em agendar para usar este mimo no serviço.</small></div>`;
+        window.setTimeout(() => openRoletaPrizeModal({ gift, scheduleUrl, petName: selectedPet?.name || 'pet selecionado' }), 420);
         toast(response.message || 'Mimo sorteado.');
-        window.setTimeout(() => { window.location.href = scheduleUrl; }, 1800);
       } catch (error) { resultBox.innerHTML = escapeHtml(error.message); }
     });
 

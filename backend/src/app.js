@@ -199,7 +199,9 @@ function sanitizeTutor(tutor = {}) {
     id: tutor.id,
     name: tutor.name,
     whatsapp: tutor.whatsapp,
+    phone: tutor.phone || '',
     email: tutor.email,
+    documentNumber: tutor.document_number || tutor.documentNumber || '',
     address: tutor.address || '',
     addressNumber: tutor.address_number || tutor.addressNumber || '',
     addressNeighborhood: tutor.address_neighborhood || tutor.addressNeighborhood || '',
@@ -207,6 +209,8 @@ function sanitizeTutor(tutor = {}) {
     city: tutor.city,
     state: tutor.state,
     photoUrl: tutor.photo_url || tutor.photoUrl || null,
+    notes: tutor.notes || '',
+    status: tutor.status || 'active',
     tags: tutor.tags || []
   };
 }
@@ -284,7 +288,7 @@ function signClientVerificationToken({ whatsapp, tutorExists = false, tutorId = 
 function requireClientVerification(req) {
   const token = String(req.body?.verificationToken || req.headers['x-verification-token'] || '').trim();
   if (!token) {
-    const error = new Error('Validação expirada. Informe o WhatsApp e o código novamente.');
+    const error = new Error('Validação expirada. Informe o WhatsApp novamente.');
     error.status = 401;
     throw error;
   }
@@ -293,7 +297,7 @@ function requireClientVerification(req) {
     if (payload.scope !== 'client_app_verification') throw new Error('invalid scope');
     return payload;
   } catch {
-    const error = new Error('Validação inválida ou expirada. Solicite um novo código.');
+    const error = new Error('Validação inválida ou expirada. Informe o WhatsApp novamente.');
     error.status = 401;
     throw error;
   }
@@ -2984,6 +2988,41 @@ app.delete('/api/pets/:id', requireAuth, async (req, res, next) => {
 
 
 
+
+app.get('/m/:code', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').replace(/[^a-f0-9]/gi, '').toLowerCase().slice(0, 32);
+    if (!code || code.length < 8) return res.status(404).send('Link de momentos inválido.');
+    const media = await query(`
+      SELECT am.id AS media_id, am.appointment_id, am.tutor_id, am.pet_id,
+             t.whatsapp AS tutor_whatsapp, t.name AS tutor_name,
+             p.name AS pet_name
+      FROM appointment_media am
+      LEFT JOIN tutors t ON t.id = am.tutor_id
+      LEFT JOIN pets p ON p.id = am.pet_id
+      WHERE replace(am.id::text, '-', '') LIKE $1::text
+        AND am.deleted_at IS NULL
+      ORDER BY am.created_at DESC
+      LIMIT 1
+    `, [`${code}%`]);
+    if (!media.rowCount) return res.status(404).send('Link de momentos não encontrado.');
+    const row = media.rows[0];
+    const whatsapp = normalizeWhatsapp(row.tutor_whatsapp || '');
+    if (!row.tutor_id || !whatsapp) return res.status(404).send('Tutor não encontrado para este momento.');
+    await ensureClientAccountForTutor(row.tutor_id, whatsapp).catch(() => null);
+    const token = signClientMomentsAccessToken({
+      tutorId: row.tutor_id,
+      whatsapp,
+      appointmentId: row.appointment_id || null,
+      mediaId: row.media_id || null
+    });
+    const target = `/app/momentos?momentsAccess=${encodeURIComponent(token)}${row.media_id ? `&focus=${encodeURIComponent(row.media_id)}` : ''}`;
+    return res.redirect(302, target);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/app/auth/moments-access', async (req, res, next) => {
   try {
     const token = String(req.body?.token || req.query?.token || '').trim();
@@ -3039,6 +3078,76 @@ app.post('/api/app/auth/moments-access', async (req, res, next) => {
       tutor: sanitizeTutor(tutor),
       redirectPath: `/app/momentos${payload.mediaId ? `?focus=${encodeURIComponent(payload.mediaId)}` : ''}`,
       focusMediaId: payload.mediaId || ''
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+
+app.post('/api/app/auth/start-whatsapp', async (req, res, next) => {
+  try {
+    const whatsapp = normalizeWhatsapp(req.body?.whatsapp);
+    if (!whatsapp) return res.status(400).json({ error: 'Informe o WhatsApp para continuar.' });
+
+    const tutorResult = await query(`
+      SELECT id, name, whatsapp, phone, email, document_number, address, address_number, address_neighborhood, address_zipcode, city, state, tags, notes, status, photo_url
+      FROM tutors
+      WHERE whatsapp = $1
+        AND deleted_at IS NULL
+      LIMIT 1
+    `, [whatsapp]);
+    const tutor = tutorResult.rows[0] || null;
+
+    const accountResult = await query(`
+      SELECT id, tutor_id, whatsapp, password_hash, status, is_active
+      FROM client_accounts
+      WHERE whatsapp = $1
+        AND deleted_at IS NULL
+      LIMIT 1
+    `, [whatsapp]);
+    const account = accountResult.rows[0] || null;
+
+    const attribution = getAppCrmAttribution(req);
+    await syncAppCrmLead({
+      whatsapp,
+      tutorId: tutor?.id || null,
+      name: tutor?.name || '',
+      email: tutor?.email || '',
+      stage: tutor ? 'whatsapp_identificado' : 'lead_entrou',
+      source: attribution.source,
+      origin: attribution.origin,
+      notes: `Tutor iniciou acesso pelo WhatsApp no App do Tutor. ${attribution.details}`.trim(),
+      interactionSubject: 'WhatsApp informado no app',
+      interactionMessage: `WhatsApp informado na tela inicial do App do Tutor. ${attribution.details}`.trim()
+    }).catch(() => null);
+
+    if (tutor && account?.password_hash && account.is_active) {
+      return res.json({
+        ok: true,
+        whatsapp,
+        tutorExists: true,
+        hasPassword: true,
+        accessAlreadyValidated: true,
+        tutor: sanitizeTutor(tutor),
+        nextStep: 'login_password',
+        message: 'Encontramos seu acesso PetFunny. Informe sua senha para entrar no app.'
+      });
+    }
+
+    return res.json({
+      ok: true,
+      whatsapp,
+      tutorExists: Boolean(tutor),
+      hasPassword: false,
+      accessAlreadyValidated: false,
+      tutor: tutor ? sanitizeTutor(tutor) : null,
+      verificationToken: signClientVerificationToken({ whatsapp, tutorExists: Boolean(tutor), tutorId: tutor?.id || null, accountId: account?.id || null }),
+      nextStep: 'create_password',
+      message: tutor
+        ? 'Cliente encontrado. Crie sua senha para liberar o App do Tutor.'
+        : 'WhatsApp ainda não cadastrado. Crie sua senha e depois complete o cadastro do tutor e do pet.'
     });
   } catch (error) {
     next(error);
@@ -3230,6 +3339,8 @@ app.post('/api/app/auth/register-tutor', async (req, res, next) => {
     const whatsapp = normalizeWhatsapp(payload.whatsapp);
     const name = cleanText(req.body?.name);
     const email = cleanText(req.body?.email);
+    const phone = cleanText(req.body?.phone);
+    const documentNumber = cleanText(req.body?.documentNumber || req.body?.document_number);
     const city = cleanText(req.body?.city) || 'Ribeirão Preto';
     const state = cleanText(req.body?.state) || 'SP';
     const address = cleanText(req.body?.address);
@@ -3237,16 +3348,19 @@ app.post('/api/app/auth/register-tutor', async (req, res, next) => {
     const addressNeighborhood = cleanText(req.body?.addressNeighborhood || req.body?.address_neighborhood);
     const addressZipcode = cleanText(req.body?.addressZipcode || req.body?.address_zipcode);
     const notes = cleanText(req.body?.notes);
+    const appTags = Array.from(new Set(['app_cliente', ...parseTags(req.body?.tags || '')])).filter(Boolean);
 
     if (!whatsapp) return res.status(400).json({ error: 'WhatsApp não validado.' });
     if (!name) return res.status(400).json({ error: 'Informe o nome do tutor.' });
 
     const tutorResult = await query(`
-      INSERT INTO tutors (name, whatsapp, email, city, state, address, address_number, address_neighborhood, address_zipcode, notes, tags, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, ARRAY['app_cliente'], 'active')
+      INSERT INTO tutors (name, whatsapp, phone, email, document_number, city, state, address, address_number, address_neighborhood, address_zipcode, notes, tags, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text[], 'active')
       ON CONFLICT (whatsapp) DO UPDATE
       SET name = EXCLUDED.name,
+          phone = EXCLUDED.phone,
           email = EXCLUDED.email,
+          document_number = EXCLUDED.document_number,
           city = EXCLUDED.city,
           state = EXCLUDED.state,
           address = EXCLUDED.address,
@@ -3254,12 +3368,12 @@ app.post('/api/app/auth/register-tutor', async (req, res, next) => {
           address_neighborhood = EXCLUDED.address_neighborhood,
           address_zipcode = EXCLUDED.address_zipcode,
           notes = EXCLUDED.notes,
-          tags = ARRAY(SELECT DISTINCT unnest(COALESCE(tutors.tags, ARRAY[]::TEXT[]) || ARRAY['app_cliente'])),
+          tags = ARRAY(SELECT DISTINCT unnest(COALESCE(tutors.tags, ARRAY[]::TEXT[]) || EXCLUDED.tags)),
           status = 'active',
           deleted_at = NULL,
           updated_at = NOW()
-      RETURNING id, name, whatsapp, email, address, address_number, address_neighborhood, address_zipcode, city, state, tags
-    `, [name, whatsapp, email || null, city, state, address || null, addressNumber || null, addressNeighborhood || null, addressZipcode || null, notes || null]);
+      RETURNING id, name, whatsapp, phone, email, document_number, address, address_number, address_neighborhood, address_zipcode, city, state, notes, tags
+    `, [name, whatsapp, phone || null, email || null, documentNumber || null, city, state, address || null, addressNumber || null, addressNeighborhood || null, addressZipcode || null, notes || null, appTags]);
 
     const tutor = tutorResult.rows[0];
     const accountResult = await query(`
@@ -3283,7 +3397,7 @@ app.post('/api/app/auth/register-tutor', async (req, res, next) => {
       source: 'app_tutor',
       notes: 'Tutor preencheu o cadastro inicial pelo App do Tutor.',
       interactionSubject: 'Cadastro do tutor',
-      interactionMessage: 'O tutor completou nome, e-mail, cidade/UF e dados básicos pelo app.'
+      interactionMessage: 'O tutor completou o cadastro pelo app com dados pessoais, contato e endereço.'
     });
 
     res.status(201).json({
@@ -7000,13 +7114,28 @@ app.post('/api/app/roleta/spin', requireClientAuth, async (req, res, next) => {
 
 
 
+function getPetFunnyPublicBaseUrl() {
+  return String(
+    process.env.PETFUNNY_PUBLIC_URL
+    || process.env.PUBLIC_APP_URL
+    || process.env.PUBLIC_BASE_URL
+    || 'https://agendapetfunny.com.br'
+  ).trim().replace(/\/$/, '');
+}
+
 function buildPublicBaseUrl(req) {
-  const configured = String(env.appUrl || process.env.APP_URL || process.env.PUBLIC_APP_URL || '').trim().replace(/\/$/, '');
-  if (configured) return configured;
+  const canonical = getPetFunnyPublicBaseUrl();
+  if (canonical) return canonical;
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
   const proto = forwardedProto || req.protocol || 'http';
   const host = req.get('host') || `localhost:${env.port || process.env.PORT || 3000}`;
   return `${proto}://${host}`.replace(/\/$/, '');
+}
+
+function buildMomentsShortCode(mediaRow = {}, appointmentRow = {}) {
+  const raw = String(mediaRow.id || mediaRow.media_id || appointmentRow.id || '').replace(/[^a-f0-9]/gi, '').toLowerCase();
+  if (raw.length >= 10) return raw.slice(0, 12);
+  return crypto.randomBytes(6).toString('hex');
 }
 
 function signClientMomentsAccessToken({ tutorId, whatsapp, appointmentId = null, mediaId = null }) {
@@ -7057,7 +7186,10 @@ async function buildAppointmentMomentsSharePayload(req, appointmentRow = {}, med
     mediaId: mediaRow.id || null
   });
   const baseUrl = buildPublicBaseUrl(req);
-  const appPath = `/app/momentos?momentsAccess=${encodeURIComponent(token)}${mediaRow.id ? `&focus=${encodeURIComponent(mediaRow.id)}` : ''}`;
+  const shortCode = buildMomentsShortCode(mediaRow, appointmentRow);
+  const appPath = mediaRow.id
+    ? `/m/${encodeURIComponent(shortCode)}`
+    : `/app/momentos?momentsAccess=${encodeURIComponent(token)}`;
   const momentsLink = `${baseUrl}${appPath}`;
   const petName = appointmentRow.pet_name || 'seu pet';
   const tutorFirstName = String(appointmentRow.tutor_name || '').trim().split(/\s+/)[0] || '';
@@ -8986,7 +9118,7 @@ function serviceReviewRatingLabel(rating) {
 }
 
 function buildServiceReviewPublicUrl(token = '') {
-  const base = String(env.appUrl || process.env.APP_URL || `http://localhost:${env.port || 3000}`).trim().replace(/\/$/, '');
+  const base = getPetFunnyPublicBaseUrl();
   return `${base}/avaliacao/${encodeURIComponent(String(token || ''))}`;
 }
 
