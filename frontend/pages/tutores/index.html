@@ -39,7 +39,8 @@
     currentHistory: [],
     currentPets: [],
     petOptions: { types: [], sizes: [], breeds: [] },
-    whatsappCheck: { timer: null, existingTutor: null, lastDigits: '' }
+    whatsappCheck: { timer: null, existingTutor: null, lastDigits: '' },
+    selectedIds: new Set()
   };
   const money = (cents = 0) => (Number(cents || 0) / 100).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
   const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
@@ -117,9 +118,17 @@
           <select class="select" id="status-filter"><option value="all">Todos</option><option value="active">Ativos</option><option value="inactive">Inativos</option></select>
           <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
         </div>
+        <div class="admin-selection-bar" id="tutors-selection-bar" aria-live="polite">
+          <strong><span id="tutors-selection-count">0</span> tutor(es) selecionado(s)</strong>
+          <div class="admin-selection-actions">
+            <button class="btn btn-secondary" id="clear-tutors-selection" type="button">Limpar seleção</button>
+            <button class="btn btn-danger-soft" id="bulk-delete-tutors" type="button">Apagar selecionados</button>
+          </div>
+        </div>
         <div class="table-scroll custom-scroll tutors-table-wrap" id="tutors-scroll">
           <table class="premium-table sortable-table">
             <thead><tr>
+              <th class="admin-select-cell"><input class="admin-select-all" id="select-all-tutors" type="checkbox" aria-label="Selecionar todos os tutores visíveis"></th>
               <th><button class="th-sort" type="button" data-sort="name">Tutor <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="whatsapp">Contato <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="sentMessagesCount">Mensagens <span class="sort-arrow">↕</span></button></th>
@@ -131,7 +140,7 @@
               <th><button class="th-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th>
               <th>Ações</th>
             </tr></thead>
-            <tbody id="tutors-body"><tr><td colspan="10">Preparando tudo...</td></tr></tbody>
+            <tbody id="tutors-body"><tr><td colspan="11">Preparando tudo...</td></tr></tbody>
           </table>
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais tutores...</div>
           <div class="list-load-status" id="tutors-load-status">0/0 tutores carregados</div>
@@ -280,7 +289,9 @@
   function rowTemplate(item) {
     const lastAppointment = formatDateBR(item.lastAppointmentAt);
     const days = daysWithoutLabel(item.daysWithoutAppointment);
+    const checked = state.selectedIds.has(String(item.id)) ? 'checked' : '';
     return `<tr data-id="${item.id}" class="${item.status === 'inactive' ? 'is-inactive-row' : ''}">
+      <td class="admin-select-cell"><input class="admin-row-select" type="checkbox" data-select-tutor="${esc(item.id)}" ${checked} aria-label="Selecionar tutor ${esc(item.name)}"></td>
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(item.city || 'Ribeirão Preto')} / ${esc(item.state || 'SP')}</small></div></div></td>
       <td><strong>${formatWhatsapp(item.whatsapp)}</strong><br><small>${esc(lastPetLabel(item))}</small></td>
       <td><span class="status-pill info">${Number(item.sentMessagesCount || 0)}</span><br><small>${item.lastMessageAt ? `última: ${formatDateBR(item.lastMessageAt)}` : 'sem envio registrado'}</small></td>
@@ -399,7 +410,7 @@
 
   function renderTutores() {
     const rows = sortedItems();
-    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="10">Nenhum tutor encontrado.</td></tr>';
+    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="11">Nenhum tutor encontrado.</td></tr>';
     cardsBox.innerHTML = rows.length ? rows.map(tutorCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum tutor encontrado.</strong><p>Tente buscar por nome, WhatsApp ou e-mail.</p></article>';
     applyTutorViewMode();
     document.querySelectorAll('.th-sort').forEach((button) => {
@@ -408,13 +419,55 @@
       const arrow = button.querySelector('.sort-arrow');
       if (arrow) arrow.textContent = active ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
     });
+    updateTutorSelectionUI();
+  }
+
+  function visibleTutorIds() {
+    return sortedItems().map(item => String(item.id));
+  }
+
+  function updateTutorSelectionUI() {
+    const bar = document.getElementById('tutors-selection-bar');
+    const countEl = document.getElementById('tutors-selection-count');
+    const selectAll = document.getElementById('select-all-tutors');
+    const visible = visibleTutorIds();
+    const selectedVisible = visible.filter(id => state.selectedIds.has(id));
+    if (countEl) countEl.textContent = String(state.selectedIds.size);
+    if (bar) bar.classList.toggle('is-active', state.selectedIds.size > 0);
+    if (selectAll) {
+      selectAll.checked = visible.length > 0 && selectedVisible.length === visible.length;
+      selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visible.length;
+    }
+  }
+
+  function clearTutorSelection() {
+    state.selectedIds.clear();
+    document.querySelectorAll('[data-select-tutor]').forEach(input => { input.checked = false; });
+    updateTutorSelectionUI();
+  }
+
+  async function bulkDeleteTutors() {
+    const ids = Array.from(state.selectedIds);
+    if (!ids.length) return;
+    if (!confirm(`Apagar/inativar ${ids.length} tutor(es) selecionado(s)? Os pets vinculados serão preservados conforme regra atual do sistema.`)) return;
+    try {
+      showLoading('Apagando tutores selecionados...', 'Aplicando a mesma regra de inativação da ação individual.');
+      await Promise.all(ids.map(id => api.delete(`/tutores/${id}`)));
+      clearTutorSelection();
+      state.status = 'all';
+      const statusFilter = document.getElementById('status-filter');
+      if (statusFilter) statusFilter.value = 'all';
+      toast('Tutores selecionados apagados/inativados.', 'success');
+      await loadTutores(true);
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
   }
 
   async function loadTutores(reset = false) {
     if (state.loading || (state.done && !reset)) return;
     state.loading = true;
     loader.hidden = false;
-    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="10">Preparando tudo...</td></tr>'; }
+    if (reset) { state.page = 1; state.done = false; state.items = []; state.selectedIds.clear(); body.innerHTML = '<tr><td colspan="11">Preparando tudo...</td></tr>'; updateTutorSelectionUI(); }
     try {
       const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status });
       if (state.search) params.set('search', state.search);
@@ -428,7 +481,7 @@
       renderTutores();
       updateMetrics();
     } catch (error) {
-      body.innerHTML = `<tr><td colspan="10">${esc(error.message)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="11">${esc(error.message)}</td></tr>`;
       toast(error.message, 'error');
       updateLoadStatus();
     } finally {
@@ -884,6 +937,14 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
     localStorage.setItem('admin_tutores_view', state.viewMode);
     renderTutores();
   }));
+  document.getElementById('clear-tutors-selection')?.addEventListener('click', clearTutorSelection);
+  document.getElementById('bulk-delete-tutors')?.addEventListener('click', bulkDeleteTutors);
+  document.getElementById('select-all-tutors')?.addEventListener('change', (event) => {
+    const checked = event.target.checked;
+    visibleTutorIds().forEach(id => checked ? state.selectedIds.add(id) : state.selectedIds.delete(id));
+    document.querySelectorAll('[data-select-tutor]').forEach(input => { input.checked = checked; });
+    updateTutorSelectionUI();
+  });
   document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.sort;
     if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
@@ -920,6 +981,15 @@ Qualquer dúvida, me chama por aqui que eu te ajudo no primeiro acesso.`;
   });
   document.getElementById('search-tutors').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__tutorSearch); window.__tutorSearch = window.setTimeout(() => loadTutores(true), 320); });
   document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadTutores(true); });
+  document.querySelector('.tutors-list-card')?.addEventListener('change', (event) => {
+    const rowSelect = event.target.closest('[data-select-tutor]');
+    if (!rowSelect) return;
+    const id = String(rowSelect.dataset.selectTutor || '');
+    if (!id) return;
+    if (rowSelect.checked) state.selectedIds.add(id); else state.selectedIds.delete(id);
+    updateTutorSelectionUI();
+  });
+
   document.querySelector('.tutors-list-card')?.addEventListener('click', async (event) => {
     const menuBtn = event.target.closest('.tutor-menu-btn');
     const edit = event.target.closest('.edit-btn');

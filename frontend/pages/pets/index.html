@@ -39,7 +39,8 @@
     currentPet: null,
     currentMedia: [],
     sortKey: 'name',
-    sortDir: 'asc'
+    sortDir: 'asc',
+    selectedIds: new Set()
   };
   const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const onlyDigits = (value = '') => String(value || '').replace(/\D/g, '');
@@ -97,9 +98,17 @@
             <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
           </div>
         </div>
+        <div class="admin-selection-bar" id="pets-selection-bar" aria-live="polite">
+          <strong><span id="pets-selection-count">0</span> pet(s) selecionado(s)</strong>
+          <div class="admin-selection-actions">
+            <button class="btn btn-secondary" id="clear-pets-selection" type="button">Limpar seleção</button>
+            <button class="btn btn-danger-soft" id="bulk-delete-pets" type="button">Apagar selecionados</button>
+          </div>
+        </div>
         <div class="table-scroll custom-scroll pets-table-wrap no-inner-scroll" id="pets-scroll">
           <table class="premium-table sortable-table">
             <thead><tr>
+              <th class="admin-select-cell"><input class="admin-select-all" id="select-all-pets" type="checkbox" aria-label="Selecionar todos os pets visíveis"></th>
               <th><button class="th-sort" type="button" data-sort="name">Pet <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="tutorName">Tutor <span class="sort-arrow">↕</span></button></th>
               <th><button class="th-sort" type="button" data-sort="size">Porte <span class="sort-arrow">↕</span></button></th>
@@ -108,7 +117,7 @@
               <th><button class="th-sort" type="button" data-sort="status">Status <span class="sort-arrow">↕</span></button></th>
               <th>Ações</th>
             </tr></thead>
-            <tbody id="pets-body"><tr><td colspan="7">Preparando tudo...</td></tr></tbody>
+            <tbody id="pets-body"><tr><td colspan="8">Preparando tudo...</td></tr></tbody>
           </table>
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais pets...</div>
           <div class="list-load-status" id="pets-load-status">0/0 pets carregados</div>
@@ -199,7 +208,9 @@
 
   function rowTemplate(item) {
     const care = item.restrictions || item.preferences || item.notes || '';
+    const checked = state.selectedIds.has(String(item.id)) ? 'checked' : '';
     return `<tr data-id="${esc(item.id)}" class="${item.status === 'inactive' ? 'is-inactive-row' : ''}">
+      <td class="admin-select-cell"><input class="admin-row-select" type="checkbox" data-select-pet="${esc(item.id)}" ${checked} aria-label="Selecionar pet ${esc(item.name)}"></td>
       <td><div class="person-cell">${avatarHtml(item.name, item.photoUrl)}<div><strong>${esc(item.name)}</strong><small>${esc(speciesLabel(item.species))}</small></div></div></td>
       <td><strong>${esc(item.tutorName || 'Tutor não informado')}</strong><small>${formatWhatsapp(item.tutorWhatsapp || '') || 'sem WhatsApp'}</small></td>
       <td><strong>${esc(sizeLabel(item.size))}</strong><small>${esc(item.coatType || 'pelagem não informada')}</small></td>
@@ -274,7 +285,7 @@
 
   function renderPets() {
     const rows = sortedItems();
-    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="7">Nenhum pet encontrado.</td></tr>';
+    body.innerHTML = rows.length ? rows.map(rowTemplate).join('') : '<tr><td colspan="8">Nenhum pet encontrado.</td></tr>';
     cardsBox.innerHTML = rows.length ? rows.map(petCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum pet encontrado.</strong><p>Tente buscar por nome do pet, tutor, WhatsApp ou e-mail.</p></article>';
     applyPetViewMode();
     document.querySelectorAll('.th-sort').forEach((button) => {
@@ -283,6 +294,48 @@
       const arrow = button.querySelector('.sort-arrow');
       if (arrow) arrow.textContent = active ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
     });
+    updatePetSelectionUI();
+  }
+
+  function visiblePetIds() {
+    return sortedItems().map(item => String(item.id));
+  }
+
+  function updatePetSelectionUI() {
+    const bar = document.getElementById('pets-selection-bar');
+    const countEl = document.getElementById('pets-selection-count');
+    const selectAll = document.getElementById('select-all-pets');
+    const visible = visiblePetIds();
+    const selectedVisible = visible.filter(id => state.selectedIds.has(id));
+    if (countEl) countEl.textContent = String(state.selectedIds.size);
+    if (bar) bar.classList.toggle('is-active', state.selectedIds.size > 0);
+    if (selectAll) {
+      selectAll.checked = visible.length > 0 && selectedVisible.length === visible.length;
+      selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visible.length;
+    }
+  }
+
+  function clearPetSelection() {
+    state.selectedIds.clear();
+    document.querySelectorAll('[data-select-pet]').forEach(input => { input.checked = false; });
+    updatePetSelectionUI();
+  }
+
+  async function bulkDeletePets() {
+    const ids = Array.from(state.selectedIds);
+    if (!ids.length) return;
+    if (!confirm(`Apagar/inativar ${ids.length} pet(s) selecionado(s)? O histórico será preservado conforme regra atual do sistema.`)) return;
+    try {
+      showLoading('Apagando pets selecionados...', 'Aplicando a mesma regra de inativação da ação individual.');
+      await Promise.all(ids.map(id => api.delete(`/pets/${id}`)));
+      clearPetSelection();
+      state.status = 'all';
+      const statusFilter = document.getElementById('status-filter');
+      if (statusFilter) statusFilter.value = 'all';
+      toast('Pets selecionados apagados/inativados.', 'success');
+      await loadPets(true);
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
   }
 
   async function loadPetOptions() {
@@ -374,7 +427,7 @@
     if (state.loading || (state.done && !reset)) return;
     state.loading = true;
     loader.hidden = false;
-    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="7">Preparando tudo...</td></tr>'; }
+    if (reset) { state.page = 1; state.done = false; state.items = []; state.selectedIds.clear(); body.innerHTML = '<tr><td colspan="8">Preparando tudo...</td></tr>'; updatePetSelectionUI(); }
     try {
       const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status, size: state.size });
       if (state.search) params.set('search', state.search);
@@ -388,7 +441,7 @@
       renderPets();
       updateMetrics();
     } catch (error) {
-      body.innerHTML = `<tr><td colspan="7">${esc(error.message)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="8">${esc(error.message)}</td></tr>`;
       toast(error.message, 'error');
       updateLoadStatus();
     } finally {
@@ -505,6 +558,14 @@
     localStorage.setItem('admin_pets_view', state.viewMode);
     renderPets();
   }));
+  document.getElementById('clear-pets-selection')?.addEventListener('click', clearPetSelection);
+  document.getElementById('bulk-delete-pets')?.addEventListener('click', bulkDeletePets);
+  document.getElementById('select-all-pets')?.addEventListener('change', (event) => {
+    const checked = event.target.checked;
+    visiblePetIds().forEach(id => checked ? state.selectedIds.add(id) : state.selectedIds.delete(id));
+    document.querySelectorAll('[data-select-pet]').forEach(input => { input.checked = checked; });
+    updatePetSelectionUI();
+  });
   document.querySelectorAll('.th-sort').forEach((button) => button.addEventListener('click', () => {
     const key = button.dataset.sort;
     if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
@@ -515,6 +576,15 @@
   document.getElementById('search-pets').addEventListener('input', (event) => { state.search = event.target.value.trim(); window.clearTimeout(window.__petSearch); window.__petSearch = window.setTimeout(() => loadPets(true), 320); });
   document.getElementById('size-filter').addEventListener('change', (event) => { state.size = event.target.value; loadPets(true); });
   document.getElementById('status-filter').addEventListener('change', (event) => { state.status = event.target.value; loadPets(true); });
+  document.querySelector('.pets-list-card')?.addEventListener('change', (event) => {
+    const rowSelect = event.target.closest('[data-select-pet]');
+    if (!rowSelect) return;
+    const id = String(rowSelect.dataset.selectPet || '');
+    if (!id) return;
+    if (rowSelect.checked) state.selectedIds.add(id); else state.selectedIds.delete(id);
+    updatePetSelectionUI();
+  });
+
   document.querySelector('.pets-list-card')?.addEventListener('click', async (event) => {
     const menuBtn = event.target.closest('.pet-menu-btn');
     const edit = event.target.closest('.edit-btn');

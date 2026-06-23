@@ -53,6 +53,9 @@
     saleSortDir: 'desc',
     packageViewMode: localStorage.getItem('admin_pacotes_view') || 'list',
     saleViewMode: localStorage.getItem('admin_pacotes_vendidos_view') || 'list',
+    activePanel: localStorage.getItem('admin_pacotes_active_panel') || 'sales',
+    selectedPackageIds: new Set(),
+    selectedSaleIds: new Set(),
     savingHistoricalPackage: false
   };
 
@@ -74,9 +77,13 @@
         ['Clientes com pacote', '—', 'recorrência em andamento'],
         ['Receita potencial', '—', 'vitrine dos pacotes']
       ])}</div>
+      <div class="package-panel-switch" aria-label="Alternar cards de pacotes">
+        <button class="btn btn-secondary package-panel-btn" data-package-panel="sales" type="button">Pacotes Vendidos</button>
+        <button class="btn btn-secondary package-panel-btn" data-package-panel="catalog" type="button">Consulta de pacotes</button>
+      </div>
     </section>
 
-    <section class="module-card stack-md package-list-card">
+    <section class="module-card stack-md package-list-card" id="packages-catalog-panel">
       <div class="section-toolbar stacked-toolbar">
         <div class="toolbar-copy-line packages-consulta-copy">
           <div>
@@ -102,10 +109,18 @@
         </div>
       </div>
 
+      <div class="admin-selection-bar" id="packages-selection-bar" aria-live="polite">
+        <strong><span id="packages-selection-count">0</span> pacote(s) selecionado(s)</strong>
+        <div class="admin-selection-actions">
+          <button class="btn btn-secondary" id="clear-packages-selection" type="button">Limpar seleção</button>
+          <button class="btn btn-danger-soft" id="bulk-delete-packages" type="button">Apagar selecionados</button>
+        </div>
+      </div>
       <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="packages-scroll">
         <table class="premium-table">
           <thead>
             <tr>
+              <th class="admin-select-cell"><input class="admin-select-all" id="select-all-packages" type="checkbox" aria-label="Selecionar todos os pacotes visíveis"></th>
               <th><span class="th-label">Pacote</span><button class="th-arrow-only package-sort" data-sort="name" type="button" title="Ordenar por pacote"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Valor</span><button class="th-arrow-only package-sort" data-sort="priceCents" type="button" title="Ordenar por valor"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Sessões</span><button class="th-arrow-only package-sort" data-sort="sessionsCount" type="button" title="Ordenar por sessões"><span class="sort-arrow">↕</span></button></th>
@@ -115,14 +130,14 @@
               <th>Ações</th>
             </tr>
           </thead>
-          <tbody id="packages-body"><tr><td colspan="7">Preparando pacotes...</td></tr></tbody>
+          <tbody id="packages-body"><tr><td colspan="8">Preparando pacotes...</td></tr></tbody>
         </table>
         <div class="infinite-loader" id="packages-loader" hidden>Carregando mais pacotes...</div>
       </div>
       <div class="admin-list-cards" id="packages-cards" hidden></div>
     </section>
 
-    <section class="module-card stack-md package-sales-card">
+    <section class="module-card stack-md package-sales-card" id="packages-sales-panel">
       <div class="section-toolbar stacked-toolbar">
         <div class="toolbar-copy-line packages-sales-copy">
           <div>
@@ -148,10 +163,18 @@
         </div>
       </div>
 
+      <div class="admin-selection-bar" id="sales-selection-bar" aria-live="polite">
+        <strong><span id="sales-selection-count">0</span> pacote(s) vendido(s) selecionado(s)</strong>
+        <div class="admin-selection-actions">
+          <button class="btn btn-secondary" id="clear-sales-selection" type="button">Limpar seleção</button>
+          <button class="btn btn-danger-soft" id="bulk-delete-sales" type="button">Apagar selecionados</button>
+        </div>
+      </div>
       <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="sales-scroll">
         <table class="premium-table">
           <thead>
             <tr>
+              <th class="admin-select-cell"><input class="admin-select-all" id="select-all-sales" type="checkbox" aria-label="Selecionar todos os pacotes vendidos visíveis"></th>
               <th><span class="th-label">Tutor</span><button class="th-arrow-only sale-sort" data-sort="tutorName" type="button" title="Ordenar por tutor"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Pet</span><button class="th-arrow-only sale-sort" data-sort="petName" type="button" title="Ordenar por pet"><span class="sort-arrow">↕</span></button></th>
               <th><span class="th-label">Pacote</span><button class="th-arrow-only sale-sort" data-sort="packageName" type="button" title="Ordenar por pacote"><span class="sort-arrow">↕</span></button></th>
@@ -163,7 +186,7 @@
               <th>Ações</th>
             </tr>
           </thead>
-          <tbody id="customer-packages"><tr><td colspan="9">Preparando contratos...</td></tr></tbody>
+          <tbody id="customer-packages"><tr><td colspan="10">Preparando contratos...</td></tr></tbody>
         </table>
         <div class="infinite-loader" id="sales-loader" hidden>Carregando mais contratos...</div>
       </div>
@@ -681,7 +704,9 @@
   }
 
   function packageRow(p) {
+    const checked = state.selectedPackageIds.has(String(p.id)) ? 'checked' : '';
     return `<tr data-id="${esc(p.id)}">
+      <td class="admin-select-cell"><input class="admin-row-select" type="checkbox" data-select-package="${esc(p.id)}" ${checked} aria-label="Selecionar pacote ${esc(p.name)}"></td>
       <td><strong>${esc(p.name)}</strong><small>${esc(p.description || 'Sem descrição comercial')}</small></td>
       <td><strong>${money(p.priceCents)}</strong><small>valor do pacote</small></td>
       <td><span class="mini-badge">${Number(p.sessionsCount || 0)} sessões</span><small>Porte: ${esc(p.petSizeName || p.petSize || 'todos')}</small></td>
@@ -711,7 +736,9 @@
   function saleRow(cp) {
     const paid = String(cp.paymentStatus || '').toLowerCase() === 'paid' || String(cp.paymentStatus || '').toLowerCase() === 'pago';
     const recurring = cp.recurring || cp.recurrenceRule?.enabled;
+    const checked = state.selectedSaleIds.has(String(cp.id)) ? 'checked' : '';
     return `<tr data-id="${esc(cp.id)}">
+      <td class="admin-select-cell"><input class="admin-row-select" type="checkbox" data-select-sale="${esc(cp.id)}" ${checked} aria-label="Selecionar pacote vendido de ${esc(cp.tutorName || 'Tutor')}"></td>
       <td><strong>${esc(cp.tutorName || 'Tutor')}</strong><small>${esc(cp.tutorWhatsapp || 'sem WhatsApp')}</small></td>
       <td>${esc(cp.petName || '—')}</td>
       <td><strong>${esc(cp.packageName || 'Pacote')}</strong><small>${recurring ? 'Recorrência automática ativa' : 'Sem recorrência automática'}</small></td>
@@ -751,12 +778,52 @@
     const end = state.packagePage * state.limit;
     const visible = sorted.slice(0, end);
     state.packageDone = visible.length >= sorted.length;
-    ids('packages-body').innerHTML = visible.length ? visible.map(packageRow).join('') : '<tr><td colspan="7">Nenhum pacote encontrado.</td></tr>';
+    ids('packages-body').innerHTML = visible.length ? visible.map(packageRow).join('') : '<tr><td colspan="8">Nenhum pacote encontrado.</td></tr>';
     if (ids('packages-cards')) ids('packages-cards').innerHTML = visible.length ? visible.map(packageCard).join('') : '<article class="module-card empty-state"><strong>Nenhum pacote encontrado.</strong><p>Cadastre um novo pacote ou ajuste os filtros.</p></article>';
     ids('packages-loader').hidden = state.packageDone;
     document.querySelectorAll('.edit-package').forEach((btn) => btn.addEventListener('click', (ev) => { ev.stopPropagation(); closePackageMenus(); openPackage(btn.dataset.id); }));
     applyPackageViewMode();
     updateSortIndicators();
+    updatePackageSelectionUI();
+    applyPackagePanel();
+  }
+
+  function visiblePackageIds() {
+    const sorted = sortItems(state.packages, state.sortBy, state.sortDir);
+    const end = state.packagePage * state.limit;
+    return sorted.slice(0, end).map(item => String(item.id));
+  }
+
+  function updatePackageSelectionUI() {
+    const visible = visiblePackageIds();
+    const selectedVisible = visible.filter(id => state.selectedPackageIds.has(id));
+    const bar = ids('packages-selection-bar');
+    const countEl = ids('packages-selection-count');
+    const selectAll = ids('select-all-packages');
+    if (countEl) countEl.textContent = String(state.selectedPackageIds.size);
+    if (bar) bar.classList.toggle('is-active', state.selectedPackageIds.size > 0);
+    if (selectAll) {
+      selectAll.checked = visible.length > 0 && selectedVisible.length === visible.length;
+      selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visible.length;
+    }
+  }
+
+  function clearPackageSelection() {
+    state.selectedPackageIds.clear();
+    document.querySelectorAll('[data-select-package]').forEach(input => { input.checked = false; });
+    updatePackageSelectionUI();
+  }
+
+  async function bulkDeletePackages() {
+    const selected = Array.from(state.selectedPackageIds);
+    if (!selected.length) return;
+    if (!confirm(`Apagar/inativar ${selected.length} pacote(s) selecionado(s)? Contratos já vendidos permanecem seguindo as regras atuais do sistema.`)) return;
+    await withLoading(async () => {
+      await Promise.all(selected.map(id => api.delete(`/api/pacotes/${id}`)));
+      clearPackageSelection();
+      await loadPackages();
+      toast.success('Pacotes selecionados apagados/inativados.');
+    }, 'Apagando pacotes selecionados...');
   }
 
   function renderCustomerPackages() {
@@ -764,12 +831,60 @@
     const end = state.salePage * state.limit;
     const visible = sorted.slice(0, end);
     state.saleDone = visible.length >= sorted.length;
-    ids('customer-packages').innerHTML = visible.length ? visible.map(saleRow).join('') : '<tr><td colspan="9">Nenhum pacote vendido encontrado.</td></tr>';
+    ids('customer-packages').innerHTML = visible.length ? visible.map(saleRow).join('') : '<tr><td colspan="10">Nenhum pacote vendido encontrado.</td></tr>';
     if (ids('sales-cards')) ids('sales-cards').innerHTML = visible.length ? visible.map(saleCard).join('') : '<article class="module-card empty-state"><strong>Nenhum pacote vendido encontrado.</strong><p>Venda um pacote ou ajuste o filtro de contratos.</p></article>';
     ids('sales-loader').hidden = state.saleDone;
     applySaleViewMode();
     bindSaleMenus();
     updateSortIndicators();
+    updateSaleSelectionUI();
+    applyPackagePanel();
+  }
+
+  function visibleSaleIds() {
+    const sorted = sortItems(state.customerPackages, state.saleSortBy, state.saleSortDir);
+    const end = state.salePage * state.limit;
+    return sorted.slice(0, end).map(item => String(item.id));
+  }
+
+  function updateSaleSelectionUI() {
+    const visible = visibleSaleIds();
+    const selectedVisible = visible.filter(id => state.selectedSaleIds.has(id));
+    const bar = ids('sales-selection-bar');
+    const countEl = ids('sales-selection-count');
+    const selectAll = ids('select-all-sales');
+    if (countEl) countEl.textContent = String(state.selectedSaleIds.size);
+    if (bar) bar.classList.toggle('is-active', state.selectedSaleIds.size > 0);
+    if (selectAll) {
+      selectAll.checked = visible.length > 0 && selectedVisible.length === visible.length;
+      selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visible.length;
+    }
+  }
+
+  function clearSaleSelection() {
+    state.selectedSaleIds.clear();
+    document.querySelectorAll('[data-select-sale]').forEach(input => { input.checked = false; });
+    updateSaleSelectionUI();
+  }
+
+  async function bulkDeleteSales() {
+    const selected = Array.from(state.selectedSaleIds);
+    if (!selected.length) return;
+    if (!confirm(`Apagar ${selected.length} pacote(s) vendido(s) selecionado(s)? Sessões futuras vinculadas serão canceladas conforme regra atual.`)) return;
+    await withLoading(async () => {
+      await Promise.all(selected.map(id => api.delete(`/api/pacotes/clientes/${id}`)));
+      clearSaleSelection();
+      await loadPackages();
+      toast.success('Pacotes vendidos selecionados apagados.');
+    }, 'Apagando pacotes vendidos selecionados...');
+  }
+
+  function applyPackagePanel() {
+    const active = state.activePanel === 'catalog' ? 'catalog' : 'sales';
+    state.activePanel = active;
+    ids('packages-catalog-panel')?.classList.toggle('package-panel-hidden', active !== 'catalog');
+    ids('packages-sales-panel')?.classList.toggle('package-panel-hidden', active !== 'sales');
+    document.querySelectorAll('.package-panel-btn').forEach(btn => btn.classList.toggle('is-active', btn.dataset.packagePanel === active));
   }
 
   async function loadPackages() {
@@ -783,6 +898,8 @@
     state.customerPackages = customers.items || [];
     state.packagePage = 1;
     state.salePage = 1;
+    state.selectedPackageIds.clear();
+    state.selectedSaleIds.clear();
     renderOptions();
     updateMetrics(packages.summary || {});
     renderPackages();
@@ -987,6 +1104,22 @@
     // A abertura agora é delegada no document para funcionar em Lista e Cards após rerender.
   }
 
+  document.addEventListener('change', (event) => {
+    const packageSelect = event.target.closest('[data-select-package]');
+    if (packageSelect) {
+      const id = String(packageSelect.dataset.selectPackage || '');
+      if (id) packageSelect.checked ? state.selectedPackageIds.add(id) : state.selectedPackageIds.delete(id);
+      updatePackageSelectionUI();
+      return;
+    }
+    const saleSelect = event.target.closest('[data-select-sale]');
+    if (saleSelect) {
+      const id = String(saleSelect.dataset.selectSale || '');
+      if (id) saleSelect.checked ? state.selectedSaleIds.add(id) : state.selectedSaleIds.delete(id);
+      updateSaleSelectionUI();
+    }
+  });
+
   document.addEventListener('click', (event) => {
     const saleBtn = event.target.closest('.sale-menu-btn');
     if (saleBtn) {
@@ -1116,6 +1249,27 @@
     ids('sell-package-id').addEventListener('change', renderSellPets);
     ids('reload').addEventListener('click', refreshAll);
     ids('reload-sales').addEventListener('click', refreshAll);
+    document.querySelectorAll('.package-panel-btn').forEach((button) => button.addEventListener('click', () => {
+      state.activePanel = button.dataset.packagePanel || 'sales';
+      localStorage.setItem('admin_pacotes_active_panel', state.activePanel);
+      applyPackagePanel();
+    }));
+    ids('clear-packages-selection')?.addEventListener('click', clearPackageSelection);
+    ids('bulk-delete-packages')?.addEventListener('click', bulkDeletePackages);
+    ids('select-all-packages')?.addEventListener('change', (event) => {
+      const checked = event.target.checked;
+      visiblePackageIds().forEach(id => checked ? state.selectedPackageIds.add(id) : state.selectedPackageIds.delete(id));
+      document.querySelectorAll('[data-select-package]').forEach(input => { input.checked = checked; });
+      updatePackageSelectionUI();
+    });
+    ids('clear-sales-selection')?.addEventListener('click', clearSaleSelection);
+    ids('bulk-delete-sales')?.addEventListener('click', bulkDeleteSales);
+    ids('select-all-sales')?.addEventListener('change', (event) => {
+      const checked = event.target.checked;
+      visibleSaleIds().forEach(id => checked ? state.selectedSaleIds.add(id) : state.selectedSaleIds.delete(id));
+      document.querySelectorAll('[data-select-sale]').forEach(input => { input.checked = checked; });
+      updateSaleSelectionUI();
+    });
     document.addEventListener('click', (event) => {
       const packageMenuBtn = event.target.closest('.package-menu-btn');
       if (packageMenuBtn) {

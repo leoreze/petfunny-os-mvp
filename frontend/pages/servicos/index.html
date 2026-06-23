@@ -35,7 +35,8 @@
     serviceTypes: [],
     petSizes: [],
     summary: {},
-    viewMode: localStorage.getItem('admin_servicos_view') || 'list'
+    viewMode: localStorage.getItem('admin_servicos_view') || 'list',
+    selectedIds: new Set()
   };
 
   const esc = (value = '') => String(value ?? '').replace(/[&<>"]/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -77,10 +78,17 @@
             <button class="btn btn-secondary" id="refresh-btn" type="button">Atualizar</button>
           </div>
         </div>
+        <div class="admin-selection-bar" id="services-selection-bar" aria-live="polite">
+          <strong><span id="services-selection-count">0</span> serviço(s) selecionado(s)</strong>
+          <div class="admin-selection-actions">
+            <button class="btn btn-secondary" id="clear-services-selection" type="button">Limpar seleção</button>
+            <button class="btn btn-danger-soft" id="bulk-delete-services" type="button">Apagar selecionados</button>
+          </div>
+        </div>
         <div class="table-scroll custom-scroll infinite-list no-inner-scroll" id="services-scroll">
           <table class="premium-table">
-            <thead><tr><th><button class="th-sort" data-sort="name" type="button">Serviço <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="categoryName" type="button">Tipo <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="petSizeName" type="button">Porte <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="priceCents" type="button">Preço <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="durationMinutes" type="button">Duração <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="isActive" type="button">Status <span class="sort-arrow">↕</span></button></th><th>Ações</th></tr></thead>
-            <tbody id="services-body"><tr><td colspan="7">Preparando tudo...</td></tr></tbody>
+            <thead><tr><th class="admin-select-cell"><input class="admin-select-all" id="select-all-services" type="checkbox" aria-label="Selecionar todos os serviços visíveis"></th><th><button class="th-sort" data-sort="name" type="button">Serviço <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="categoryName" type="button">Tipo <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="petSizeName" type="button">Porte <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="priceCents" type="button">Preço <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="durationMinutes" type="button">Duração <span class="sort-arrow">↕</span></button></th><th><button class="th-sort" data-sort="isActive" type="button">Status <span class="sort-arrow">↕</span></button></th><th>Ações</th></tr></thead>
+            <tbody id="services-body"><tr><td colspan="8">Preparando tudo...</td></tr></tbody>
           </table>
           <div class="infinite-loader" id="infinite-loader" hidden>Carregando mais serviços...</div>
         </div>
@@ -178,7 +186,9 @@
   }
 
   function rowTemplate(item) {
+    const checked = state.selectedIds.has(String(item.id)) ? 'checked' : '';
     return `<tr data-id="${item.id}">
+      <td class="admin-select-cell"><input class="admin-row-select" type="checkbox" data-select-service="${esc(item.id)}" ${checked} aria-label="Selecionar serviço ${esc(item.name)}"></td>
       <td><strong>${esc(item.name)}</strong><small>${esc(item.description || 'sem descrição')}</small></td>
       <td><span class="mini-badge">${esc(item.categoryName || 'Sem tipo')}</span></td>
       <td><span class="status-pill info-pill">${esc(item.petSizeName || item.petSize || 'Todos')}</span></td>
@@ -241,10 +251,52 @@
 
   function renderRows() {
     const sorted = getSortedItems();
-    body.innerHTML = sorted.length ? sorted.map(rowTemplate).join('') : '<tr><td colspan="7">Nenhum serviço encontrado.</td></tr>';
+    body.innerHTML = sorted.length ? sorted.map(rowTemplate).join('') : '<tr><td colspan="8">Nenhum serviço encontrado.</td></tr>';
     if (cardsBox) cardsBox.innerHTML = sorted.length ? sorted.map(serviceCardTemplate).join('') : '<article class="module-card empty-state"><strong>Nenhum serviço encontrado.</strong><p>Ajuste os filtros ou cadastre um novo serviço.</p></article>';
     applyServiceViewMode();
     updateSortHeaders();
+    updateServiceSelectionUI();
+  }
+
+  function visibleServiceIds() {
+    return getSortedItems().map(item => String(item.id));
+  }
+
+  function updateServiceSelectionUI() {
+    const bar = document.getElementById('services-selection-bar');
+    const countEl = document.getElementById('services-selection-count');
+    const selectAll = document.getElementById('select-all-services');
+    const visible = visibleServiceIds();
+    const selectedVisible = visible.filter(id => state.selectedIds.has(id));
+    if (countEl) countEl.textContent = String(state.selectedIds.size);
+    if (bar) bar.classList.toggle('is-active', state.selectedIds.size > 0);
+    if (selectAll) {
+      selectAll.checked = visible.length > 0 && selectedVisible.length === visible.length;
+      selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < visible.length;
+    }
+  }
+
+  function clearServiceSelection() {
+    state.selectedIds.clear();
+    document.querySelectorAll('[data-select-service]').forEach(input => { input.checked = false; });
+    updateServiceSelectionUI();
+  }
+
+  async function bulkDeleteServices() {
+    const ids = Array.from(state.selectedIds);
+    if (!ids.length) return;
+    if (!confirm(`Apagar/inativar ${ids.length} serviço(s) selecionado(s)? O histórico de atendimentos será preservado.`)) return;
+    try {
+      showLoading('Apagando serviços selecionados...', 'Aplicando a mesma regra de inativação da ação individual.');
+      await Promise.all(ids.map(id => api.delete(`/servicos/${id}`)));
+      clearServiceSelection();
+      state.status = 'all';
+      const statusFilter = document.getElementById('status-filter');
+      if (statusFilter) statusFilter.value = 'all';
+      toast('Serviços selecionados apagados/inativados.', 'success');
+      await loadServices(true);
+    } catch (error) { toast(error.message, 'error'); }
+    finally { hideLoading(); }
   }
 
 
@@ -259,7 +311,7 @@
     if (state.loading || (state.done && !reset)) return;
     state.loading = true;
     loader.hidden = false;
-    if (reset) { state.page = 1; state.done = false; state.items = []; body.innerHTML = '<tr><td colspan="7">Preparando tudo...</td></tr>'; }
+    if (reset) { state.page = 1; state.done = false; state.items = []; state.selectedIds.clear(); body.innerHTML = '<tr><td colspan="8">Preparando tudo...</td></tr>'; updateServiceSelectionUI(); }
     try {
       const params = new URLSearchParams({ page: String(state.page), limit: String(state.limit), status: state.status, categoryId: state.categoryId, petSize: state.petSize });
       if (state.search) params.set('search', state.search);
@@ -273,7 +325,7 @@
       updateMetrics();
       setupPremiumInteractions(document);
     } catch (error) {
-      body.innerHTML = `<tr><td colspan="7">${esc(error.message)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="8">${esc(error.message)}</td></tr>`;
       toast(error.message, 'error');
     } finally {
       loader.hidden = true;
@@ -360,12 +412,29 @@
     localStorage.setItem('admin_servicos_view', state.viewMode);
     renderRows();
   }));
+  document.getElementById('clear-services-selection')?.addEventListener('click', clearServiceSelection);
+  document.getElementById('bulk-delete-services')?.addEventListener('click', bulkDeleteServices);
+  document.getElementById('select-all-services')?.addEventListener('change', (event) => {
+    const checked = event.target.checked;
+    visibleServiceIds().forEach(id => checked ? state.selectedIds.add(id) : state.selectedIds.delete(id));
+    document.querySelectorAll('[data-select-service]').forEach(input => { input.checked = checked; });
+    updateServiceSelectionUI();
+  });
   document.getElementById('search-services').setAttribute('data-mask', 'none');
   document.getElementById('search-services').addEventListener('input', debounce((event) => { state.search = event.target.value.trim(); loadServices(true); }));
   window.addEventListener('scroll', () => {
     const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 220;
     if (nearBottom) loadServices(false);
   }, { passive: true });
+  document.addEventListener('change', (event) => {
+    const rowSelect = event.target.closest('[data-select-service]');
+    if (!rowSelect) return;
+    const id = String(rowSelect.dataset.selectService || '');
+    if (!id) return;
+    if (rowSelect.checked) state.selectedIds.add(id); else state.selectedIds.delete(id);
+    updateServiceSelectionUI();
+  });
+
   document.addEventListener('click', (event) => {
     const menuBtn = event.target.closest('.service-menu-btn');
     if (menuBtn) {

@@ -15211,3 +15211,76 @@ body.app-client .client-worldcup-empty > div {
     min-height: 260px !important;
   }
 }
+
+
+/* v1.6.121 — Seleção em massa e abas de pacotes */
+.admin-select-cell {
+  width: 46px !important;
+  min-width: 46px !important;
+  max-width: 46px !important;
+  text-align: center !important;
+  cursor: default !important;
+}
+.admin-select-cell::after,
+th.admin-select-cell::after,
+.premium-table th.admin-select-cell::after,
+.premium-table thead th.admin-select-cell::after {
+  content: none !important;
+  display: none !important;
+}
+.admin-select-cell input[type="checkbox"],
+.admin-row-select,
+.admin-select-all {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--pf-cyan);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.admin-selection-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(0,169,183,.10), rgba(249,161,151,.13));
+  border: 1px solid rgba(0,169,183,.16);
+  margin: 12px 0 10px;
+}
+.admin-selection-bar.is-active { display: flex; }
+.admin-selection-bar strong { color: #0f172a; font-weight: 1000; }
+.admin-selection-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.btn-danger-soft,
+.admin-selection-bar .btn-danger-soft {
+  border: 1px solid rgba(190,18,60,.18) !important;
+  background: #fff1f2 !important;
+  color: #be123c !important;
+}
+.btn-danger-soft:hover,
+.admin-selection-bar .btn-danger-soft:hover {
+  background: #ffe4e6 !important;
+  color: #9f1239 !important;
+}
+.package-panel-switch {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 16px;
+}
+.package-panel-switch .btn.is-active {
+  background: linear-gradient(135deg, var(--pf-cyan), var(--pf-blue-900));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 14px 34px rgba(0,169,183,.18);
+}
+.packages-page .package-panel-hidden { display: none !important; }
+@media (max-width: 760px) {
+  .admin-selection-bar { align-items: stretch; flex-direction: column; }
+  .admin-selection-actions { justify-content: stretch; }
+  .admin-selection-actions .btn { width: 100%; }
+  .package-panel-switch { justify-content: stretch; }
+  .package-panel-switch .btn { flex: 1 1 100%; }
+}
